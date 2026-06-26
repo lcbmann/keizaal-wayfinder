@@ -21,6 +21,11 @@ export interface EligibleRanger {
   reasons: string[];
 }
 
+export interface PromotionBallotWithVoter {
+  ballot: PromotionBallotRow;
+  voter: RangerRow | null;
+}
+
 export async function listApprenticePromotionEligibility(): Promise<EligibleRanger[]> {
   const { data, error } = await supabase
     .from("rangers")
@@ -73,7 +78,7 @@ export async function hasOpenPromotionVote(candidateRangerId: string): Promise<b
 export function promotionVoteActionRow(voteId: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(`promotion:vote:${voteId}:promote`).setLabel("Yes").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`promotion:vote:${voteId}:hold`).setLabel("No").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`promotion:vote:${voteId}:hold`).setLabel("No").setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`promotion:vote:${voteId}:abstain`).setLabel("Abstain").setStyle(ButtonStyle.Primary)
   );
 }
@@ -129,6 +134,17 @@ export async function findOpenPromotionVotes(): Promise<PromotionVoteRow[]> {
   return data ?? [];
 }
 
+export async function findRecentPromotionVotes(): Promise<PromotionVoteRow[]> {
+  const { data, error } = await supabase
+    .from("promotion_votes")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(25);
+
+  assertNoDbError(error, "find promotion votes");
+  return data ?? [];
+}
+
 export async function recordPromotionBallot(voteId: string, voterDiscordUserId: string, vote: BallotVote): Promise<void> {
   const promotionVote = await getPromotionVote(voteId);
   if (!promotionVote || promotionVote.status !== "Open") {
@@ -157,6 +173,24 @@ export async function recordPromotionBallot(voteId: string, voterDiscordUserId: 
   });
 
   assertNoDbError(error, "insert promotion ballot");
+}
+
+export async function listPromotionBallotsWithVoters(voteId: string): Promise<PromotionBallotWithVoter[]> {
+  const vote = await getPromotionVote(voteId);
+  if (!vote) {
+    throw new UserFacingError("Promotion vote not found.");
+  }
+
+  const ballots = await getBallots(voteId);
+  const withVoters: PromotionBallotWithVoter[] = [];
+  for (const ballot of ballots) {
+    withVoters.push({
+      ballot,
+      voter: await getRangerByDiscordId(ballot.voter_discord_user_id)
+    });
+  }
+
+  return withVoters;
 }
 
 export async function closePromotionVote(voteId: string): Promise<{

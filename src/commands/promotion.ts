@@ -7,11 +7,14 @@ import {
   closePromotionVote,
   createPromotionVote,
   denyPromotionVote,
-  findOpenPromotionVotes,
+  findRecentPromotionVotes,
+  getPromotionVote,
+  listPromotionBallotsWithVoters,
   listApprenticePromotionEligibility,
   promotionVoteActionRow,
   promotionVoteEmbed,
-  type EligibleRanger
+  type EligibleRanger,
+  type PromotionBallotWithVoter
 } from "../services/promotionService.js";
 import { getRangerByDiscordId } from "../services/rangerService.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -64,10 +67,18 @@ export const promotionCommand: BotCommand = {
         .addStringOption((option) =>
           option.setName("vote").setDescription("Open or closed vote ID.").setRequired(true).setAutocomplete(true)
         )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("ballots")
+        .setDescription("Show who voted Yes, No, or Abstain on a promotion vote.")
+        .addStringOption((option) =>
+          option.setName("vote").setDescription("Vote ID.").setRequired(true).setAutocomplete(true)
+        )
     ),
 
   async autocomplete(interaction) {
-    const votes = await findOpenPromotionVotes();
+    const votes = await findRecentPromotionVotes();
     await interaction.respond(votes.map((vote) => ({ name: `${vote.target_rank} vote ${vote.id.slice(0, 8)}`, value: vote.id })));
   },
 
@@ -163,6 +174,22 @@ export const promotionCommand: BotCommand = {
 
       await denyPromotionVote(interaction.options.getString("vote", true), interaction.user.id);
       await interaction.reply({ content: "Promotion vote denied." });
+      return;
+    }
+
+    if (subcommand === "ballots") {
+      if (!canApprovePromotions(actor)) {
+        throw new UserFacingError("Ranger Captain or higher is required to view promotion ballots.");
+      }
+
+      const voteId = interaction.options.getString("vote", true);
+      const vote = await getPromotionVote(voteId);
+      if (!vote) {
+        throw new UserFacingError("Promotion vote not found.");
+      }
+
+      const ballots = await listPromotionBallotsWithVoters(voteId);
+      await interaction.reply({ embeds: [promotionBallotsEmbed(vote, ballots)], ephemeral: true });
     }
   }
 };
@@ -216,7 +243,7 @@ function formatEligibilityLine(candidate: EligibleRanger): string {
   const r = candidate.ranger;
   const name = r.discord_display_name ?? r.discord_username ?? "Unknown";
   const reason = candidate.eligible ? "meets current checks" : candidate.reasons.join("; ");
-  return `${candidate.eligible ? "Ready" : "Hold"} <@${r.discord_user_id}> · ${name} · ${candidate.daysInCorps}d · ${r.status} · ${reason}`;
+  return `${candidate.eligible ? "Ready" : "Hold"} <@${r.discord_user_id}> - ${name} - ${candidate.daysInCorps}d - ${r.status} - ${reason}`;
 }
 
 function compareEligibilityDisplayOrder(a: EligibleRanger, b: EligibleRanger): number {
@@ -247,4 +274,41 @@ function truncateField(value: string): string {
   }
 
   return `${value.slice(0, 1020).trimEnd()}...`;
+}
+
+function promotionBallotsEmbed(
+  vote: NonNullable<Awaited<ReturnType<typeof getPromotionVote>>>,
+  ballots: PromotionBallotWithVoter[]
+): EmbedBuilder {
+  const grouped = {
+    promote: ballots.filter((entry) => entry.ballot.vote === "promote"),
+    hold: ballots.filter((entry) => entry.ballot.vote === "hold"),
+    abstain: ballots.filter((entry) => entry.ballot.vote === "abstain")
+  };
+
+  return new EmbedBuilder()
+    .setTitle(`Promotion Ballots: ${vote.target_rank}`)
+    .setDescription(`Vote ID: ${vote.id}`)
+    .addFields(
+      { name: `Yes (${grouped.promote.length})`, value: formatBallotGroup(grouped.promote), inline: false },
+      { name: `No (${grouped.hold.length})`, value: formatBallotGroup(grouped.hold), inline: false },
+      { name: `Abstain (${grouped.abstain.length})`, value: formatBallotGroup(grouped.abstain), inline: false }
+    )
+    .setColor(0x587c4a)
+    .setTimestamp(new Date(vote.created_at));
+}
+
+function formatBallotGroup(ballots: PromotionBallotWithVoter[]): string {
+  if (ballots.length === 0) {
+    return "None.";
+  }
+
+  return truncateField(
+    ballots
+      .map((entry) => {
+        const name = entry.voter?.discord_display_name ?? entry.voter?.discord_username ?? "Unknown Ranger";
+        return `<@${entry.ballot.voter_discord_user_id}> - ${name}`;
+      })
+      .join("\n")
+  );
 }

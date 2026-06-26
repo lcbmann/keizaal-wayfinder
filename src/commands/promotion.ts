@@ -17,7 +17,7 @@ import {
   type EligibleRanger,
   type PromotionBallotWithVoter
 } from "../services/promotionService.js";
-import { getRangerByDiscordId } from "../services/rangerService.js";
+import { getRangerByDiscordId, getRangerById } from "../services/rangerService.js";
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canApprovePromotions, canOpenPromotionVotes } from "../utils/permissions.js";
@@ -81,7 +81,16 @@ export const promotionCommand: BotCommand = {
 
   async autocomplete(interaction) {
     const votes = await findRecentPromotionVotes();
-    await interaction.respond(votes.map((vote) => ({ name: `${vote.target_rank} vote ${vote.id.slice(0, 8)}`, value: vote.id })));
+    const choices = await Promise.all(
+      votes.map(async (vote) => {
+        const candidate = await getPromotionVoteCandidateName(vote.candidate_ranger_id);
+        return {
+          name: `${candidate} - ${vote.target_rank} - ${vote.status} - ${vote.id.slice(0, 8)}`.slice(0, 100),
+          value: vote.id
+        };
+      })
+    );
+    await interaction.respond(choices);
   },
 
   async execute(interaction) {
@@ -364,4 +373,9 @@ function promotionApprovalEmbed(
   }
 
   return embed;
+}
+
+async function getPromotionVoteCandidateName(candidateRangerId: string): Promise<string> {
+  const candidate = await getRangerById(candidateRangerId);
+  return candidate?.discord_display_name ?? candidate?.discord_username ?? "Unknown Ranger";
 }

@@ -240,17 +240,19 @@ export async function approvePromotionVote(params: {
     reason: `Approved promotion vote ${vote.id}`
   });
 
-  const { error } = await supabase
+  const { data: approvedVote, error } = await supabase
     .from("promotion_votes")
     .update({
       status: "Approved",
       final_decision: `Approved by ${params.approverDiscordUserId}`,
       closed_at: new Date().toISOString()
     })
-    .eq("id", vote.id);
+    .eq("id", vote.id)
+    .select("*")
+    .single();
 
   assertNoDbError(error, "approve promotion vote");
-  return { promoted, previousRank, vote };
+  return { promoted, previousRank, vote: approvedVote };
 }
 
 export async function denyPromotionVote(voteId: string, deniedByDiscordUserId: string): Promise<void> {
@@ -271,7 +273,7 @@ export async function promotionVoteEmbed(vote: PromotionVoteRow): Promise<EmbedB
   const tally = await getPromotionVoteTally(vote.id);
   const embed = new EmbedBuilder()
     .setTitle(`Promotion Vote: ${candidate?.discord_display_name ?? "Unknown Ranger"}`)
-    .setDescription(`Target rank: ${vote.target_rank}\nOpened by <@${vote.opened_by_discord_user_id}>`)
+    .setDescription(`Target rank: ${vote.target_rank}\nVote ID: \`${vote.id}\`\nOpened by <@${vote.opened_by_discord_user_id}>`)
     .addFields(
       { name: "Current rank", value: candidate?.current_rank ?? "Unknown", inline: true },
       { name: "Status", value: candidate?.status ?? "Unknown", inline: true },

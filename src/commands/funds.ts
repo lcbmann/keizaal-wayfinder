@@ -1,5 +1,13 @@
 import { SlashCommandBuilder } from "discord.js";
-import { recordFundTransaction, refreshFundSummaryForGuild, setFundBalance } from "../services/corpsFundService.js";
+import {
+  fundBalanceEmbed,
+  fundHistoryEmbed,
+  monthlyFundSummaryEmbed,
+  recordFundTransaction,
+  refreshFundSummaryForGuild,
+  setFundBalance,
+  undoLastFundTransaction
+} from "../services/corpsFundService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canOpenPromotionVotes } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
@@ -39,6 +47,23 @@ export const fundsCommand: BotCommand = {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("refresh-summary").setDescription("Move the Corps fund summary to the bottom.")
+    )
+    .addSubcommand((subcommand) => subcommand.setName("balance").setDescription("Show the current Corps fund balance."))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("history")
+        .setDescription("Show recent Corps fund transactions.")
+        .addUserOption((option) => option.setName("member").setDescription("Filter to one member."))
+    )
+    .addSubcommand((subcommand) => subcommand.setName("undo-last").setDescription("Undo the latest Corps fund transaction."))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("monthly")
+        .setDescription("Show a monthly Corps fund summary.")
+        .addIntegerOption((option) => option.setName("year").setDescription("Year.").setRequired(true).setMinValue(2020))
+        .addIntegerOption((option) =>
+          option.setName("month").setDescription("Month number.").setRequired(true).setMinValue(1).setMaxValue(12)
+        )
     ),
 
   async execute(interaction) {
@@ -106,6 +131,37 @@ export const fundsCommand: BotCommand = {
     if (subcommand === "refresh-summary") {
       await refreshFundSummaryForGuild(interaction.guild);
       await interaction.editReply({ content: "Corps fund summary refreshed." });
+      return;
+    }
+
+    if (subcommand === "balance") {
+      await interaction.editReply({ embeds: [await fundBalanceEmbed()] });
+      return;
+    }
+
+    if (subcommand === "history") {
+      const member = interaction.options.getUser("member");
+      await interaction.editReply({ embeds: [await fundHistoryEmbed(member?.id ?? null)] });
+      return;
+    }
+
+    if (subcommand === "undo-last") {
+      const undone = await undoLastFundTransaction(interaction.guild, interaction.user.id);
+      await interaction.editReply({
+        content: undone ? `Undid latest transaction: ${undone.description}` : "No Corps fund transactions exist."
+      });
+      return;
+    }
+
+    if (subcommand === "monthly") {
+      await interaction.editReply({
+        embeds: [
+          await monthlyFundSummaryEmbed(
+            interaction.options.getInteger("year", true),
+            interaction.options.getInteger("month", true)
+          )
+        ]
+      });
     }
   }
 };

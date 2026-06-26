@@ -5,8 +5,10 @@ import {
   createTrailmark,
   deactivateTrailmark,
   findTrailmarksByName,
+  getTrailmark,
   leaveTrailmark,
   listActiveTrailmarks,
+  listActiveTrailmarkSessions,
   postTrailmarkPanel,
   updateTrailmarkAtlasLocation
 } from "../services/trailmarkService.js";
@@ -21,6 +23,7 @@ export const trailmarkCommand: BotCommand = {
     .addSubcommand((subcommand) => subcommand.setName("panel").setDescription("Post a Trailmark access panel."))
     .addSubcommand((subcommand) => subcommand.setName("leave").setDescription("Leave your current Trailmark."))
     .addSubcommand((subcommand) => subcommand.setName("list").setDescription("List active Trailmarks."))
+    .addSubcommand((subcommand) => subcommand.setName("sessions").setDescription("Show active Trailmark access sessions."))
     .addSubcommand((subcommand) =>
       subcommand
         .setName("create")
@@ -147,7 +150,7 @@ export const trailmarkCommand: BotCommand = {
         throw new UserFacingError("Ranger Marshal or higher is required to deactivate Trailmarks.");
       }
 
-      const trailmark = await deactivateTrailmark(interaction.options.getString("trailmark", true));
+      const trailmark = await deactivateTrailmark(interaction.options.getString("trailmark", true), interaction.guild);
       await interaction.reply({ content: `Deactivated ${trailmark.name}. Channel history was preserved.`, ephemeral: true });
       return;
     }
@@ -183,6 +186,27 @@ export const trailmarkCommand: BotCommand = {
         content: `Cleared Atlas location ID for ${trailmark.name}.`,
         ephemeral: true
       });
+    }
+
+    if (subcommand === "sessions") {
+      if (!canCreateTrailmarks(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required to view Trailmark sessions.");
+      }
+
+      const sessions = await listActiveTrailmarkSessions();
+      const lines = await Promise.all(
+        sessions.slice(0, 25).map(async (session) => {
+          const trailmark = await getTrailmark(session.trailmark_id);
+          const expiresAt = Math.max(0, Math.ceil((new Date(session.expires_at).getTime() - Date.now()) / 60_000));
+          return `<@${session.discord_user_id}> - ${trailmark?.name ?? "Unknown Trailmark"} - expires in ${expiresAt}m`;
+        })
+      );
+      const embed = new EmbedBuilder()
+        .setTitle("Active Trailmark Sessions")
+        .setDescription(lines.length ? lines.join("\n") : "No active sessions.")
+        .setColor(0x587c4a);
+      await interaction.reply({ embeds: [embed], ephemeral: true });
+      return;
     }
   }
 };

@@ -1,12 +1,12 @@
-import { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder, type GuildMember } from "discord.js";
+import { AttachmentBuilder, ChannelType, EmbedBuilder, SlashCommandBuilder, type GuildMember } from "discord.js";
 import { HOLDS } from "../config/holds.js";
-import { MAIN_RANKS, isMainRank, rankSort, type MainRank } from "../config/ranks.js";
+import { MAIN_RANKS, isMainRank } from "../config/ranks.js";
+import { mainRankRoleIds, roleIdForRank } from "../config/roles.js";
 import type { RangerRow, RangerStatus } from "../db/supabase.js";
 import {
   canApprovePromotions,
   canManageAll,
-  canOpenPromotionVotes,
-  memberRankAtLeast
+  canOpenPromotionVotes
 } from "../utils/permissions.js";
 import { daysBetween } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -22,10 +22,11 @@ import {
   updateRangerNotes
 } from "../services/rangerService.js";
 import { setMemberHoldRole, syncAssignedHoldRoles } from "../services/holdRoleService.js";
+import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
+import { mainRankFromMember } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
-const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
 
 export const rangerCommand: BotCommand = {
   data: new SlashCommandBuilder()
@@ -39,6 +40,15 @@ export const rangerCommand: BotCommand = {
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("assignments").setDescription("Post Ranger leadership and hold assignments.")
+    )
+    .addSubcommand((subcommand) => subcommand.setName("audit").setDescription("Check roster and Discord role drift."))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("inactive-review")
+        .setDescription("Show Rangers with old or missing tracked activity.")
+        .addIntegerOption((option) =>
+          option.setName("days").setDescription("Activity age threshold.").setMinValue(1).setMaxValue(365)
+        )
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -124,15 +134,43 @@ export const rangerCommand: BotCommand = {
         throw new UserFacingError("Ranger Marshal or higher is required to post assignments.");
       }
 
+      const channel = interaction.channel;
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        throw new UserFacingError("Assignments can only be posted in a text channel.");
+      }
+
+      await postAssignmentsBoard(channel);
+      await interaction.reply({ content: "Ranger assignments board posted.", ephemeral: true });
+      return;
+    }
+
+    if (subcommand === "audit") {
+      if (!canManageAll(actor)) {
+        throw new UserFacingError("Ranger Captain or higher is required to audit the roster.");
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      const members = await interaction.guild.members.fetch();
       const rangers = await listAllRangers();
-      await interaction.reply({ embeds: [assignmentsEmbed(rangers)] });
+      await interaction.editReply({ embeds: [rosterAuditEmbed([...members.values()], rangers)] });
+      return;
+    }
+
+    if (subcommand === "inactive-review") {
+      if (!canOpenPromotionVotes(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required.");
+      }
+
+      const days = interaction.options.getInteger("days") ?? 14;
+      const rangers = await listAllRangers();
+      await interaction.reply({ embeds: [inactiveReviewEmbed(rangers, days)], ephemeral: true });
       return;
     }
 
     if (subcommand === "sync-member") {
       const user = interaction.options.getUser("user") ?? interaction.user;
-      if (user.id !== interaction.user.id && !canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to sync another member.");
+      if (!canOpenPromotionVotes(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required to sync members.");
       }
 
       const member = await interaction.guild.members.fetch(user.id);
@@ -145,14 +183,15 @@ export const rangerCommand: BotCommand = {
     }
 
     if (subcommand === "sync-all") {
-      if (!canManageAll(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to sync the full roster.");
+      if (!canOpenPromotionVotes(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required to sync the full roster.");
       }
 
       await interaction.deferReply({ ephemeral: true });
       const members = await interaction.guild.members.fetch();
       const count = await syncAllRankedMembers(members.values() as Iterable<GuildMember>, interaction.user.id);
       await interaction.editReply({ content: `Synced ${count} ranked members.` });
+      await refreshStoredAssignmentsBoard(interaction.guild);
       return;
     }
 
@@ -161,18 +200,15 @@ export const rangerCommand: BotCommand = {
       const user = interaction.options.getUser("user", true);
       const status = interaction.options.getString("status", true) as RangerStatus;
       const ranger = await setRangerStatus(user.id, status);
+      await refreshStoredAssignmentsBoard(interaction.guild);
       await interaction.reply({ content: `Set ${user} to ${ranger.status}.`, ephemeral: true });
       return;
     }
 
     if (subcommand === "set-hold") {
       const user = interaction.options.getUser("user", true);
-      if (user.id !== interaction.user.id && !canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to set another Ranger's hold.");
-      }
-
-      if (user.id === interaction.user.id && !memberRankAtLeast(actor, "Ranger")) {
-        throw new UserFacingError("Ranger or higher is required to set your own assigned hold.");
+      if (!canOpenPromotionVotes(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required to set assigned holds.");
       }
 
       const member = user.id === interaction.user.id ? actor : await interaction.guild.members.fetch(user.id);
@@ -188,12 +224,13 @@ export const rangerCommand: BotCommand = {
         content: `Set ${user}'s assigned hold to ${ranger.assigned_hold} and assigned ${role}.`,
         ephemeral: true
       });
+      await refreshStoredAssignmentsBoard(interaction.guild);
       return;
     }
 
     if (subcommand === "sync-hold-roles") {
-      if (!canManageAll(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to sync assigned hold roles.");
+      if (!canOpenPromotionVotes(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required to sync assigned hold roles.");
       }
 
       await interaction.deferReply({ ephemeral: true });
@@ -202,6 +239,7 @@ export const rangerCommand: BotCommand = {
       await interaction.editReply({
         content: `Synced ${result.synced} assigned hold roles. Skipped ${result.skipped}.`
       });
+      await refreshStoredAssignmentsBoard(interaction.guild);
       return;
     }
 
@@ -234,6 +272,7 @@ export const rangerCommand: BotCommand = {
         changedByDiscordUserId: interaction.user.id,
         ...(reason ? { reason } : {})
       });
+      await refreshStoredAssignmentsBoard(interaction.guild);
       await interaction.reply({ content: `Promoted ${user} to ${ranger.current_rank}.`, ephemeral: false });
       return;
     }
@@ -269,55 +308,94 @@ export function csvAttachment(csv: string): AttachmentBuilder {
   return new AttachmentBuilder(Buffer.from(csv, "utf8"), { name: "ranger-roster.csv" });
 }
 
-function assignmentsEmbed(rangers: RangerRow[]): EmbedBuilder {
-  const sortedRangers = [...rangers].sort(compareRangersForDisplay);
-  const embed = new EmbedBuilder()
-    .setTitle("Ranger Corps Assignments")
-    .setDescription("Current senior command and assigned hold coverage.")
-    .setColor(0x587c4a)
-    .setTimestamp(new Date());
+function rosterAuditEmbed(members: GuildMember[], rangers: RangerRow[]): EmbedBuilder {
+  const rangersByDiscordId = new Map(rangers.map((ranger) => [ranger.discord_user_id, ranger]));
+  const mainRoleIds = new Set(mainRankRoleIds());
+  const issues: string[] = [];
 
-  for (const rank of leadershipRanks) {
-    const ranked = sortedRangers.filter((ranger) => ranger.current_rank === rank);
-    embed.addFields({
-      name: rank,
-      value: ranked.length ? truncateField(ranked.map(formatAssignmentRanger).join("\n")) : "None assigned."
-    });
+  for (const member of members) {
+    const memberMainRoleIds = member.roles.cache.filter((role) => mainRoleIds.has(role.id)).map((role) => role.id);
+    const discordRank = mainRankFromMember(member);
+    const ranger = rangersByDiscordId.get(member.id);
+
+    if (memberMainRoleIds.length > 1) {
+      issues.push(`${member} has multiple main rank roles.`);
+    }
+
+    if (discordRank && !ranger) {
+      issues.push(`${member} has ${discordRank} in Discord but no roster row.`);
+    }
+
+    if (discordRank && ranger && ranger.current_rank !== discordRank) {
+      issues.push(`${member} is ${discordRank} in Discord but ${ranger.current_rank} in roster.`);
+    }
+
+    if (discordRank && ranger && ["Inactive", "Retired"].includes(ranger.status)) {
+      issues.push(`${member} is ${ranger.status} but still has ${discordRank} role.`);
+    }
   }
 
-  for (const hold of HOLDS) {
-    const assigned = sortedRangers.filter((ranger) => ranger.assigned_hold === hold);
-    embed.addFields({
-      name: hold,
-      value: assigned.length ? truncateField(assigned.map(formatAssignmentRanger).join("\n")) : "None assigned."
-    });
+  for (const ranger of rangers) {
+    const member = members.find((guildMember) => guildMember.id === ranger.discord_user_id);
+    if (!member) {
+      issues.push(`${ranger.discord_display_name ?? ranger.discord_username ?? ranger.discord_user_id} has a roster row but is not in the server cache.`);
+      continue;
+    }
+
+    const expectedRoleId = roleIdForRank(ranger.current_rank);
+    if (!member.roles.cache.has(expectedRoleId)) {
+      issues.push(`${member} roster rank is ${ranger.current_rank}, but that Discord role is missing.`);
+    }
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle("Roster Audit")
+    .setDescription(issues.length ? truncateField(issues.slice(0, 25).join("\n")) : "No roster drift found.")
+    .setColor(issues.length ? 0xa64d3f : 0x587c4a)
+    .setTimestamp(new Date());
+
+  if (issues.length > 25) {
+    embed.setFooter({ text: `Showing first 25 of ${issues.length} issues.` });
   }
 
   return embed;
 }
 
-function formatAssignmentRanger(ranger: RangerRow): string {
-  const status = ranger.status === "Active" ? "" : ` (${ranger.status})`;
-  return `<@${ranger.discord_user_id}> - ${ranger.discord_display_name ?? ranger.discord_username ?? "Unknown"}${status}`;
-}
+function inactiveReviewEmbed(rangers: RangerRow[], days: number): EmbedBuilder {
+  const cutoff = Date.now() - days * 86_400_000;
+  const candidates = rangers
+    .filter((ranger) => ranger.status === "Active")
+    .filter((ranger) => !ranger.last_discord_activity_at || new Date(ranger.last_discord_activity_at).getTime() < cutoff)
+    .sort((a, b) => activitySortValue(a) - activitySortValue(b));
 
-function compareRangersForDisplay(a: RangerRow, b: RangerRow): number {
-  const rankDiff = rankSort(a.current_rank) - rankSort(b.current_rank);
-  if (rankDiff !== 0) {
-    return rankDiff;
+  const lines = candidates.slice(0, 25).map((ranger) => {
+    const activity = ranger.last_discord_activity_at
+      ? `${daysBetween(ranger.last_discord_activity_at.slice(0, 10))}d ago`
+      : "Unknown";
+    return `<@${ranger.discord_user_id}> - ${ranger.discord_display_name ?? ranger.discord_username ?? "Unknown"} - ${ranger.current_rank} - last activity ${activity}`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle("Inactive Review")
+    .setDescription(lines.length ? lines.join("\n") : `No active Rangers are missing activity for ${days}+ days.`)
+    .setColor(0x587c4a)
+    .setTimestamp(new Date());
+
+  if (candidates.length > 25) {
+    embed.setFooter({ text: `Showing first 25 of ${candidates.length} Rangers.` });
   }
 
-  return displayName(a).localeCompare(displayName(b));
+  return embed;
 }
 
-function displayName(ranger: RangerRow): string {
-  return ranger.discord_display_name ?? ranger.discord_username ?? "";
+function activitySortValue(ranger: RangerRow): number {
+  return ranger.last_discord_activity_at ? new Date(ranger.last_discord_activity_at).getTime() : 0;
 }
 
 function truncateField(value: string): string {
-  if (value.length <= 1024) {
+  if (value.length <= 4096) {
     return value;
   }
 
-  return `${value.slice(0, 1020).trimEnd()}...`;
+  return `${value.slice(0, 4092).trimEnd()}...`;
 }

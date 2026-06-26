@@ -92,6 +92,13 @@ export interface CorpsFundSummaryStateRow {
   updated_at: string;
 }
 
+export interface BotMessageStateRow {
+  state_key: string;
+  discord_channel_id: string;
+  discord_message_ids: string[];
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -166,6 +173,11 @@ export interface Database {
         Row: CorpsFundSummaryStateRow;
         Insert: Partial<CorpsFundSummaryStateRow>;
         Update: Partial<CorpsFundSummaryStateRow>;
+      };
+      bot_message_state: {
+        Row: BotMessageStateRow;
+        Insert: BotMessageStateRow;
+        Update: Partial<BotMessageStateRow>;
       };
     };
   };

@@ -220,7 +220,7 @@ export async function approvePromotionVote(params: {
   guild: Guild;
   voteId: string;
   approverDiscordUserId: string;
-}): Promise<RangerRow> {
+}): Promise<{ promoted: RangerRow; previousRank: MainRank; vote: PromotionVoteRow }> {
   const vote = await getPromotionVote(params.voteId);
   if (!vote) {
     throw new UserFacingError("Promotion vote not found.");
@@ -230,6 +230,7 @@ export async function approvePromotionVote(params: {
   if (!candidate) {
     throw new UserFacingError("Candidate roster entry not found.");
   }
+  const previousRank = candidate.current_rank;
 
   const member = await params.guild.members.fetch(candidate.discord_user_id);
   const promoted = await promoteRanger({
@@ -249,7 +250,7 @@ export async function approvePromotionVote(params: {
     .eq("id", vote.id);
 
   assertNoDbError(error, "approve promotion vote");
-  return promoted;
+  return { promoted, previousRank, vote };
 }
 
 export async function denyPromotionVote(voteId: string, deniedByDiscordUserId: string): Promise<void> {
@@ -281,7 +282,7 @@ export async function promotionVoteEmbed(vote: PromotionVoteRow): Promise<EmbedB
 
   embed.addFields({ name: "Current Tally", value: formatTally(tally), inline: false });
 
-  if (vote.final_decision) {
+  if (vote.final_decision && !vote.final_decision.startsWith("Approved by") && !vote.final_decision.startsWith("Denied by")) {
     embed.addFields({ name: "Reason", value: vote.final_decision.slice(0, 1024) });
   }
 

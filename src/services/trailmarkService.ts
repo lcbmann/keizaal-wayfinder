@@ -6,6 +6,7 @@ import {
   type GuildMember,
   type TextChannel,
   PermissionFlagsBits,
+  type Message,
   StringSelectMenuBuilder
 } from "discord.js";
 import { env } from "../config/env.js";
@@ -14,7 +15,9 @@ import { assertNoDbError, supabase, type TrailmarkRow, type TrailmarkSessionRow 
 import { addMinutes } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
 import { channelNameForTrailmark, slugify } from "../utils/slugs.js";
+import { deleteStoredMessages, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
+const TRAILMARK_PANEL_STATE_KEY = "trailmark-panel";
 const TRAILMARKS_PER_MENU = 25;
 const MENUS_PER_MESSAGE = 5;
 const TRAILMARKS_PER_MESSAGE = TRAILMARKS_PER_MENU * MENUS_PER_MESSAGE;
@@ -131,10 +134,11 @@ export async function createTrailmark(params: {
 
   assertNoDbError(error, "create trailmark");
   await postTrailmarkInfo(channel, data);
+  await refreshStoredTrailmarkPanel(params.guild);
   return data;
 }
 
-export async function deactivateTrailmark(id: string): Promise<TrailmarkRow> {
+export async function deactivateTrailmark(id: string, guild?: Guild): Promise<TrailmarkRow> {
   const { data, error } = await supabase
     .from("trailmarks")
     .update({ active: false, updated_at: new Date().toISOString() })
@@ -143,6 +147,9 @@ export async function deactivateTrailmark(id: string): Promise<TrailmarkRow> {
     .single();
 
   assertNoDbError(error, "deactivate trailmark");
+  if (guild) {
+    await refreshStoredTrailmarkPanel(guild);
+  }
   return data;
 }
 
@@ -239,6 +246,18 @@ export async function expireTrailmarkSessions(guild: Guild): Promise<number> {
   return expired;
 }
 
+export async function listActiveTrailmarkSessions(): Promise<TrailmarkSessionRow[]> {
+  const { data, error } = await supabase
+    .from("trailmark_sessions")
+    .select("*")
+    .eq("active", true)
+    .order("expires_at", { ascending: true })
+    .limit(100);
+
+  assertNoDbError(error, "list active trailmark sessions");
+  return data ?? [];
+}
+
 async function revokeSession(guild: Guild, session: TrailmarkSessionRow): Promise<void> {
   try {
     const channel = await requireTrailmarkTextChannel(guild, session.discord_channel_id);
@@ -265,7 +284,24 @@ async function requireTrailmarkTextChannel(guild: Guild, channelId: string): Pro
 }
 
 export async function postTrailmarkPanel(channel: TextChannel): Promise<void> {
+  await deleteStoredMessages(channel.guild, TRAILMARK_PANEL_STATE_KEY);
+  const messages = await sendTrailmarkPanel(channel);
+  await saveBotMessageState(TRAILMARK_PANEL_STATE_KEY, channel.id, messages.map((message) => message.id));
+}
+
+export async function refreshStoredTrailmarkPanel(guild: Guild): Promise<boolean> {
+  const channel = await getStoredTextChannel(guild, TRAILMARK_PANEL_STATE_KEY);
+  if (!channel) {
+    return false;
+  }
+
+  await postTrailmarkPanel(channel);
+  return true;
+}
+
+async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
   const trailmarks = await listAllActiveTrailmarks();
+  const sentMessages: Message[] = [];
 
   const embed = new EmbedBuilder()
     .setTitle("Ranger Trailmarks")
@@ -275,8 +311,8 @@ export async function postTrailmarkPanel(channel: TextChannel): Promise<void> {
     .setColor(0x3f6f4e);
 
   if (trailmarks.length === 0) {
-    await channel.send({ embeds: [embed.setDescription("No active Trailmarks exist yet.")] });
-    return;
+    sentMessages.push(await channel.send({ embeds: [embed.setDescription("No active Trailmarks exist yet.")] }));
+    return sentMessages;
   }
 
   for (let start = 0; start < trailmarks.length; start += TRAILMARKS_PER_MESSAGE) {
@@ -297,11 +333,13 @@ export async function postTrailmarkPanel(channel: TextChannel): Promise<void> {
       )
     );
 
-    await channel.send({
+    sentMessages.push(await channel.send({
       embeds: [messageIndex === 0 ? embed : EmbedBuilder.from(embed).setTitle("Ranger Trailmarks Continued")],
       components: rows
-    });
+    }));
   }
+
+  return sentMessages;
 }
 
 async function postTrailmarkInfo(channel: TextChannel, trailmark: TrailmarkRow): Promise<void> {

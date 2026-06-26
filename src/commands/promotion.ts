@@ -1,4 +1,4 @@
-import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import { EmbedBuilder, SlashCommandBuilder, type Guild } from "discord.js";
 import { MAIN_RANKS, isMainRank } from "../config/ranks.js";
 import { env } from "../config/env.js";
 import {
@@ -13,10 +13,12 @@ import {
   listApprenticePromotionEligibility,
   promotionVoteActionRow,
   promotionVoteEmbed,
+  refreshPromotionVoteMessage,
   type EligibleRanger,
   type PromotionBallotWithVoter
 } from "../services/promotionService.js";
 import { getRangerByDiscordId } from "../services/rangerService.js";
+import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canApprovePromotions, canOpenPromotionVotes } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
@@ -158,12 +160,21 @@ export const promotionCommand: BotCommand = {
         throw new UserFacingError("Ranger Captain or higher is required.");
       }
 
-      const ranger = await approvePromotionVote({
+      const result = await approvePromotionVote({
         guild: interaction.guild,
         voteId: interaction.options.getString("vote", true),
         approverDiscordUserId: interaction.user.id
       });
-      await interaction.reply({ content: `Approved promotion vote. <@${ranger.discord_user_id}> is now ${ranger.current_rank}.` });
+      const ballots = await listPromotionBallotsWithVoters(result.vote.id);
+      await refreshStoredAssignmentsBoard(interaction.guild);
+      await editPromotionVoteMessage(interaction.guild, result.vote.id).catch((error) => {
+        console.warn(`Could not refresh approved promotion vote ${result.vote.id}:`, error);
+      });
+      await interaction.reply({
+        content: `<@${result.promoted.discord_user_id}>`,
+        embeds: [promotionApprovalEmbed(result.promoted, result.previousRank, result.vote, ballots)],
+        allowedMentions: { users: [result.promoted.discord_user_id] }
+      });
       return;
     }
 
@@ -239,6 +250,21 @@ function promotionEligibilityEmbed(candidates: EligibleRanger[]): EmbedBuilder {
   return embed;
 }
 
+async function editPromotionVoteMessage(guild: Guild, voteId: string): Promise<void> {
+  const vote = await getPromotionVote(voteId);
+  if (!vote?.channel_id || !vote.message_id) {
+    return;
+  }
+
+  const channel = await guild.channels.fetch(vote.channel_id);
+  if (!channel?.isTextBased()) {
+    return;
+  }
+
+  const message = await channel.messages.fetch(vote.message_id);
+  await message.edit(await refreshPromotionVoteMessage(voteId));
+}
+
 function formatEligibilityLine(candidate: EligibleRanger): string {
   const r = candidate.ranger;
   const name = r.discord_display_name ?? r.discord_username ?? "Unknown";
@@ -311,4 +337,31 @@ function formatBallotGroup(ballots: PromotionBallotWithVoter[]): string {
       })
       .join("\n")
   );
+}
+
+function promotionApprovalEmbed(
+  ranger: NonNullable<Awaited<ReturnType<typeof approvePromotionVote>>>["promoted"],
+  previousRank: NonNullable<Awaited<ReturnType<typeof approvePromotionVote>>>["previousRank"],
+  vote: NonNullable<Awaited<ReturnType<typeof getPromotionVote>>>,
+  ballots: PromotionBallotWithVoter[]
+): EmbedBuilder {
+  const yes = ballots.filter((entry) => entry.ballot.vote === "promote").length;
+  const no = ballots.filter((entry) => entry.ballot.vote === "hold").length;
+  const abstain = ballots.filter((entry) => entry.ballot.vote === "abstain").length;
+  const embed = new EmbedBuilder()
+    .setTitle("Promotion Approved")
+    .setDescription(`<@${ranger.discord_user_id}> has been promoted.`)
+    .addFields(
+      { name: "Previous Rank", value: previousRank, inline: true },
+      { name: "New Rank", value: ranger.current_rank, inline: true },
+      { name: "Final Tally", value: `Yes: ${yes} | No: ${no} | Abstain: ${abstain}`, inline: false }
+    )
+    .setColor(0x587c4a)
+    .setTimestamp(new Date());
+
+  if (vote.final_decision && !vote.final_decision.startsWith("Approved by")) {
+    embed.addFields({ name: "Reason", value: vote.final_decision.slice(0, 1024) });
+  }
+
+  return embed;
 }

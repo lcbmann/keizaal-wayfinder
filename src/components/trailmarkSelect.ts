@@ -1,0 +1,33 @@
+import type { StringSelectMenuInteraction } from "discord.js";
+import { env } from "../config/env.js";
+import { getTrailmark, grantTrailmarkAccess } from "../services/trailmarkService.js";
+import { UserFacingError } from "../utils/errors.js";
+import { canUseTrailmarks } from "../utils/permissions.js";
+
+export async function handleTrailmarkSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    throw new UserFacingError("This menu can only be used in the configured guild.");
+  }
+
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!canUseTrailmarks(member)) {
+    throw new UserFacingError("Apprentice or higher is required to use Trailmarks.");
+  }
+
+  const trailmark = await getTrailmark(interaction.values[0] ?? "");
+  if (!trailmark || !trailmark.active) {
+    throw new UserFacingError("Trailmark not found or inactive.");
+  }
+
+  const session = await grantTrailmarkAccess({
+    guild: interaction.guild,
+    member,
+    trailmark,
+    minutes: env.DEFAULT_TRAILMARK_ACCESS_MINUTES
+  });
+
+  await interaction.reply({
+    content: `Opened <#${trailmark.discord_channel_id}>. Access expires in ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`,
+    ephemeral: true
+  });
+}

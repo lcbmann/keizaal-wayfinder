@@ -1,0 +1,27 @@
+{
+  "name": "keizaal-wayfinder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord bot for the Ranger Corps of Skyrim in Keizaal / Kaizal Online.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "deploy-commands": "tsx src/deploy-commands.ts",
+    "check": "tsc --noEmit"
+  },
+  "overrides": {
+    "undici": "6.27.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

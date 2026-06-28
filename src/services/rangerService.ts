@@ -4,7 +4,7 @@ import { isMainRank, type MainRank } from "../config/ranks.js";
 import { assertNoDbError, supabase, type RangerRow, type RangerStatus } from "../db/supabase.js";
 import { todayIsoDate } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
-import { getMemberMainRank, hasGuestOnly, setExactlyOneMainRank } from "./discordRoleService.js";
+import { getMemberMainRank, hasGuestOnly, syncCumulativeMainRanks } from "./discordRoleService.js";
 
 export async function getRangerByDiscordId(discordUserId: string): Promise<RangerRow | null> {
   const { data, error } = await supabase
@@ -69,7 +69,7 @@ export async function syncMemberToRoster(member: GuildMember, createdByDiscordUs
     .single();
 
   assertNoDbError(error, "sync member to roster");
-  await setExactlyOneMainRank(member, mainRank);
+  await syncCumulativeMainRanks(member, mainRank);
   return data;
 }
 
@@ -96,7 +96,7 @@ export async function syncRosterToDiscord(member: GuildMember, ranger: RangerRow
     throw new UserFacingError(`Invalid rank in roster: ${ranger.current_rank}`);
   }
 
-  await setExactlyOneMainRank(member, ranger.current_rank);
+  await syncCumulativeMainRanks(member, ranger.current_rank);
 }
 
 export async function promoteRanger(params: {
@@ -134,7 +134,7 @@ export async function promoteRanger(params: {
   });
 
   assertNoDbError(historyError, "write rank history");
-  await setExactlyOneMainRank(params.member, params.targetRank);
+  await syncCumulativeMainRanks(params.member, params.targetRank);
   return data;
 }
 

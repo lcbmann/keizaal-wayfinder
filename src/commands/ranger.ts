@@ -1,7 +1,7 @@
 import { AttachmentBuilder, ChannelType, EmbedBuilder, SlashCommandBuilder, type GuildMember } from "discord.js";
 import { HOLDS } from "../config/holds.js";
-import { MAIN_RANKS, isMainRank } from "../config/ranks.js";
-import { mainRankRoleIds, roleIdForRank } from "../config/roles.js";
+import { MAIN_RANKS, isMainRank, rankAtLeast } from "../config/ranks.js";
+import { roleIdForRank } from "../config/roles.js";
 import type { RangerRow, RangerStatus } from "../db/supabase.js";
 import {
   canApprovePromotions,
@@ -310,17 +310,11 @@ export function csvAttachment(csv: string): AttachmentBuilder {
 
 function rosterAuditEmbed(members: GuildMember[], rangers: RangerRow[]): EmbedBuilder {
   const rangersByDiscordId = new Map(rangers.map((ranger) => [ranger.discord_user_id, ranger]));
-  const mainRoleIds = new Set(mainRankRoleIds());
   const issues: string[] = [];
 
   for (const member of members) {
-    const memberMainRoleIds = member.roles.cache.filter((role) => mainRoleIds.has(role.id)).map((role) => role.id);
     const discordRank = mainRankFromMember(member);
     const ranger = rangersByDiscordId.get(member.id);
-
-    if (memberMainRoleIds.length > 1) {
-      issues.push(`${member} has multiple main rank roles.`);
-    }
 
     if (discordRank && !ranger) {
       issues.push(`${member} has ${discordRank} in Discord but no roster row.`);
@@ -345,6 +339,18 @@ function rosterAuditEmbed(members: GuildMember[], rangers: RangerRow[]): EmbedBu
     const expectedRoleId = roleIdForRank(ranger.current_rank);
     if (!member.roles.cache.has(expectedRoleId)) {
       issues.push(`${member} roster rank is ${ranger.current_rank}, but that Discord role is missing.`);
+    }
+
+    const missingLowerRanks = MAIN_RANKS.filter((rank) => rankAtLeast(ranger.current_rank, rank))
+      .filter((rank) => !member.roles.cache.has(roleIdForRank(rank)));
+    if (missingLowerRanks.length > 0) {
+      issues.push(`${member} is missing cumulative role(s): ${missingLowerRanks.join(", ")}.`);
+    }
+
+    const extraHigherRanks = MAIN_RANKS.filter((rank) => !rankAtLeast(ranger.current_rank, rank))
+      .filter((rank) => member.roles.cache.has(roleIdForRank(rank)));
+    if (extraHigherRanks.length > 0) {
+      issues.push(`${member} has higher role(s) above roster rank ${ranger.current_rank}: ${extraHigherRanks.join(", ")}.`);
     }
   }
 

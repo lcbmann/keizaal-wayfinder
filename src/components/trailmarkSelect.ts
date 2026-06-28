@@ -1,6 +1,6 @@
 import type { StringSelectMenuInteraction } from "discord.js";
 import { env } from "../config/env.js";
-import { getTrailmark, grantTrailmarkAccess } from "../services/trailmarkService.js";
+import { getTrailmark, grantTrailmarkAccess, leaveTrailmark, NO_TRAILMARK_SELECT_VALUE } from "../services/trailmarkService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canUseTrailmarks } from "../utils/permissions.js";
 
@@ -12,6 +12,15 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (!canUseTrailmarks(member)) {
     throw new UserFacingError("Apprentice or higher is required to use Trailmarks.");
+  }
+
+  if (interaction.values[0] === NO_TRAILMARK_SELECT_VALUE) {
+    const revoked = await leaveTrailmark(interaction.guild, interaction.user.id);
+    await interaction.reply({
+      content: revoked > 0 ? "Trailmark access revoked." : "You do not have an active Trailmark session.",
+      ephemeral: true
+    });
+    return;
   }
 
   const trailmark = await getTrailmark(interaction.values[0] ?? "");

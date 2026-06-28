@@ -18,7 +18,8 @@ import { channelNameForTrailmark, slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
 const TRAILMARK_PANEL_STATE_KEY = "trailmark-panel";
-const TRAILMARKS_PER_MENU = 25;
+export const NO_TRAILMARK_SELECT_VALUE = "trailmark:none";
+const TRAILMARKS_PER_MENU = 24;
 const MENUS_PER_MESSAGE = 5;
 const TRAILMARKS_PER_MESSAGE = TRAILMARKS_PER_MENU * MENUS_PER_MESSAGE;
 const TRAILMARK_FETCH_PAGE_SIZE = 1000;
@@ -323,6 +324,11 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
         new StringSelectMenuBuilder()
           .setCustomId(`trailmark:select:${messageIndex}:${menuIndex}`)
           .setPlaceholder(`Choose a Trailmark ${rangeLabel(start + menuIndex * TRAILMARKS_PER_MENU, menuTrailmarks.length)}`)
+          .addOptions({
+            label: "No Trailmark",
+            description: "Leave your current Trailmark and remove temporary access.",
+            value: NO_TRAILMARK_SELECT_VALUE
+          })
           .addOptions(
             menuTrailmarks.map((trailmark) => ({
               label: `${trailmark.name} (${trailmark.hold})`.slice(0, 100),

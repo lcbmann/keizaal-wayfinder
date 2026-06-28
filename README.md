@@ -5,7 +5,7 @@ Keizaal Wayfinder is a TypeScript Discord bot for the Ranger Corps of Skyrim, an
 ## Features
 
 - Slash commands for roster management, Trailmarks, promotion votes, exports, recruitment, and health checks.
-- Discord role sync for exactly one main Ranger rank at a time.
+- Discord role sync for cumulative Ranger rank roles.
 - Senior Ranger is preserved as a separate recognition role and is not treated as a main rank.
 - Private Trailmark channels with temporary per-user access.
 - Promotion votes with buttons and manual approval or denial.
@@ -165,7 +165,7 @@ Use `/funds set-balance` once to seed the current fund total from old manual rec
 
 Each Trailmark is a private text channel under `TRAILMARK_CATEGORY_ID`. Everyone is denied by default. Ranger Commander and Ranger Captain roles receive permanent access. Rangers, Apprentices, and Marshals only receive temporary access when they visit a Trailmark.
 
-Users visit Trailmarks by selecting one from the bot message posted by `/trailmark panel`. When a user selects a Trailmark, any previous active Trailmark session is revoked, the selected channel is opened for the configured duration, and the session is stored in Supabase. A background job runs every minute and also runs on startup, so expired access is revoked after bot restarts. The stored panel refreshes automatically when Trailmarks are created or deactivated.
+Users visit Trailmarks by selecting one from the bot message posted by `/trailmark panel`. When a user selects a Trailmark, any previous active Trailmark session is revoked, the selected channel is opened for the configured duration, and the session is stored in Supabase. The dropdown also includes `No Trailmark`, which revokes current access and clears the user's selection path. A background job runs every minute and also runs on startup, so expired access is revoked after bot restarts. The stored panel refreshes automatically when Trailmarks are created or deactivated.
 
 ## Role Sync
 
@@ -177,7 +177,7 @@ The centralized rank config lives in `src/config/ranks.ts`. Main rank roles are:
 4. Ranger
 5. Apprentice
 
-Only one main rank role should exist on a member. Promotion and roster sync remove other main rank roles and add the stored rank role. Senior Ranger is allowed to stack with the normal rank role.
+Rank roles are cumulative. A Ranger keeps Apprentice; a Ranger Marshal keeps Ranger and Apprentice; Captains and Commanders keep the ranks below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger is allowed to stack with normal rank roles.
 
 Discord onboarding remains the entry point. If onboarding gives a user the Apprentice role, the bot adds or updates their roster entry as an Apprentice and tries to DM the nickname reminder. Guest-only users are skipped.
 

@@ -20,6 +20,7 @@ import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
 import { handleMemberJoin, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
+import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
@@ -60,9 +61,16 @@ client.on("messageCreate", (message) => {
     return;
   }
 
-  void recordMessageActivity(message.author.id, message.channelId).catch((error) => {
-    console.warn(`Failed to record message activity for ${message.author.id}:`, error);
-  });
+  const guild = message.guild;
+  void recordMessageActivity(message.author.id, message.channelId)
+    .then(async (result) => {
+      if (result.reactivated) {
+        await refreshStoredAssignmentsBoard(guild);
+      }
+    })
+    .catch((error) => {
+      console.warn(`Failed to record message activity for ${message.author.id}:`, error);
+    });
 });
 
 async function handleInteraction(interaction: Interaction): Promise<void> {

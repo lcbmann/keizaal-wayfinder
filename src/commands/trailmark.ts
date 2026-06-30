@@ -4,6 +4,7 @@ import { HOLDS } from "../config/holds.js";
 import {
   createTrailmark,
   deactivateTrailmark,
+  editTrailmark,
   findTrailmarksByName,
   getTrailmark,
   leaveTrailmark,
@@ -41,6 +42,28 @@ export const trailmarkCommand: BotCommand = {
         )
         .addAttachmentOption((option) => option.setName("screenshot").setDescription("Optional location screenshot."))
         .addStringOption((option) => option.setName("atlas_location_id").setDescription("Optional future Atlas location UUID."))
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("edit")
+        .setDescription("Edit an existing Trailmark.")
+        .addStringOption((option) =>
+          option.setName("trailmark").setDescription("Trailmark to edit.").setRequired(true).setAutocomplete(true)
+        )
+        .addStringOption((option) => option.setName("name").setDescription("New Trailmark name."))
+        .addStringOption((option) =>
+          option
+            .setName("hold")
+            .setDescription("New hold or range.")
+            .addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold })))
+        )
+        .addStringOption((option) =>
+          option.setName("location_description").setDescription("New in-character location description.").setMaxLength(4000)
+        )
+        .addAttachmentOption((option) => option.setName("screenshot").setDescription("Replace the location screenshot."))
+        .addBooleanOption((option) => option.setName("clear_screenshot").setDescription("Remove the current screenshot."))
+        .addStringOption((option) => option.setName("atlas_location_id").setDescription("Set or replace the Atlas location UUID."))
+        .addBooleanOption((option) => option.setName("clear_atlas").setDescription("Remove the Atlas location UUID."))
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -145,6 +168,62 @@ export const trailmarkCommand: BotCommand = {
       return;
     }
 
+    if (subcommand === "edit") {
+      if (!canCreateTrailmarks(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required to edit Trailmarks.");
+      }
+
+      const name = optionalTrimmedString(interaction.options.getString("name"));
+      const locationDescription = optionalTrimmedString(interaction.options.getString("location_description"));
+      const screenshot = interaction.options.getAttachment("screenshot");
+      const clearScreenshot = interaction.options.getBoolean("clear_screenshot") ?? false;
+      const atlasLocationId = optionalTrimmedString(interaction.options.getString("atlas_location_id"));
+      const clearAtlas = interaction.options.getBoolean("clear_atlas") ?? false;
+
+      if (screenshot && clearScreenshot) {
+        throw new UserFacingError("Choose either a replacement screenshot or clear_screenshot, not both.");
+      }
+
+      if (atlasLocationId && clearAtlas) {
+        throw new UserFacingError("Choose either an Atlas location ID or clear_atlas, not both.");
+      }
+
+      if (atlasLocationId && !isUuid(atlasLocationId)) {
+        throw new UserFacingError("Atlas location ID must be a valid UUID.");
+      }
+
+      const hasEdits = Boolean(
+        name ||
+          interaction.options.getString("hold") ||
+          locationDescription ||
+          screenshot ||
+          clearScreenshot ||
+          atlasLocationId ||
+          clearAtlas
+      );
+      if (!hasEdits) {
+        throw new UserFacingError("Provide at least one Trailmark field to edit.");
+      }
+
+      const trailmark = await editTrailmark({
+        guild: interaction.guild,
+        id: interaction.options.getString("trailmark", true),
+        ...(name ? { name } : {}),
+        ...(interaction.options.getString("hold") ? { hold: interaction.options.getString("hold", true) } : {}),
+        ...(locationDescription ? { locationDescription } : {}),
+        ...(screenshot ? { screenshotUrl: screenshot.url } : {}),
+        ...(clearScreenshot ? { screenshotUrl: null } : {}),
+        ...(atlasLocationId ? { atlasLocationId } : {}),
+        ...(clearAtlas ? { atlasLocationId: null } : {})
+      });
+
+      await interaction.reply({
+        content: `Updated ${trailmark.name} in <#${trailmark.discord_channel_id}>.`,
+        ephemeral: true
+      });
+      return;
+    }
+
     if (subcommand === "deactivate") {
       if (!canCreateTrailmarks(actor)) {
         throw new UserFacingError("Ranger Marshal or higher is required to deactivate Trailmarks.");
@@ -213,6 +292,11 @@ export const trailmarkCommand: BotCommand = {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function optionalTrimmedString(value: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function assertBotCanPostPanel(channel: TextChannel, botMember: GuildMember): void {

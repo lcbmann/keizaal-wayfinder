@@ -154,6 +154,65 @@ export async function deactivateTrailmark(id: string, guild?: Guild): Promise<Tr
   return data;
 }
 
+export async function editTrailmark(params: {
+  guild: Guild;
+  id: string;
+  name?: string;
+  hold?: string;
+  locationDescription?: string;
+  screenshotUrl?: string | null;
+  atlasLocationId?: string | null;
+}): Promise<TrailmarkRow> {
+  const existing = await getTrailmark(params.id);
+  if (!existing) {
+    throw new UserFacingError("Trailmark was not found.");
+  }
+
+  const updates: Partial<TrailmarkRow> = { updated_at: new Date().toISOString() };
+  if (params.name) {
+    updates.name = params.name;
+    updates.slug = slugify(params.name);
+  }
+
+  if (params.hold) {
+    updates.hold = params.hold;
+  }
+
+  if (params.locationDescription) {
+    updates.location_description = params.locationDescription;
+  }
+
+  if ("screenshotUrl" in params) {
+    updates.screenshot_url = params.screenshotUrl ?? null;
+  }
+
+  if ("atlasLocationId" in params) {
+    updates.atlas_location_id = params.atlasLocationId ?? null;
+  }
+
+  if (Object.keys(updates).length === 1) {
+    throw new UserFacingError("Provide at least one Trailmark field to edit.");
+  }
+
+  const { data, error } = await supabase
+    .from("trailmarks")
+    .update(updates)
+    .eq("id", params.id)
+    .select("*")
+    .single();
+
+  assertNoDbError(error, "edit trailmark");
+
+  const channel = await requireTrailmarkTextChannel(params.guild, data.discord_channel_id);
+  if (params.name && channel.name !== channelNameForTrailmark(data.name)) {
+    await channel.setName(channelNameForTrailmark(data.name), `Rename Ranger Trailmark ${data.name}`);
+  }
+
+  await postTrailmarkInfo(channel, data, { titlePrefix: "Trailmark Updated", timestamp: new Date() });
+  await refreshStoredTrailmarkPanel(params.guild);
+  return data;
+}
+
 export async function updateTrailmarkAtlasLocation(id: string, atlasLocationId: string | null): Promise<TrailmarkRow> {
   const { data, error } = await supabase
     .from("trailmarks")
@@ -348,13 +407,17 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
   return sentMessages;
 }
 
-async function postTrailmarkInfo(channel: TextChannel, trailmark: TrailmarkRow): Promise<void> {
+async function postTrailmarkInfo(
+  channel: TextChannel,
+  trailmark: TrailmarkRow,
+  options: { titlePrefix?: string; timestamp?: Date } = {}
+): Promise<void> {
   const embed = new EmbedBuilder()
-    .setTitle(trailmark.name)
+    .setTitle(options.titlePrefix ? `${options.titlePrefix}: ${trailmark.name}` : trailmark.name)
     .setDescription(trailmark.location_description.slice(0, 4096))
     .addFields({ name: "Hold", value: trailmark.hold, inline: true })
     .setColor(0x587c4a)
-    .setTimestamp(new Date(trailmark.created_at));
+    .setTimestamp(options.timestamp ?? new Date(trailmark.created_at));
 
   if (trailmark.atlas_location_id) {
     embed.addFields({ name: "Atlas Location ID", value: trailmark.atlas_location_id, inline: true });

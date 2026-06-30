@@ -87,7 +87,7 @@ The migration creates:
 - `corps_fund_summary_state`
 - `bot_message_state`
 
-It also creates enum types, update triggers, indexes, and a partial unique index enforcing one active Trailmark session per Discord user.
+It also creates enum types, update triggers, indexes, the Trailmark pinned flag, and a partial unique index enforcing one active Trailmark session per Discord user.
 
 ## Commands
 
@@ -168,7 +168,7 @@ Each Trailmark is a private text channel under `TRAILMARK_CATEGORY_ID`. Everyone
 
 Users visit Trailmarks by selecting one from the bot message posted by `/trailmark panel`. When a user selects a Trailmark, any previous active Trailmark session is revoked, the selected channel is opened for the configured duration, and the session is stored in Supabase. The dropdown also includes `No Trailmark`, which revokes current access and clears the user's selection path. A background job runs every minute and also runs on startup, so expired access is revoked after bot restarts. The stored panel refreshes automatically when Trailmarks are created, edited, or deactivated.
 
-`/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, or Atlas location ID. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
+`/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, or pinned status. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
 
 ## Role Sync
 

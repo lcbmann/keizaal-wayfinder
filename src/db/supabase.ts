@@ -36,6 +36,7 @@ export interface TrailmarkRow {
   discord_channel_id: string;
   atlas_location_id: string | null;
   active: boolean;
+  pinned: boolean;
   created_by_discord_user_id: string;
   created_at: string;
   updated_at: string;

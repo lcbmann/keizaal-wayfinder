@@ -64,6 +64,7 @@ export const trailmarkCommand: BotCommand = {
         .addBooleanOption((option) => option.setName("clear_screenshot").setDescription("Remove the current screenshot."))
         .addStringOption((option) => option.setName("atlas_location_id").setDescription("Set or replace the Atlas location UUID."))
         .addBooleanOption((option) => option.setName("clear_atlas").setDescription("Remove the Atlas location UUID."))
+        .addBooleanOption((option) => option.setName("pinned").setDescription("Pin or unpin this Trailmark at the top of the panel."))
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -179,6 +180,7 @@ export const trailmarkCommand: BotCommand = {
       const clearScreenshot = interaction.options.getBoolean("clear_screenshot") ?? false;
       const atlasLocationId = optionalTrimmedString(interaction.options.getString("atlas_location_id"));
       const clearAtlas = interaction.options.getBoolean("clear_atlas") ?? false;
+      const pinned = interaction.options.getBoolean("pinned");
 
       if (screenshot && clearScreenshot) {
         throw new UserFacingError("Choose either a replacement screenshot or clear_screenshot, not both.");
@@ -199,7 +201,8 @@ export const trailmarkCommand: BotCommand = {
           screenshot ||
           clearScreenshot ||
           atlasLocationId ||
-          clearAtlas
+          clearAtlas ||
+          pinned !== null
       );
       if (!hasEdits) {
         throw new UserFacingError("Provide at least one Trailmark field to edit.");
@@ -214,7 +217,8 @@ export const trailmarkCommand: BotCommand = {
         ...(screenshot ? { screenshotUrl: screenshot.url } : {}),
         ...(clearScreenshot ? { screenshotUrl: null } : {}),
         ...(atlasLocationId ? { atlasLocationId } : {}),
-        ...(clearAtlas ? { atlasLocationId: null } : {})
+        ...(clearAtlas ? { atlasLocationId: null } : {}),
+        ...(pinned !== null ? { pinned } : {})
       });
 
       await interaction.reply({

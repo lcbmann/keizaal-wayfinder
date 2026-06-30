@@ -29,6 +29,7 @@ export async function listActiveTrailmarks(limit = 100): Promise<TrailmarkRow[]>
     .from("trailmarks")
     .select("*")
     .eq("active", true)
+    .order("pinned", { ascending: false })
     .order("hold", { ascending: true })
     .order("name", { ascending: true })
     .limit(limit);
@@ -45,6 +46,7 @@ export async function listAllActiveTrailmarks(): Promise<TrailmarkRow[]> {
       .from("trailmarks")
       .select("*")
       .eq("active", true)
+      .order("pinned", { ascending: false })
       .order("hold", { ascending: true })
       .order("name", { ascending: true })
       .range(from, from + TRAILMARK_FETCH_PAGE_SIZE - 1);
@@ -64,6 +66,7 @@ export async function findTrailmarksByName(query: string): Promise<TrailmarkRow[
     .select("*")
     .eq("active", true)
     .ilike("name", `%${query}%`)
+    .order("pinned", { ascending: false })
     .order("name", { ascending: true })
     .limit(25);
 
@@ -128,6 +131,7 @@ export async function createTrailmark(params: {
       discord_channel_id: channel.id,
       atlas_location_id: params.atlasLocationId ?? null,
       active: true,
+      pinned: false,
       created_by_discord_user_id: params.createdByDiscordUserId
     })
     .select("*")
@@ -162,6 +166,7 @@ export async function editTrailmark(params: {
   locationDescription?: string;
   screenshotUrl?: string | null;
   atlasLocationId?: string | null;
+  pinned?: boolean;
 }): Promise<TrailmarkRow> {
   const existing = await getTrailmark(params.id);
   if (!existing) {
@@ -188,6 +193,10 @@ export async function editTrailmark(params: {
 
   if ("atlasLocationId" in params) {
     updates.atlas_location_id = params.atlasLocationId ?? null;
+  }
+
+  if ("pinned" in params) {
+    updates.pinned = params.pinned;
   }
 
   if (Object.keys(updates).length === 1) {
@@ -391,7 +400,9 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
           .addOptions(
             menuTrailmarks.map((trailmark) => ({
               label: `${trailmark.name} (${trailmark.hold})`.slice(0, 100),
-              description: truncateSelectDescription(trailmark.location_description),
+              description: truncateSelectDescription(
+                trailmark.pinned ? `Pinned - ${trailmark.location_description}` : trailmark.location_description
+              ),
               value: trailmark.id
             }))
           )
@@ -416,6 +427,7 @@ async function postTrailmarkInfo(
     .setTitle(options.titlePrefix ? `${options.titlePrefix}: ${trailmark.name}` : trailmark.name)
     .setDescription(trailmark.location_description.slice(0, 4096))
     .addFields({ name: "Hold", value: trailmark.hold, inline: true })
+    .addFields({ name: "Pinned", value: trailmark.pinned ? "Yes" : "No", inline: true })
     .setColor(0x587c4a)
     .setTimestamp(options.timestamp ?? new Date(trailmark.created_at));
 

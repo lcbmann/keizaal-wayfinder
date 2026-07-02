@@ -790,8 +790,21 @@ async function requireIntelTextChannel(guild: Guild, channelId: string): Promise
 }
 
 function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {
-  const normalizedContent = content.toLowerCase();
-  return topic.keywords.some((keyword) => normalizedContent.includes(keyword.toLowerCase()));
+  return topic.keywords.some((keyword) => keywordMatchesContent(keyword, content));
+}
+
+function keywordMatchesContent(keyword: string, content: string): boolean {
+  const normalizedKeyword = keyword.trim();
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRegExp(normalizedKeyword)}(?=$|[^\\p{L}\\p{N}_])`, "iu");
+  return pattern.test(content);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function matchLegacyThreadToTrailmark(threadName: string, trailmarks: TrailmarkRow[]): TrailmarkRow | null {

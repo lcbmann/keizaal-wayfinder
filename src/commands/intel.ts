@@ -14,6 +14,8 @@ import { canCreateTrailmarks } from "../utils/permissions.js";
 import { slugify } from "../utils/slugs.js";
 import type { BotCommand } from "./types.js";
 
+const INTEL_CATEGORY_ID = "1522171305884123216";
+
 export const intelCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("intel")
@@ -211,12 +213,10 @@ async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]
     throw new UserFacingError("This command can only be used in the configured guild.");
   }
 
-  const currentChannel = interaction.channel;
-  const parent = currentChannel?.type === ChannelType.GuildText ? currentChannel.parentId : null;
   return interaction.guild.channels.create({
     name: `${slugify(name)}-reports`.slice(0, 90),
     type: ChannelType.GuildText,
-    ...(parent ? { parent } : {}),
+    parent: INTEL_CATEGORY_ID,
     reason: `Create Trailmark intel topic channel for ${name}`
   });
 }

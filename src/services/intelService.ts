@@ -13,7 +13,7 @@ import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, saveBotMessageState } from "./botMessageStateService.js";
 
 const INTEL_TOPIC_STATE_PREFIX = "intel-topic";
-const BULLETIN_REPORTS_PER_MESSAGE = 10;
+const MAX_REPORT_DESCRIPTION_LENGTH = 4000;
 
 export type IntelBackfillMode = "historical-delivery" | "pending-only";
 
@@ -522,32 +522,23 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
   const trailmarks = await trailmarkMapForReports(reports);
   const sentMessages: Message[] = [];
 
-  if (reports.length === 0) {
-    const embed = new EmbedBuilder()
-      .setTitle(`${topic.name} Reports`)
-      .setDescription("No delivered reports yet.")
-      .setColor(0x587c4a)
-      .setTimestamp(new Date());
-    sentMessages.push(await channel.send({ embeds: [embed] }));
-  }
+  const header = new EmbedBuilder()
+    .setTitle(`${topic.name} Reports`)
+    .setDescription(
+      reports.length === 0
+        ? "No delivered reports yet."
+        : `${reports.length} delivered report${reports.length === 1 ? "" : "s"}. One report per message, sorted by original report time.`
+    )
+    .setColor(0x587c4a)
+    .setTimestamp(new Date());
+  sentMessages.push(await channel.send({ embeds: [header] }));
 
-  for (let index = 0; index < reports.length; index += BULLETIN_REPORTS_PER_MESSAGE) {
-    const reportChunk = reports.slice(index, index + BULLETIN_REPORTS_PER_MESSAGE);
-    const embed = new EmbedBuilder()
-      .setTitle(index === 0 ? `${topic.name} Reports` : `${topic.name} Reports Continued`)
-      .setDescription("Delivered Trailmark reports, sorted by original report time.")
-      .setColor(0x587c4a)
-      .setTimestamp(new Date());
-
-    for (const report of reportChunk) {
-      const trailmark = trailmarks.get(report.trailmark_id);
-      embed.addFields({
-        name: `${formatDiscordTime(report.created_at)} - ${trailmark?.name ?? "Unknown Trailmark"}`,
-        value: formatReportValue(guild, report, trailmark)
-      });
-    }
-
-    sentMessages.push(await channel.send({ embeds: [embed] }));
+  for (const report of reports) {
+    sentMessages.push(
+      await channel.send({
+        embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
+      })
+    );
   }
 
   await saveBotMessageState(stateKey, channel.id, sentMessages.map((message) => message.id));
@@ -628,30 +619,40 @@ function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {
   return topic.keywords.some((keyword) => normalizedContent.includes(keyword.toLowerCase()));
 }
 
-function formatReportValue(guild: Guild, report: IntelReportRow, trailmark: TrailmarkRow | undefined): string {
+function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkRow | undefined): EmbedBuilder {
   const deliveredBy = report.delivered_by_discord_user_id ? `<@${report.delivered_by_discord_user_id}>` : "Unknown";
-  const deliveredAt = report.delivered_at ? formatDiscordTime(report.delivered_at, "R") : "Unknown";
+  const deliveredAt = report.delivered_at
+    ? `${formatDiscordTime(report.delivered_at)} (${formatDiscordTime(report.delivered_at, "R")})`
+    : "Unknown";
   const originalUrl = `https://discord.com/channels/${guild.id}/${report.discord_channel_id}/${report.discord_message_id}`;
   const where = trailmark ? `${trailmark.name} (${trailmark.hold})` : "Unknown Trailmark";
-  return [
-    `Reported by <@${report.author_discord_user_id}> at ${where}`,
-    `Delivered to HQ by ${deliveredBy} ${deliveredAt}`,
-    `[Original report](${originalUrl})`,
-    truncateReportContent(report.content)
-  ].join("\n");
+
+  return new EmbedBuilder()
+    .setTitle(`${trailmark?.name ?? "Unknown Trailmark"} - ${formatDiscordTime(report.created_at)}`)
+    .setDescription(formatReportContent(report.content))
+    .addFields(
+      { name: "Reported by", value: `<@${report.author_discord_user_id}>`, inline: true },
+      { name: "Source", value: where, inline: true },
+      { name: "Report time", value: formatDiscordTime(report.created_at), inline: true },
+      { name: "Delivered by", value: deliveredBy, inline: true },
+      { name: "Delivered to HQ", value: deliveredAt, inline: true },
+      { name: "Original", value: `[Open report](${originalUrl})`, inline: true }
+    )
+    .setColor(0x587c4a)
+    .setTimestamp(new Date(report.created_at));
 }
 
 function formatDiscordTime(value: string, style = "f"): string {
   return `<t:${Math.floor(new Date(value).getTime() / 1000)}:${style}>`;
 }
 
-function truncateReportContent(content: string): string {
-  const normalized = content.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 700) {
-    return normalized;
+function formatReportContent(content: string): string {
+  const trimmed = content.trim();
+  if (trimmed.length <= MAX_REPORT_DESCRIPTION_LENGTH) {
+    return trimmed;
   }
 
-  return `${normalized.slice(0, 697).trimEnd()}...`;
+  return `${trimmed.slice(0, MAX_REPORT_DESCRIPTION_LENGTH - 3).trimEnd()}...`;
 }
 
 function intelTopicStateKey(topicId: string): string {

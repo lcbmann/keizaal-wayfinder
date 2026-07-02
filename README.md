@@ -185,7 +185,7 @@ Trailmark intel topics collect delivered reports from Trailmark channels into pu
 
 When a message is posted in an active Trailmark channel, Wayfinder checks it against active intel topic keywords. Matching messages are stored as pending reports. A pending report is published only after a Ranger opens that source Trailmark after the report was written and later opens the configured HQ Trailmark. HQ-origin reports are published immediately. Bulletins are rebuilt in original report chronology and include the original reporter, source Trailmark, report time, original link, and the Ranger who delivered it to HQ.
 
-`/intel backfill` scans old Trailmark messages into the current intel topics. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
+`/intel backfill` scans old Trailmark messages into the current intel topics. It scans current Trailmark channels and the archived legacy `#trailmarks` forum (`1511443716420800673`), mapping forum thread names such as `Morthal Stash` to current Trailmarks where possible. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
 ## Role Sync
 

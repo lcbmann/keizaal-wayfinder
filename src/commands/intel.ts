@@ -180,7 +180,8 @@ export const intelCommand: BotCommand = {
       await interaction.editReply({
         content: [
           "Intel backfill complete.",
-          `Trailmarks scanned: ${result.trailmarksScanned}`,
+          `Trailmark channels scanned: ${result.trailmarksScanned}`,
+          `Legacy forum threads scanned: ${result.legacyForumThreadsScanned}`,
           `Messages scanned: ${result.messagesScanned}`,
           `Matched reports: ${result.matchedReports}`,
           `Historically delivered: ${result.deliveredReports}`,

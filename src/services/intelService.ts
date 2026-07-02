@@ -1,4 +1,13 @@
-import { ChannelType, EmbedBuilder, type Guild, type Message, type TextChannel } from "discord.js";
+import {
+  ChannelType,
+  EmbedBuilder,
+  type ForumChannel,
+  type Guild,
+  type Message,
+  type Snowflake,
+  type TextChannel,
+  type ThreadChannel
+} from "discord.js";
 import {
   assertNoDbError,
   supabase,
@@ -13,12 +22,14 @@ import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, saveBotMessageState } from "./botMessageStateService.js";
 
 const INTEL_TOPIC_STATE_PREFIX = "intel-topic";
+const LEGACY_TRAILMARK_FORUM_CHANNEL_ID = "1511443716420800673";
 const MAX_REPORT_DESCRIPTION_LENGTH = 4000;
 
 export type IntelBackfillMode = "historical-delivery" | "pending-only";
 
 export interface IntelBackfillResult {
   trailmarksScanned: number;
+  legacyForumThreadsScanned: number;
   messagesScanned: number;
   matchedReports: number;
   deliveredReports: number;
@@ -182,6 +193,7 @@ export async function backfillTrailmarkIntel(params: {
   const trailmarks = await listActiveTrailmarksForIntel();
   const touchedTopicIds = new Set<string>();
   let trailmarksScanned = 0;
+  let legacyForumThreadsScanned = 0;
   let messagesScanned = 0;
   let matchedReports = 0;
 
@@ -207,6 +219,21 @@ export async function backfillTrailmarkIntel(params: {
     }
   }
 
+  const legacyForumResult = await backfillLegacyTrailmarkForum({
+    guild: params.guild,
+    trailmarks,
+    topics,
+    hqTrailmarkId: settings.hq_trailmark_id,
+    ...(params.after ? { after: params.after } : {}),
+    limitPerThread: params.limitPerTrailmark
+  });
+  legacyForumThreadsScanned = legacyForumResult.threadsScanned;
+  messagesScanned += legacyForumResult.messagesScanned;
+  matchedReports += legacyForumResult.matchedReports;
+  for (const topicId of legacyForumResult.touchedTopicIds) {
+    touchedTopicIds.add(topicId);
+  }
+
   let deliveredReports = 0;
   if (params.mode === "historical-delivery" && settings.hq_trailmark_id) {
     deliveredReports = await deliverHistoricallyCarriedReports({
@@ -225,6 +252,7 @@ export async function backfillTrailmarkIntel(params: {
   await refreshDeliveredTopics(params.guild, refreshedTopicIds);
   return {
     trailmarksScanned,
+    legacyForumThreadsScanned,
     messagesScanned,
     matchedReports,
     deliveredReports,
@@ -259,6 +287,86 @@ export async function recordTrailmarkVisitAndDeliver(params: {
   });
 }
 
+async function backfillLegacyTrailmarkForum(params: {
+  guild: Guild;
+  trailmarks: TrailmarkRow[];
+  topics: IntelTopicRow[];
+  hqTrailmarkId: string | null;
+  after?: Date;
+  limitPerThread: number;
+}): Promise<{ threadsScanned: number; messagesScanned: number; matchedReports: number; touchedTopicIds: Set<string> }> {
+  const forum = await params.guild.channels.fetch(LEGACY_TRAILMARK_FORUM_CHANNEL_ID).catch(() => null);
+  if (!forum || forum.type !== ChannelType.GuildForum) {
+    return { threadsScanned: 0, messagesScanned: 0, matchedReports: 0, touchedTopicIds: new Set() };
+  }
+
+  let threadsScanned = 0;
+  let messagesScanned = 0;
+  let matchedReports = 0;
+  const touchedTopicIds = new Set<string>();
+  const threadIds = new Set<string>();
+
+  for await (const thread of fetchLegacyForumThreads(forum)) {
+    if (threadIds.has(thread.id)) {
+      continue;
+    }
+    threadIds.add(thread.id);
+
+    const trailmark = matchLegacyThreadToTrailmark(thread.name, params.trailmarks);
+    if (!trailmark) {
+      console.warn(`Could not map legacy Trailmark forum thread "${thread.name}" to an active Trailmark.`);
+      continue;
+    }
+
+    threadsScanned += 1;
+    const result = await backfillTrailmarkThread({
+      thread,
+      trailmark,
+      topics: params.topics,
+      hqTrailmarkId: params.hqTrailmarkId,
+      ...(params.after ? { after: params.after } : {}),
+      limit: params.limitPerThread
+    });
+    messagesScanned += result.messagesScanned;
+    matchedReports += result.matchedReports;
+    for (const topicId of result.touchedTopicIds) {
+      touchedTopicIds.add(topicId);
+    }
+  }
+
+  return { threadsScanned, messagesScanned, matchedReports, touchedTopicIds };
+}
+
+async function* fetchLegacyForumThreads(forum: ForumChannel): AsyncGenerator<ThreadChannel> {
+  const active = await forum.threads.fetchActive();
+  for (const thread of active.threads.values()) {
+    yield thread;
+  }
+
+  let before: Snowflake | undefined;
+  for (;;) {
+    const archived = await forum.threads.fetchArchived({
+      type: "public",
+      limit: 100,
+      ...(before ? { before } : {})
+    });
+
+    if (archived.threads.size === 0) {
+      break;
+    }
+
+    const threads = [...archived.threads.values()];
+    for (const thread of threads) {
+      yield thread;
+    }
+
+    before = threads[threads.length - 1]?.id;
+    if (!archived.hasMore) {
+      break;
+    }
+  }
+}
+
 async function backfillTrailmarkChannel(params: {
   channel: TextChannel;
   trailmark: TrailmarkRow;
@@ -275,6 +383,73 @@ async function backfillTrailmarkChannel(params: {
   while (messagesScanned < params.limit) {
     const remaining = params.limit - messagesScanned;
     const messages = await params.channel.messages.fetch({
+      limit: Math.min(100, remaining),
+      ...(before ? { before } : {})
+    });
+
+    if (messages.size === 0) {
+      break;
+    }
+
+    const batch = [...messages.values()];
+    before = batch[batch.length - 1]?.id;
+    const batchIsOlderThanCutoff = params.after ? batch.every((message) => message.createdAt < params.after!) : false;
+
+    for (const message of batch) {
+      messagesScanned += 1;
+      if (params.after && message.createdAt < params.after) {
+        continue;
+      }
+
+      if (message.author.bot || !message.content.trim()) {
+        continue;
+      }
+
+      const matchedTopics = params.topics.filter((topic) => topicMatchesContent(topic, message.content));
+      if (matchedTopics.length === 0) {
+        continue;
+      }
+
+      const isHqReport = params.hqTrailmarkId === params.trailmark.id;
+      for (const topic of matchedTopics) {
+        const inserted = await upsertIntelReport({
+          topic,
+          trailmark: params.trailmark,
+          message,
+          isHqReport
+        });
+        if (inserted) {
+          matchedReports += 1;
+        }
+
+        touchedTopicIds.add(topic.id);
+      }
+    }
+
+    if (batch.length < 100 || batchIsOlderThanCutoff) {
+      break;
+    }
+  }
+
+  return { messagesScanned, matchedReports, touchedTopicIds };
+}
+
+async function backfillTrailmarkThread(params: {
+  thread: ThreadChannel;
+  trailmark: TrailmarkRow;
+  topics: IntelTopicRow[];
+  hqTrailmarkId: string | null;
+  after?: Date;
+  limit: number;
+}): Promise<{ messagesScanned: number; matchedReports: number; touchedTopicIds: Set<string> }> {
+  let before: string | undefined;
+  let messagesScanned = 0;
+  let matchedReports = 0;
+  const touchedTopicIds = new Set<string>();
+
+  while (messagesScanned < params.limit) {
+    const remaining = params.limit - messagesScanned;
+    const messages = await params.thread.messages.fetch({
       limit: Math.min(100, remaining),
       ...(before ? { before } : {})
     });
@@ -617,6 +792,22 @@ async function requireIntelTextChannel(guild: Guild, channelId: string): Promise
 function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {
   const normalizedContent = content.toLowerCase();
   return topic.keywords.some((keyword) => normalizedContent.includes(keyword.toLowerCase()));
+}
+
+function matchLegacyThreadToTrailmark(threadName: string, trailmarks: TrailmarkRow[]): TrailmarkRow | null {
+  const threadSlug = normalizeLegacyTrailmarkName(threadName);
+  return trailmarks.find((trailmark) => normalizeLegacyTrailmarkName(trailmark.name) === threadSlug)
+    ?? trailmarks.find((trailmark) => threadSlug.includes(normalizeLegacyTrailmarkName(trailmark.name)))
+    ?? trailmarks.find((trailmark) => normalizeLegacyTrailmarkName(trailmark.name).includes(threadSlug))
+    ?? null;
+}
+
+function normalizeLegacyTrailmarkName(name: string): string {
+  return slugify(name)
+    .replace(/-stash$/u, "")
+    .replace(/-trailmark$/u, "")
+    .replace(/-headquarters$/u, "")
+    .replace(/^trailmark-/u, "");
 }
 
 function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkRow | undefined): EmbedBuilder {

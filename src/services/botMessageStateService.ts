@@ -1,4 +1,4 @@
-import { ChannelType, type Guild, type TextChannel } from "discord.js";
+import { ChannelType, type Guild, type GuildBasedChannel, type NewsChannel, type TextChannel } from "discord.js";
 import { assertNoDbError, supabase, type BotMessageStateRow } from "../db/supabase.js";
 
 export async function getBotMessageState(stateKey: string): Promise<BotMessageStateRow | null> {
@@ -30,7 +30,7 @@ export async function deleteStoredMessages(guild: Guild, stateKey: string): Prom
   }
 
   const channel = await guild.channels.fetch(state.discord_channel_id).catch(() => null);
-  if (!channel || channel.type !== ChannelType.GuildText) {
+  if (!isStoredMessageChannel(channel)) {
     return;
   }
 
@@ -52,4 +52,8 @@ export async function getStoredTextChannel(guild: Guild, stateKey: string): Prom
 
   const channel = await guild.channels.fetch(state.discord_channel_id).catch(() => null);
   return channel?.type === ChannelType.GuildText ? channel : null;
+}
+
+function isStoredMessageChannel(channel: GuildBasedChannel | null): channel is TextChannel | NewsChannel {
+  return channel?.type === ChannelType.GuildText || channel?.type === ChannelType.GuildAnnouncement;
 }

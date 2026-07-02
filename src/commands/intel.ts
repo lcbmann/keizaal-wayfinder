@@ -1,4 +1,4 @@
-import { ChannelType, EmbedBuilder, SlashCommandBuilder, type TextChannel } from "discord.js";
+import { ChannelType, EmbedBuilder, SlashCommandBuilder, type GuildBasedChannel, type NewsChannel, type TextChannel } from "discord.js";
 import {
   backfillTrailmarkIntel,
   createIntelTopic,
@@ -43,8 +43,8 @@ export const intelCommand: BotCommand = {
         .addChannelOption((option) =>
           option
             .setName("channel")
-            .setDescription("Existing report channel. If omitted, Wayfinder creates one here.")
-            .addChannelTypes(ChannelType.GuildText)
+            .setDescription("Existing report channel. If omitted, Wayfinder creates one in Intel.")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         )
     )
     .addSubcommand((subcommand) => subcommand.setName("topic-list").setDescription("List intel topics and HQ setup."))
@@ -194,7 +194,7 @@ export const intelCommand: BotCommand = {
   }
 };
 
-async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]>[0], name: string): Promise<TextChannel> {
+async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]>[0], name: string): Promise<TextChannel | NewsChannel> {
   const selectedChannel = interaction.options.getChannel("channel");
   if (selectedChannel) {
     if (!interaction.inCachedGuild()) {
@@ -202,8 +202,8 @@ async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]
     }
 
     const channel = await interaction.guild.channels.fetch(selectedChannel.id);
-    if (!channel || channel.type !== ChannelType.GuildText) {
-      throw new UserFacingError("Intel topic channel must be a text channel.");
+    if (!isIntelTopicChannel(channel)) {
+      throw new UserFacingError("Intel topic channel must be a text or announcement channel.");
     }
 
     return channel;
@@ -219,6 +219,10 @@ async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]
     parent: INTEL_CATEGORY_ID,
     reason: `Create Trailmark intel topic channel for ${name}`
   });
+}
+
+function isIntelTopicChannel(channel: GuildBasedChannel | null): channel is TextChannel | NewsChannel {
+  return channel?.type === ChannelType.GuildText || channel?.type === ChannelType.GuildAnnouncement;
 }
 
 function parseKeywords(value: string): string[] {

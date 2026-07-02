@@ -3,7 +3,9 @@ import {
   EmbedBuilder,
   type ForumChannel,
   type Guild,
+  type GuildBasedChannel,
   type Message,
+  type NewsChannel,
   type Snowflake,
   type TextChannel,
   type ThreadChannel
@@ -19,11 +21,13 @@ import {
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
 import { slugify } from "../utils/slugs.js";
-import { deleteStoredMessages, saveBotMessageState } from "./botMessageStateService.js";
+import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 
 const INTEL_TOPIC_STATE_PREFIX = "intel-topic";
 const LEGACY_TRAILMARK_FORUM_CHANNEL_ID = "1511443716420800673";
 const MAX_REPORT_DESCRIPTION_LENGTH = 4000;
+
+type IntelReportChannel = TextChannel | NewsChannel;
 
 export type IntelBackfillMode = "historical-delivery" | "pending-only";
 
@@ -737,7 +741,7 @@ function historicalDeliveryUpdates(
 
 async function refreshDeliveredTopics(guild: Guild, topicIds: Set<string>): Promise<void> {
   for (const topicId of topicIds) {
-    await refreshIntelTopicBulletin(guild, topicId);
+    await publishUnpostedDeliveredReports(guild, topicId);
   }
 }
 
@@ -762,14 +766,40 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
   sentMessages.push(await channel.send({ embeds: [header] }));
 
   for (const report of reports) {
-    sentMessages.push(
-      await channel.send({
-        embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
-      })
-    );
+    const message = await channel.send({
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
+    });
+    await markReportPosted(report.id, channel.id, message.id);
+    sentMessages.push(message);
   }
 
   await saveBotMessageState(stateKey, channel.id, sentMessages.map((message) => message.id));
+}
+
+async function publishUnpostedDeliveredReports(guild: Guild, topicId: string): Promise<void> {
+  const topic = await getIntelTopic(topicId);
+  if (!topic) {
+    return;
+  }
+
+  const reports = await listUnpostedDeliveredReports(topic.id);
+  if (reports.length === 0) {
+    return;
+  }
+
+  const channel = await requireIntelTextChannel(guild, topic.discord_channel_id);
+  const trailmarks = await trailmarkMapForReports(reports);
+  const sentMessageIds: string[] = [];
+
+  for (const report of reports) {
+    const message = await channel.send({
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
+    });
+    await markReportPosted(report.id, channel.id, message.id);
+    sentMessageIds.push(message.id);
+  }
+
+  await appendStoredTopicMessageIds(topic.id, channel.id, sentMessageIds);
 }
 
 async function listDeliveredReports(topicId: string): Promise<IntelReportRow[]> {
@@ -782,6 +812,42 @@ async function listDeliveredReports(topicId: string): Promise<IntelReportRow[]> 
 
   assertNoDbError(error, "list delivered intel reports");
   return data ?? [];
+}
+
+async function listUnpostedDeliveredReports(topicId: string): Promise<IntelReportRow[]> {
+  const { data, error } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .eq("topic_id", topicId)
+    .not("delivered_at", "is", null)
+    .is("bulletin_message_id", null)
+    .order("created_at", { ascending: true });
+
+  assertNoDbError(error, "list unposted delivered intel reports");
+  return data ?? [];
+}
+
+async function markReportPosted(reportId: string, channelId: string, messageId: string): Promise<void> {
+  const { error } = await supabase
+    .from("intel_reports")
+    .update({
+      bulletin_channel_id: channelId,
+      bulletin_message_id: messageId,
+      bulletin_posted_at: new Date().toISOString()
+    })
+    .eq("id", reportId);
+
+  assertNoDbError(error, "mark intel report posted");
+}
+
+async function appendStoredTopicMessageIds(topicId: string, channelId: string, messageIds: string[]): Promise<void> {
+  if (messageIds.length === 0) {
+    return;
+  }
+
+  const stateKey = intelTopicStateKey(topicId);
+  const existing = await getBotMessageState(stateKey);
+  await saveBotMessageState(stateKey, channelId, [...(existing?.discord_message_ids ?? []), ...messageIds]);
 }
 
 async function trailmarkMapForReports(reports: IntelReportRow[]): Promise<Map<string, TrailmarkRow>> {
@@ -833,13 +899,17 @@ async function getActiveTrailmarkByChannelId(channelId: string): Promise<Trailma
   return data;
 }
 
-async function requireIntelTextChannel(guild: Guild, channelId: string): Promise<TextChannel> {
+async function requireIntelTextChannel(guild: Guild, channelId: string): Promise<IntelReportChannel> {
   const channel = await guild.channels.fetch(channelId);
-  if (!channel || channel.type !== ChannelType.GuildText) {
-    throw new UserFacingError("Intel report channel was not found or is not a text channel.");
+  if (!isIntelReportChannel(channel)) {
+    throw new UserFacingError("Intel report channel was not found or is not a text or announcement channel.");
   }
 
   return channel;
+}
+
+function isIntelReportChannel(channel: GuildBasedChannel | null): channel is IntelReportChannel {
+  return channel?.type === ChannelType.GuildText || channel?.type === ChannelType.GuildAnnouncement;
 }
 
 function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {

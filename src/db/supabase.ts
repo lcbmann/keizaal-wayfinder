@@ -129,6 +129,9 @@ export interface IntelReportRow {
   delivered_by_discord_user_id: string | null;
   delivered_to_trailmark_id: string | null;
   delivered_at: string | null;
+  bulletin_channel_id: string | null;
+  bulletin_message_id: string | null;
+  bulletin_posted_at: string | null;
   created_at: string;
 }
 
@@ -231,7 +234,12 @@ export interface Database {
       };
       intel_reports: {
         Row: IntelReportRow;
-        Insert: Omit<IntelReportRow, "id"> & { id?: string };
+        Insert: Omit<IntelReportRow, "id" | "bulletin_channel_id" | "bulletin_message_id" | "bulletin_posted_at"> & {
+          id?: string;
+          bulletin_channel_id?: string | null;
+          bulletin_message_id?: string | null;
+          bulletin_posted_at?: string | null;
+        };
         Update: Partial<IntelReportRow>;
       };
       intel_trailmark_visits: {

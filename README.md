@@ -187,6 +187,8 @@ When a message is posted in an active Trailmark channel, Wayfinder checks it aga
 
 `/intel backfill` scans old Trailmark messages into the current intel topics. It scans current Trailmark channels and the archived legacy `#trailmarks` forum (`1511443716420800673`), mapping forum thread names such as `Morthal Stash` to current Trailmarks where possible. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
+Automatic intel updates append newly delivered reports instead of rebuilding entire report channels. Use `/intel refresh` when you intentionally want to delete and rebuild a topic bulletin in strict original report chronology.
+
 ## Role Sync
 
 The centralized rank config lives in `src/config/ranks.ts`. Main rank roles are:

@@ -14,6 +14,7 @@ import { trailmarkCommand } from "./commands/trailmark.js";
 import { rosterCommand } from "./commands/roster.js";
 import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
+import { intelCommand } from "./commands/intel.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
@@ -21,15 +22,30 @@ import { handleMemberJoin, handleMemberUpdate } from "./jobs/syncMemberRoster.js
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
+import { captureTrailmarkIntelReports } from "./services/intelService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
-for (const command of [pingCommand, rangerCommand, promotionCommand, trailmarkCommand, rosterCommand, recruitCommand, fundsCommand]) {
+for (const command of [
+  pingCommand,
+  rangerCommand,
+  promotionCommand,
+  trailmarkCommand,
+  rosterCommand,
+  recruitCommand,
+  fundsCommand,
+  intelCommand
+]) {
   commands.set(command.data.name, command);
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ],
   partials: [Partials.Channel]
 });
 
@@ -67,6 +83,7 @@ client.on("messageCreate", (message) => {
       if (result.reactivated) {
         await refreshStoredAssignmentsBoard(guild);
       }
+      await captureTrailmarkIntelReports(message);
     })
     .catch((error) => {
       console.warn(`Failed to record message activity for ${message.author.id}:`, error);

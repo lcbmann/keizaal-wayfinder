@@ -100,6 +100,45 @@ export interface BotMessageStateRow {
   updated_at: string;
 }
 
+export interface IntelSettingsRow {
+  id: boolean;
+  hq_trailmark_id: string | null;
+  updated_at: string;
+}
+
+export interface IntelTopicRow {
+  id: string;
+  name: string;
+  slug: string;
+  keywords: string[];
+  discord_channel_id: string;
+  active: boolean;
+  created_by_discord_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IntelReportRow {
+  id: string;
+  topic_id: string;
+  trailmark_id: string;
+  discord_message_id: string;
+  discord_channel_id: string;
+  author_discord_user_id: string;
+  content: string;
+  delivered_by_discord_user_id: string | null;
+  delivered_to_trailmark_id: string | null;
+  delivered_at: string | null;
+  created_at: string;
+}
+
+export interface IntelTrailmarkVisitRow {
+  id: string;
+  discord_user_id: string;
+  trailmark_id: string;
+  visited_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -179,6 +218,26 @@ export interface Database {
         Row: BotMessageStateRow;
         Insert: BotMessageStateRow;
         Update: Partial<BotMessageStateRow>;
+      };
+      intel_settings: {
+        Row: IntelSettingsRow;
+        Insert: Partial<IntelSettingsRow>;
+        Update: Partial<IntelSettingsRow>;
+      };
+      intel_topics: {
+        Row: IntelTopicRow;
+        Insert: Omit<IntelTopicRow, "id" | "created_at" | "updated_at">;
+        Update: Partial<IntelTopicRow>;
+      };
+      intel_reports: {
+        Row: IntelReportRow;
+        Insert: Omit<IntelReportRow, "id"> & { id?: string };
+        Update: Partial<IntelReportRow>;
+      };
+      intel_trailmark_visits: {
+        Row: IntelTrailmarkVisitRow;
+        Insert: Omit<IntelTrailmarkVisitRow, "id"> & { id?: string };
+        Update: Partial<IntelTrailmarkVisitRow>;
       };
     };
   };

@@ -48,7 +48,7 @@ Optional:
 
 ## Discord Setup
 
-Enable the **Guild Members privileged intent** in the Discord Developer Portal. The bot uses `Guilds`, `GuildMembers`, and `GuildMessages`; it does not require `MessageContent`.
+Enable the **Guild Members privileged intent** and **Message Content privileged intent** in the Discord Developer Portal. The bot uses `Guilds`, `GuildMembers`, `GuildMessages`, and `MessageContent`.
 
 Recommended bot permissions:
 
@@ -86,6 +86,10 @@ The migration creates:
 - `corps_fund_transactions`
 - `corps_fund_summary_state`
 - `bot_message_state`
+- `intel_settings`
+- `intel_topics`
+- `intel_reports`
+- `intel_trailmark_visits`
 
 It also creates enum types, update triggers, indexes, the Trailmark pinned flag, and a partial unique index enforcing one active Trailmark session per Discord user.
 
@@ -155,6 +159,11 @@ Implemented commands:
 - `/funds history`
 - `/funds undo-last`
 - `/funds monthly`
+- `/intel set-hq`
+- `/intel topic-add`
+- `/intel topic-list`
+- `/intel refresh`
+- `/intel backfill`
 
 ## Corps Funds
 
@@ -169,6 +178,14 @@ Each Trailmark is a private text channel under `TRAILMARK_CATEGORY_ID`. Everyone
 Users visit Trailmarks by selecting one from the bot message posted by `/trailmark panel`. When a user selects a Trailmark, any previous active Trailmark session is revoked, the selected channel is opened for the configured duration, and the session is stored in Supabase. The dropdown also includes `No Trailmark`, which revokes current access and clears the user's selection path. A background job runs every minute and also runs on startup, so expired access is revoked after bot restarts. The stored panel refreshes automatically when Trailmarks are created, edited, or deactivated.
 
 `/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, or pinned status. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
+
+## Trailmark Intel
+
+Trailmark intel topics collect delivered reports from Trailmark channels into public bulletin channels. Configure the HQ delivery point with `/intel set-hq`, then add topics with `/intel topic-add`. Keywords are comma-separated, so a vampire topic should include variants such as `vampire,vampires`.
+
+When a message is posted in an active Trailmark channel, Wayfinder checks it against active intel topic keywords. Matching messages are stored as pending reports. A pending report is published only after a Ranger opens that source Trailmark after the report was written and later opens the configured HQ Trailmark. HQ-origin reports are published immediately. Bulletins are rebuilt in original report chronology and include the original reporter, source Trailmark, report time, original link, and the Ranger who delivered it to HQ.
+
+`/intel backfill` scans old Trailmark messages into the current intel topics. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
 ## Role Sync
 
@@ -204,3 +221,4 @@ Local development is fine initially. For production, run the bot on an always-ru
 - Nickname enforcement is intentionally left as a TODO.
 - Promotion eligibility warns through displayed reasons, but `/promotion open` still allows Marshal judgment for edge cases.
 - The Atlas site is not implemented here; `trailmarks.atlas_location_id` is reserved for future integration.
+- Trailmark intel captures new messages while the bot is online. Use `/intel backfill` for historical Trailmark posts.

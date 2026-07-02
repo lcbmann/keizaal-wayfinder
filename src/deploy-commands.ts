@@ -7,10 +7,18 @@ import { trailmarkCommand } from "./commands/trailmark.js";
 import { rosterCommand } from "./commands/roster.js";
 import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
+import { intelCommand } from "./commands/intel.js";
 
-const commands = [pingCommand, rangerCommand, promotionCommand, trailmarkCommand, rosterCommand, recruitCommand, fundsCommand].map(
-  (command) => command.data.toJSON()
-);
+const commands = [
+  pingCommand,
+  rangerCommand,
+  promotionCommand,
+  trailmarkCommand,
+  rosterCommand,
+  recruitCommand,
+  fundsCommand,
+  intelCommand
+].map((command) => command.data.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(env.DISCORD_TOKEN);
 

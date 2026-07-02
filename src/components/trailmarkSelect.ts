@@ -1,6 +1,7 @@
 import type { StringSelectMenuInteraction } from "discord.js";
 import { env } from "../config/env.js";
 import { getTrailmark, grantTrailmarkAccess, leaveTrailmark, NO_TRAILMARK_SELECT_VALUE } from "../services/trailmarkService.js";
+import { recordTrailmarkVisitAndDeliver } from "../services/intelService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canUseTrailmarks } from "../utils/permissions.js";
 
@@ -34,9 +35,17 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
     trailmark,
     minutes: env.DEFAULT_TRAILMARK_ACCESS_MINUTES
   });
+  const deliveredReports = await recordTrailmarkVisitAndDeliver({
+    guild: interaction.guild,
+    discordUserId: interaction.user.id,
+    trailmark
+  });
 
   await interaction.reply({
-    content: `Opened <#${trailmark.discord_channel_id}>. Access expires in ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`,
+    content: [
+      `Opened <#${trailmark.discord_channel_id}>. Access expires in ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`,
+      deliveredReports > 0 ? `Delivered ${deliveredReports} report${deliveredReports === 1 ? "" : "s"} to HQ.` : null
+    ].filter(Boolean).join("\n"),
     ephemeral: true
   });
 }

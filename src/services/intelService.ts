@@ -172,6 +172,59 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
   return matchedTopics.length;
 }
 
+export async function captureRecentTrailmarkMessagesForIntel(params: {
+  guild: Guild;
+  trailmark: TrailmarkRow;
+  limit?: number;
+}): Promise<number> {
+  const channel = await params.guild.channels.fetch(params.trailmark.discord_channel_id).catch(() => null);
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    return 0;
+  }
+
+  const messages = await channel.messages.fetch({ limit: params.limit ?? 50 });
+  if (messages.size === 0) {
+    return 0;
+  }
+
+  const topics = await listIntelTopics();
+  if (topics.length === 0) {
+    return 0;
+  }
+
+  const settings = await getIntelSettings();
+  const isHqReport = settings.hq_trailmark_id === params.trailmark.id;
+  const touchedTopicIds = new Set<string>();
+  let matchedReports = 0;
+
+  for (const message of [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp)) {
+    if (message.author.bot || !message.content.trim()) {
+      continue;
+    }
+
+    const matchedTopics = topics.filter((topic) => topicMatchesContent(topic, message.content));
+    if (matchedTopics.length === 0) {
+      continue;
+    }
+
+    for (const topic of matchedTopics) {
+      await upsertIntelReport({
+        topic,
+        trailmark: params.trailmark,
+        message,
+        isHqReport
+      });
+      matchedReports += 1;
+      if (isHqReport) {
+        touchedTopicIds.add(topic.id);
+      }
+    }
+  }
+
+  await refreshDeliveredTopics(params.guild, touchedTopicIds);
+  return matchedReports;
+}
+
 export async function backfillTrailmarkIntel(params: {
   guild: Guild;
   topicId?: string;

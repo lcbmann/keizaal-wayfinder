@@ -8,6 +8,7 @@ import {
   type NewsChannel,
   type Snowflake,
   type TextChannel,
+  type TextBasedChannel,
   type ThreadChannel
 } from "discord.js";
 import {
@@ -150,23 +151,12 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
   const deliveredTopicIds = new Set<string>();
 
   for (const topic of matchedTopics) {
-    const { error } = await supabase.from("intel_reports").upsert(
-      {
-        topic_id: topic.id,
-        trailmark_id: trailmark.id,
-        discord_message_id: message.id,
-        discord_channel_id: message.channelId,
-        author_discord_user_id: message.author.id,
-        content,
-        delivered_by_discord_user_id: isHqReport ? message.author.id : null,
-        delivered_to_trailmark_id: isHqReport ? trailmark.id : null,
-        delivered_at: isHqReport ? message.createdAt.toISOString() : null,
-        created_at: message.createdAt.toISOString()
-      },
-      { onConflict: "topic_id,discord_message_id", ignoreDuplicates: true }
-    );
-
-    assertNoDbError(error, "capture Trailmark intel report");
+    await upsertIntelReport({
+      topic,
+      trailmark,
+      message,
+      isHqReport
+    });
     if (isHqReport) {
       deliveredTopicIds.add(topic.id);
     }
@@ -174,6 +164,36 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
 
   await refreshDeliveredTopics(message.guild, deliveredTopicIds);
   return matchedTopics.length;
+}
+
+export async function removeIntelReportsForDiscordMessage(params: {
+  guild: Guild;
+  channelId: string;
+  messageId: string;
+}): Promise<number> {
+  const { data: reports, error } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .eq("discord_channel_id", params.channelId)
+    .eq("discord_message_id", params.messageId);
+
+  assertNoDbError(error, "list intel reports for deleted message");
+  if (!reports?.length) {
+    return 0;
+  }
+
+  for (const report of reports) {
+    await deleteBulletinMessageForReport(params.guild, report);
+  }
+
+  const { error: deleteError } = await supabase
+    .from("intel_reports")
+    .delete()
+    .eq("discord_channel_id", params.channelId)
+    .eq("discord_message_id", params.messageId);
+
+  assertNoDbError(deleteError, "delete intel reports for deleted message");
+  return reports.length;
 }
 
 export async function captureRecentTrailmarkMessagesForIntel(params: {
@@ -564,21 +584,22 @@ async function upsertIntelReport(params: {
   message: Message;
   isHqReport: boolean;
 }): Promise<boolean> {
-  const { error } = await supabase.from("intel_reports").upsert(
-    {
-      topic_id: params.topic.id,
-      trailmark_id: params.trailmark.id,
-      discord_message_id: params.message.id,
-      discord_channel_id: params.message.channelId,
-      author_discord_user_id: params.message.author.id,
-      content: params.message.content.trim(),
-      delivered_by_discord_user_id: params.isHqReport ? params.message.author.id : null,
-      delivered_to_trailmark_id: params.isHqReport ? params.trailmark.id : null,
-      delivered_at: params.isHqReport ? params.message.createdAt.toISOString() : null,
-      created_at: params.message.createdAt.toISOString()
-    },
-    { onConflict: "topic_id,discord_message_id", ignoreDuplicates: true }
-  );
+  const payload = {
+    topic_id: params.topic.id,
+    trailmark_id: params.trailmark.id,
+    discord_message_id: params.message.id,
+    discord_channel_id: params.message.channelId,
+    author_discord_user_id: params.message.author.id,
+    content: params.message.content.trim(),
+    delivered_by_discord_user_id: params.isHqReport ? params.message.author.id : null,
+    delivered_to_trailmark_id: params.isHqReport ? params.trailmark.id : null,
+    delivered_at: params.isHqReport ? params.message.createdAt.toISOString() : null,
+    created_at: params.message.createdAt.toISOString()
+  };
+
+  const { error } = await supabase
+    .from("intel_reports")
+    .upsert(payload, { onConflict: "topic_id,discord_message_id", ignoreDuplicates: !params.isHqReport });
 
   assertNoDbError(error, "upsert Trailmark intel report");
   return true;
@@ -751,21 +772,22 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
 
   const channel = await requireIntelTextChannel(guild, topic.discord_channel_id);
   const reports = await listDeliveredReports(topic.id);
-  const trailmarks = await trailmarkMapForReports(reports);
+  const validReports = await filterReportsWithExistingOriginals(guild, reports);
+  const trailmarks = await trailmarkMapForReports(validReports);
   const sentMessages: Message[] = [];
 
   const header = new EmbedBuilder()
     .setTitle(`${topic.name} Reports`)
     .setDescription(
-      reports.length === 0
+      validReports.length === 0
         ? "No delivered reports yet."
-        : `${reports.length} delivered report${reports.length === 1 ? "" : "s"}. One report per message, sorted by original report time.`
+        : `${validReports.length} delivered report${validReports.length === 1 ? "" : "s"}. One report per message, sorted by original report time.`
     )
     .setColor(0x587c4a)
     .setTimestamp(new Date());
   sentMessages.push(await channel.send({ embeds: [header] }));
 
-  for (const report of reports) {
+  for (const report of validReports) {
     const message = await channel.send({
       embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
     });
@@ -788,10 +810,15 @@ async function publishUnpostedDeliveredReports(guild: Guild, topicId: string): P
   }
 
   const channel = await requireIntelTextChannel(guild, topic.discord_channel_id);
-  const trailmarks = await trailmarkMapForReports(reports);
+  const validReports = await filterReportsWithExistingOriginals(guild, reports);
+  if (validReports.length === 0) {
+    return;
+  }
+
+  const trailmarks = await trailmarkMapForReports(validReports);
   const sentMessageIds: string[] = [];
 
-  for (const report of reports) {
+  for (const report of validReports) {
     const message = await channel.send({
       embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
     });
@@ -838,6 +865,50 @@ async function markReportPosted(reportId: string, channelId: string, messageId: 
     .eq("id", reportId);
 
   assertNoDbError(error, "mark intel report posted");
+}
+
+async function filterReportsWithExistingOriginals(guild: Guild, reports: IntelReportRow[]): Promise<IntelReportRow[]> {
+  const validReports: IntelReportRow[] = [];
+  for (const report of reports) {
+    if (await originalReportExists(guild, report)) {
+      validReports.push(report);
+      continue;
+    }
+
+    await deleteBulletinMessageForReport(guild, report);
+    const { error } = await supabase.from("intel_reports").delete().eq("id", report.id);
+    assertNoDbError(error, "delete intel report with missing original message");
+  }
+
+  return validReports;
+}
+
+async function originalReportExists(guild: Guild, report: IntelReportRow): Promise<boolean> {
+  const channel = await guild.channels.fetch(report.discord_channel_id).catch(() => null);
+  if (!isMessageFetchableChannel(channel)) {
+    return false;
+  }
+
+  const message = await channel.messages.fetch(report.discord_message_id).catch(() => null);
+  return Boolean(message);
+}
+
+async function deleteBulletinMessageForReport(guild: Guild, report: IntelReportRow): Promise<void> {
+  if (!report.bulletin_channel_id || !report.bulletin_message_id || report.bulletin_message_id === "legacy") {
+    return;
+  }
+
+  const channel = await guild.channels.fetch(report.bulletin_channel_id).catch(() => null);
+  if (!isMessageFetchableChannel(channel)) {
+    return;
+  }
+
+  const message = await channel.messages.fetch(report.bulletin_message_id).catch(() => null);
+  if (message) {
+    await message.delete().catch((error) => {
+      console.warn(`Could not delete intel bulletin message ${report.bulletin_message_id}:`, error);
+    });
+  }
 }
 
 async function appendStoredTopicMessageIds(topicId: string, channelId: string, messageIds: string[]): Promise<void> {
@@ -910,6 +981,10 @@ async function requireIntelTextChannel(guild: Guild, channelId: string): Promise
 
 function isIntelReportChannel(channel: GuildBasedChannel | null): channel is IntelReportChannel {
   return channel?.type === ChannelType.GuildText || channel?.type === ChannelType.GuildAnnouncement;
+}
+
+function isMessageFetchableChannel(channel: GuildBasedChannel | null): channel is GuildBasedChannel & TextBasedChannel {
+  return Boolean(channel?.isTextBased() && "messages" in channel);
 }
 
 function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {

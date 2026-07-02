@@ -15,11 +15,12 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
     throw new UserFacingError("Apprentice or higher is required to use Trailmarks.");
   }
 
+  await interaction.deferReply({ ephemeral: true });
+
   if (interaction.values[0] === NO_TRAILMARK_SELECT_VALUE) {
     const revoked = await leaveTrailmark(interaction.guild, interaction.user.id);
-    await interaction.reply({
-      content: revoked > 0 ? "Trailmark access revoked." : "You do not have an active Trailmark session.",
-      ephemeral: true
+    await interaction.editReply({
+      content: revoked > 0 ? "Trailmark access revoked." : "You do not have an active Trailmark session."
     });
     return;
   }
@@ -45,11 +46,10 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
     trailmark
   });
 
-  await interaction.reply({
+  await interaction.editReply({
     content: [
       `Opened <#${trailmark.discord_channel_id}>. Access expires in ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`,
       deliveredReports > 0 ? `Delivered ${deliveredReports} report${deliveredReports === 1 ? "" : "s"} to HQ.` : null
-    ].filter(Boolean).join("\n"),
-    ephemeral: true
+    ].filter(Boolean).join("\n")
   });
 }

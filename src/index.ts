@@ -22,7 +22,7 @@ import { handleMemberJoin, handleMemberUpdate } from "./jobs/syncMemberRoster.js
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
-import { captureTrailmarkIntelReports } from "./services/intelService.js";
+import { captureTrailmarkIntelReports, removeIntelReportsForDiscordMessage } from "./services/intelService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
@@ -46,7 +46,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ],
-  partials: [Partials.Channel]
+  partials: [Partials.Channel, Partials.Message]
 });
 
 client.once("ready", (readyClient) => {
@@ -88,6 +88,20 @@ client.on("messageCreate", (message) => {
     .catch((error) => {
       console.warn(`Failed to record message activity for ${message.author.id}:`, error);
     });
+});
+
+client.on("messageDelete", (message) => {
+  if (!message.guild) {
+    return;
+  }
+
+  void removeIntelReportsForDiscordMessage({
+    guild: message.guild,
+    channelId: message.channelId,
+    messageId: message.id
+  }).catch((error) => {
+    console.warn(`Failed to remove intel reports for deleted message ${message.id}:`, error);
+  });
 });
 
 async function handleInteraction(interaction: Interaction): Promise<void> {

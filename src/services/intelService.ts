@@ -93,6 +93,28 @@ export async function createIntelTopic(params: {
   return data;
 }
 
+export async function updateIntelTopicKeywords(params: {
+  topicId: string;
+  keywords: string[];
+  append: boolean;
+}): Promise<IntelTopicRow> {
+  if (params.keywords.length === 0) {
+    throw new UserFacingError("Provide at least one keyword.");
+  }
+
+  const topic = await requireIntelTopic(params.topicId);
+  const keywords = params.append ? dedupeKeywords([...topic.keywords, ...params.keywords]) : dedupeKeywords(params.keywords);
+  const { data, error } = await supabase
+    .from("intel_topics")
+    .update({ keywords, updated_at: new Date().toISOString() })
+    .eq("id", topic.id)
+    .select("*")
+    .single();
+
+  assertNoDbError(error, "update intel topic keywords");
+  return data;
+}
+
 export async function listIntelTopics(includeInactive = false): Promise<IntelTopicRow[]> {
   let query = supabase.from("intel_topics").select("*").order("name", { ascending: true });
   if (!includeInactive) {
@@ -619,11 +641,22 @@ async function deliverCarriedReportsToHq(params: {
     .lt("visited_at", params.hqVisitedAt);
 
   assertNoDbError(visitsError, "list carried Trailmark visits");
-  if (!visits?.length) {
+
+  const { data: sessions, error: sessionsError } = await supabase
+    .from("trailmark_sessions")
+    .select("*")
+    .eq("discord_user_id", params.discordUserId)
+    .neq("trailmark_id", params.hqTrailmarkId)
+    .lte("created_at", params.hqVisitedAt);
+
+  assertNoDbError(sessionsError, "list carried Trailmark sessions");
+
+  const sourceWindows = sourceAccessWindows(visits ?? [], sessions ?? [], params.hqVisitedAt);
+  if (sourceWindows.length === 0) {
     return 0;
   }
 
-  const visitedTrailmarkIds = [...new Set(visits.map((visit) => visit.trailmark_id))];
+  const visitedTrailmarkIds = [...new Set(sourceWindows.map((window) => window.trailmarkId))];
   const { data: pendingReports, error: reportsError } = await supabase
     .from("intel_reports")
     .select("*")
@@ -634,7 +667,12 @@ async function deliverCarriedReportsToHq(params: {
   assertNoDbError(reportsError, "list carried intel reports");
 
   const deliverableReports = (pendingReports ?? []).filter((report) =>
-    visits.some((visit) => visit.trailmark_id === report.trailmark_id && visit.visited_at >= report.created_at)
+    sourceWindows.some(
+      (window) =>
+        window.trailmarkId === report.trailmark_id &&
+        window.openedAt <= report.created_at &&
+        report.created_at <= window.carriedThroughAt
+    )
   );
 
   if (deliverableReports.length === 0) {
@@ -655,6 +693,29 @@ async function deliverCarriedReportsToHq(params: {
   assertNoDbError(deliveryError, "deliver intel reports to HQ");
   await refreshDeliveredTopics(params.guild, new Set(deliverableReports.map((report) => report.topic_id)));
   return deliverableReports.length;
+}
+
+function sourceAccessWindows(
+  visits: Array<{ trailmark_id: string; visited_at: string }>,
+  sessions: Array<{ trailmark_id: string; created_at: string; expires_at: string }>,
+  hqVisitedAt: string
+): Array<{ trailmarkId: string; openedAt: string; carriedThroughAt: string }> {
+  return [
+    ...visits.map((visit) => ({
+      trailmarkId: visit.trailmark_id,
+      openedAt: new Date(0).toISOString(),
+      carriedThroughAt: visit.visited_at
+    })),
+    ...sessions.map((session) => ({
+      trailmarkId: session.trailmark_id,
+      openedAt: session.created_at,
+      carriedThroughAt: minIsoTimestamp(session.expires_at, hqVisitedAt)
+    }))
+  ];
+}
+
+function minIsoTimestamp(a: string, b: string): string {
+  return a < b ? a : b;
 }
 
 async function deliverHistoricallyCarriedReports(params: {
@@ -1003,6 +1064,25 @@ function keywordMatchesContent(keyword: string, content: string): boolean {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function dedupeKeywords(keywords: string[]): string[] {
+  const seen = new Set<string>();
+  return keywords
+    .map((keyword) => keyword.trim())
+    .filter((keyword) => {
+      if (!keyword) {
+        return false;
+      }
+
+      const key = keyword.toLocaleLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
 }
 
 function matchLegacyThreadToTrailmark(threadName: string, trailmarks: TrailmarkRow[]): TrailmarkRow | null {

@@ -161,6 +161,7 @@ Implemented commands:
 - `/funds monthly`
 - `/intel set-hq`
 - `/intel topic-add`
+- `/intel topic-edit`
 - `/intel topic-list`
 - `/intel refresh`
 - `/intel backfill`
@@ -181,7 +182,7 @@ Users visit Trailmarks by selecting one from the bot message posted by `/trailma
 
 ## Trailmark Intel
 
-Trailmark intel topics collect delivered reports from Trailmark channels into public bulletin channels. Configure the HQ delivery point with `/intel set-hq`, then add topics with `/intel topic-add`. Keywords are comma-separated, so a vampire topic should include variants such as `vampire,vampires`.
+Trailmark intel topics collect delivered reports from Trailmark channels into public bulletin channels. Configure the HQ delivery point with `/intel set-hq`, then add topics with `/intel topic-add`. Keywords are comma-separated, so a vampire topic should include variants such as `vampire,vampires`. Use `/intel topic-edit` to add keywords to an existing topic; set `append` to `false` only when you want to replace the full keyword list.
 
 When a message is posted in an active Trailmark channel, Wayfinder checks it against active intel topic keywords. Matching messages are stored as pending reports. A pending report is published only after a Ranger opens that source Trailmark after the report was written and later opens the configured HQ Trailmark. HQ-origin reports are published immediately. Bulletins are rebuilt in original report chronology and include the original reporter, source Trailmark, report time, original link, and the Ranger who delivered it to HQ.
 

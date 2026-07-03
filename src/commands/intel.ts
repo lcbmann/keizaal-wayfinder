@@ -6,7 +6,8 @@ import {
   getIntelSettings,
   listIntelTopics,
   refreshIntelTopicBulletin,
-  setIntelHqTrailmark
+  setIntelHqTrailmark,
+  updateIntelTopicKeywords
 } from "../services/intelService.js";
 import { findTrailmarksByName, getTrailmark } from "../services/trailmarkService.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -45,6 +46,24 @@ export const intelCommand: BotCommand = {
             .setName("channel")
             .setDescription("Existing report channel. If omitted, Wayfinder creates one in Intel.")
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("topic-edit")
+        .setDescription("Add or replace keywords for an existing intel topic.")
+        .addStringOption((option) =>
+          option.setName("topic").setDescription("Intel topic to update.").setRequired(true).setAutocomplete(true)
+        )
+        .addStringOption((option) =>
+          option
+            .setName("keywords")
+            .setDescription("Comma-separated keywords to add or use as the replacement list.")
+            .setRequired(true)
+            .setMaxLength(500)
+        )
+        .addBooleanOption((option) =>
+          option.setName("append").setDescription("Append to existing keywords. Defaults to yes.")
         )
     )
     .addSubcommand((subcommand) => subcommand.setName("topic-list").setDescription("List intel topics and HQ setup."))
@@ -133,6 +152,19 @@ export const intelCommand: BotCommand = {
       await refreshIntelTopicBulletin(interaction.guild, topic.id);
       await interaction.editReply({
         content: `Created intel topic ${topic.name} in ${channel} with keywords: ${keywords.join(", ")}.`,
+      });
+      return;
+    }
+
+    if (subcommand === "topic-edit") {
+      await interaction.deferReply({ ephemeral: true });
+      const topicId = interaction.options.getString("topic", true);
+      const keywords = parseKeywords(interaction.options.getString("keywords", true));
+      const append = interaction.options.getBoolean("append") ?? true;
+      const topic = await updateIntelTopicKeywords({ topicId, keywords, append });
+
+      await interaction.editReply({
+        content: `${append ? "Added keywords to" : "Replaced keywords for"} ${topic.name}: ${topic.keywords.join(", ")}.`
       });
       return;
     }

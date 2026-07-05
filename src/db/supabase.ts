@@ -6,6 +6,7 @@ export type RangerStatus = "Active" | "Inactive" | "On Leave" | "Retired";
 export type PromotionVoteStatus = "Open" | "Closed" | "Approved" | "Denied";
 export type BallotVote = "promote" | "hold" | "abstain";
 export type CorpsFundTransactionType = "Donation" | "Expense" | "Adjustment";
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface RangerRow {
   id: string;
@@ -103,6 +104,7 @@ export interface BotMessageStateRow {
 export interface IntelSettingsRow {
   id: boolean;
   hq_trailmark_id: string | null;
+  catchall_topic_id: string | null;
   updated_at: string;
 }
 
@@ -132,6 +134,8 @@ export interface IntelReportRow {
   bulletin_channel_id: string | null;
   bulletin_message_id: string | null;
   bulletin_posted_at: string | null;
+  atlas_share_code: string | null;
+  atlas_summary: Json | null;
   created_at: string;
 }
 
@@ -234,11 +238,16 @@ export interface Database {
       };
       intel_reports: {
         Row: IntelReportRow;
-        Insert: Omit<IntelReportRow, "id" | "bulletin_channel_id" | "bulletin_message_id" | "bulletin_posted_at"> & {
+        Insert: Omit<
+          IntelReportRow,
+          "id" | "bulletin_channel_id" | "bulletin_message_id" | "bulletin_posted_at" | "atlas_share_code" | "atlas_summary"
+        > & {
           id?: string;
           bulletin_channel_id?: string | null;
           bulletin_message_id?: string | null;
           bulletin_posted_at?: string | null;
+          atlas_share_code?: string | null;
+          atlas_summary?: Json | null;
         };
         Update: Partial<IntelReportRow>;
       };
@@ -246,6 +255,12 @@ export interface Database {
         Row: IntelTrailmarkVisitRow;
         Insert: Omit<IntelTrailmarkVisitRow, "id"> & { id?: string };
         Update: Partial<IntelTrailmarkVisitRow>;
+      };
+    };
+    Functions: {
+      get_atlas_share: {
+        Args: { share_code: string };
+        Returns: Json;
       };
     };
   };

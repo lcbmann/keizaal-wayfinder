@@ -20,6 +20,11 @@ import {
   type TrailmarkSessionRow,
   type TrailmarkRow
 } from "../db/supabase.js";
+import {
+  atlasPreviewToJson,
+  atlasReportFieldValue,
+  resolveAtlasSharePreviewFromContent
+} from "./atlasService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
@@ -37,6 +42,7 @@ export interface IntelBackfillResult {
   legacyForumThreadsScanned: number;
   messagesScanned: number;
   matchedReports: number;
+  catchallReports: number;
   deliveredReports: number;
   topicsRefreshed: number;
 }
@@ -67,6 +73,21 @@ export async function setIntelHqTrailmark(trailmarkId: string): Promise<IntelSet
     .single();
 
   assertNoDbError(error, "set intel HQ trailmark");
+  return data;
+}
+
+export async function setIntelCatchallTopic(topicId: string | null): Promise<IntelSettingsRow> {
+  if (topicId) {
+    await requireIntelTopic(topicId);
+  }
+
+  const { data, error } = await supabase
+    .from("intel_settings")
+    .upsert({ id: true, catchall_topic_id: topicId, updated_at: new Date().toISOString() })
+    .select("*")
+    .single();
+
+  assertNoDbError(error, "set intel catchall topic");
   return data;
 }
 
@@ -162,17 +183,31 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
     return 0;
   }
 
+  const settings = await getIntelSettings();
   const topics = await listIntelTopics();
-  const matchedTopics = topics.filter((topic) => topicMatchesContent(topic, content));
-  if (matchedTopics.length === 0) {
+  const catchallTopic = catchallTopicFromSettings(settings, topics);
+  const routed = routeIntelContent({
+    content,
+    topics,
+    catchallTopic
+  });
+  if (routed.topics.length === 0) {
     return 0;
   }
 
-  const settings = await getIntelSettings();
   const isHqReport = settings.hq_trailmark_id === trailmark.id;
   const deliveredTopicIds = new Set<string>();
 
-  for (const topic of matchedTopics) {
+  if (!routed.isCatchall && catchallTopic) {
+    await removeCatchallReportForDiscordMessage({
+      guild: message.guild,
+      catchallTopicId: catchallTopic.id,
+      channelId: message.channelId,
+      messageId: message.id
+    });
+  }
+
+  for (const topic of routed.topics) {
     await upsertIntelReport({
       topic,
       trailmark,
@@ -185,7 +220,7 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
   }
 
   await refreshDeliveredTopics(message.guild, deliveredTopicIds);
-  return matchedTopics.length;
+  return routed.topics.length;
 }
 
 export async function removeIntelReportsForDiscordMessage(params: {
@@ -234,11 +269,12 @@ export async function captureRecentTrailmarkMessagesForIntel(params: {
   }
 
   const topics = await listIntelTopics();
-  if (topics.length === 0) {
+  const settings = await getIntelSettings();
+  const catchallTopic = catchallTopicFromSettings(settings, topics);
+  if (topics.length === 0 && !catchallTopic) {
     return 0;
   }
 
-  const settings = await getIntelSettings();
   const isHqReport = settings.hq_trailmark_id === params.trailmark.id;
   const touchedTopicIds = new Set<string>();
   let matchedReports = 0;
@@ -248,12 +284,25 @@ export async function captureRecentTrailmarkMessagesForIntel(params: {
       continue;
     }
 
-    const matchedTopics = topics.filter((topic) => topicMatchesContent(topic, message.content));
-    if (matchedTopics.length === 0) {
+    const routed = routeIntelContent({
+      content: message.content,
+      topics,
+      catchallTopic
+    });
+    if (routed.topics.length === 0) {
       continue;
     }
 
-    for (const topic of matchedTopics) {
+    if (!routed.isCatchall && catchallTopic) {
+      await removeCatchallReportForDiscordMessage({
+        guild: params.guild,
+        catchallTopicId: catchallTopic.id,
+        channelId: message.channelId,
+        messageId: message.id
+      });
+    }
+
+    for (const topic of routed.topics) {
       await upsertIntelReport({
         topic,
         trailmark: params.trailmark,
@@ -283,18 +332,25 @@ export async function backfillTrailmarkIntel(params: {
     throw new UserFacingError("Set an HQ Trailmark with /intel set-hq before historical delivery backfill.");
   }
 
-  const topics = params.topicId ? [await requireIntelTopic(params.topicId)] : await listIntelTopics();
+  const allActiveTopics = await listIntelTopics();
+  const configuredCatchallTopic = catchallTopicFromSettings(settings, allActiveTopics);
+  const targetTopic = params.topicId ? await requireIntelTopic(params.topicId) : null;
+  const targetIsCatchall = Boolean(targetTopic && configuredCatchallTopic?.id === targetTopic.id);
+  const topics = targetTopic && !targetIsCatchall ? [targetTopic] : allActiveTopics;
+  const catchallTopic = targetIsCatchall || !targetTopic ? configuredCatchallTopic : null;
+  const deliveryTopicIds = targetTopic ? [targetTopic.id] : allActiveTopics.map((topic) => topic.id);
+
   if (topics.length === 0) {
     throw new UserFacingError("No active intel topics exist.");
   }
 
-  const topicMap = new Map(topics.map((topic) => [topic.id, topic]));
   const trailmarks = await listActiveTrailmarksForIntel();
   const touchedTopicIds = new Set<string>();
   let trailmarksScanned = 0;
   let legacyForumThreadsScanned = 0;
   let messagesScanned = 0;
   let matchedReports = 0;
+  let catchallReports = 0;
 
   for (const trailmark of trailmarks) {
     const channel = await params.guild.channels.fetch(trailmark.discord_channel_id).catch(() => null);
@@ -307,12 +363,15 @@ export async function backfillTrailmarkIntel(params: {
       channel,
       trailmark,
       topics,
+      catchallTopic,
+      catchallOnly: targetIsCatchall,
       hqTrailmarkId: settings.hq_trailmark_id,
       ...(params.after ? { after: params.after } : {}),
       limit: params.limitPerTrailmark
     });
     messagesScanned += result.messagesScanned;
     matchedReports += result.matchedReports;
+    catchallReports += result.catchallReports;
     for (const topicId of result.touchedTopicIds) {
       touchedTopicIds.add(topicId);
     }
@@ -322,6 +381,8 @@ export async function backfillTrailmarkIntel(params: {
     guild: params.guild,
     trailmarks,
     topics,
+    catchallTopic,
+    catchallOnly: targetIsCatchall,
     hqTrailmarkId: settings.hq_trailmark_id,
     ...(params.after ? { after: params.after } : {}),
     limitPerThread: params.limitPerTrailmark
@@ -329,6 +390,7 @@ export async function backfillTrailmarkIntel(params: {
   legacyForumThreadsScanned = legacyForumResult.threadsScanned;
   messagesScanned += legacyForumResult.messagesScanned;
   matchedReports += legacyForumResult.matchedReports;
+  catchallReports += legacyForumResult.catchallReports;
   for (const topicId of legacyForumResult.touchedTopicIds) {
     touchedTopicIds.add(topicId);
   }
@@ -336,15 +398,15 @@ export async function backfillTrailmarkIntel(params: {
   let deliveredReports = 0;
   if (params.mode === "historical-delivery" && settings.hq_trailmark_id) {
     deliveredReports = await deliverHistoricallyCarriedReports({
-      topicIds: [...topicMap.keys()],
+      topicIds: deliveryTopicIds,
       hqTrailmarkId: settings.hq_trailmark_id
     });
   }
 
   const refreshedTopicIds = new Set<string>(touchedTopicIds);
   if (deliveredReports > 0) {
-    for (const topic of topics) {
-      refreshedTopicIds.add(topic.id);
+    for (const topicId of deliveryTopicIds) {
+      refreshedTopicIds.add(topicId);
     }
   }
 
@@ -354,6 +416,7 @@ export async function backfillTrailmarkIntel(params: {
     legacyForumThreadsScanned,
     messagesScanned,
     matchedReports,
+    catchallReports,
     deliveredReports,
     topicsRefreshed: refreshedTopicIds.size
   };
@@ -390,18 +453,21 @@ async function backfillLegacyTrailmarkForum(params: {
   guild: Guild;
   trailmarks: TrailmarkRow[];
   topics: IntelTopicRow[];
+  catchallTopic: IntelTopicRow | null;
+  catchallOnly: boolean;
   hqTrailmarkId: string | null;
   after?: Date;
   limitPerThread: number;
-}): Promise<{ threadsScanned: number; messagesScanned: number; matchedReports: number; touchedTopicIds: Set<string> }> {
+}): Promise<{ threadsScanned: number; messagesScanned: number; matchedReports: number; catchallReports: number; touchedTopicIds: Set<string> }> {
   const forum = await params.guild.channels.fetch(LEGACY_TRAILMARK_FORUM_CHANNEL_ID).catch(() => null);
   if (!forum || forum.type !== ChannelType.GuildForum) {
-    return { threadsScanned: 0, messagesScanned: 0, matchedReports: 0, touchedTopicIds: new Set() };
+    return { threadsScanned: 0, messagesScanned: 0, matchedReports: 0, catchallReports: 0, touchedTopicIds: new Set() };
   }
 
   let threadsScanned = 0;
   let messagesScanned = 0;
   let matchedReports = 0;
+  let catchallReports = 0;
   const touchedTopicIds = new Set<string>();
   const threadIds = new Set<string>();
 
@@ -422,18 +488,21 @@ async function backfillLegacyTrailmarkForum(params: {
       thread,
       trailmark,
       topics: params.topics,
+      catchallTopic: params.catchallTopic,
+      catchallOnly: params.catchallOnly,
       hqTrailmarkId: params.hqTrailmarkId,
       ...(params.after ? { after: params.after } : {}),
       limit: params.limitPerThread
     });
     messagesScanned += result.messagesScanned;
     matchedReports += result.matchedReports;
+    catchallReports += result.catchallReports;
     for (const topicId of result.touchedTopicIds) {
       touchedTopicIds.add(topicId);
     }
   }
 
-  return { threadsScanned, messagesScanned, matchedReports, touchedTopicIds };
+  return { threadsScanned, messagesScanned, matchedReports, catchallReports, touchedTopicIds };
 }
 
 async function* fetchLegacyForumThreads(forum: ForumChannel): AsyncGenerator<ThreadChannel> {
@@ -470,13 +539,16 @@ async function backfillTrailmarkChannel(params: {
   channel: TextChannel;
   trailmark: TrailmarkRow;
   topics: IntelTopicRow[];
+  catchallTopic: IntelTopicRow | null;
+  catchallOnly: boolean;
   hqTrailmarkId: string | null;
   after?: Date;
   limit: number;
-}): Promise<{ messagesScanned: number; matchedReports: number; touchedTopicIds: Set<string> }> {
+}): Promise<{ messagesScanned: number; matchedReports: number; catchallReports: number; touchedTopicIds: Set<string> }> {
   let before: string | undefined;
   let messagesScanned = 0;
   let matchedReports = 0;
+  let catchallReports = 0;
   const touchedTopicIds = new Set<string>();
 
   while (messagesScanned < params.limit) {
@@ -504,13 +576,29 @@ async function backfillTrailmarkChannel(params: {
         continue;
       }
 
-      const matchedTopics = params.topics.filter((topic) => topicMatchesContent(topic, message.content));
-      if (matchedTopics.length === 0) {
+      const routed = routeIntelContent({
+        content: message.content,
+        topics: params.topics,
+        catchallTopic: params.catchallTopic
+      });
+      if (routed.topics.length === 0) {
         continue;
       }
 
       const isHqReport = params.hqTrailmarkId === params.trailmark.id;
-      for (const topic of matchedTopics) {
+      if (!routed.isCatchall && params.catchallTopic) {
+        await removeCatchallReportForDiscordMessage({
+          guild: params.channel.guild,
+          catchallTopicId: params.catchallTopic.id,
+          channelId: message.channelId,
+          messageId: message.id
+        });
+      }
+      if (params.catchallOnly && !routed.isCatchall) {
+        continue;
+      }
+
+      for (const topic of routed.topics) {
         const inserted = await upsertIntelReport({
           topic,
           trailmark: params.trailmark,
@@ -518,7 +606,11 @@ async function backfillTrailmarkChannel(params: {
           isHqReport
         });
         if (inserted) {
-          matchedReports += 1;
+          if (routed.isCatchall) {
+            catchallReports += 1;
+          } else {
+            matchedReports += 1;
+          }
         }
 
         touchedTopicIds.add(topic.id);
@@ -530,20 +622,23 @@ async function backfillTrailmarkChannel(params: {
     }
   }
 
-  return { messagesScanned, matchedReports, touchedTopicIds };
+  return { messagesScanned, matchedReports, catchallReports, touchedTopicIds };
 }
 
 async function backfillTrailmarkThread(params: {
   thread: ThreadChannel;
   trailmark: TrailmarkRow;
   topics: IntelTopicRow[];
+  catchallTopic: IntelTopicRow | null;
+  catchallOnly: boolean;
   hqTrailmarkId: string | null;
   after?: Date;
   limit: number;
-}): Promise<{ messagesScanned: number; matchedReports: number; touchedTopicIds: Set<string> }> {
+}): Promise<{ messagesScanned: number; matchedReports: number; catchallReports: number; touchedTopicIds: Set<string> }> {
   let before: string | undefined;
   let messagesScanned = 0;
   let matchedReports = 0;
+  let catchallReports = 0;
   const touchedTopicIds = new Set<string>();
 
   while (messagesScanned < params.limit) {
@@ -571,13 +666,29 @@ async function backfillTrailmarkThread(params: {
         continue;
       }
 
-      const matchedTopics = params.topics.filter((topic) => topicMatchesContent(topic, message.content));
-      if (matchedTopics.length === 0) {
+      const routed = routeIntelContent({
+        content: message.content,
+        topics: params.topics,
+        catchallTopic: params.catchallTopic
+      });
+      if (routed.topics.length === 0) {
         continue;
       }
 
       const isHqReport = params.hqTrailmarkId === params.trailmark.id;
-      for (const topic of matchedTopics) {
+      if (!routed.isCatchall && params.catchallTopic && message.guild) {
+        await removeCatchallReportForDiscordMessage({
+          guild: message.guild,
+          catchallTopicId: params.catchallTopic.id,
+          channelId: message.channelId,
+          messageId: message.id
+        });
+      }
+      if (params.catchallOnly && !routed.isCatchall) {
+        continue;
+      }
+
+      for (const topic of routed.topics) {
         const inserted = await upsertIntelReport({
           topic,
           trailmark: params.trailmark,
@@ -585,7 +696,11 @@ async function backfillTrailmarkThread(params: {
           isHqReport
         });
         if (inserted) {
-          matchedReports += 1;
+          if (routed.isCatchall) {
+            catchallReports += 1;
+          } else {
+            matchedReports += 1;
+          }
         }
 
         touchedTopicIds.add(topic.id);
@@ -597,7 +712,7 @@ async function backfillTrailmarkThread(params: {
     }
   }
 
-  return { messagesScanned, matchedReports, touchedTopicIds };
+  return { messagesScanned, matchedReports, catchallReports, touchedTopicIds };
 }
 
 async function upsertIntelReport(params: {
@@ -606,6 +721,7 @@ async function upsertIntelReport(params: {
   message: Message;
   isHqReport: boolean;
 }): Promise<boolean> {
+  const atlasPreview = await resolveAtlasSharePreviewFromContent(params.message.content);
   const payload = {
     topic_id: params.topic.id,
     trailmark_id: params.trailmark.id,
@@ -616,6 +732,8 @@ async function upsertIntelReport(params: {
     delivered_by_discord_user_id: params.isHqReport ? params.message.author.id : null,
     delivered_to_trailmark_id: params.isHqReport ? params.trailmark.id : null,
     delivered_at: params.isHqReport ? params.message.createdAt.toISOString() : null,
+    atlas_share_code: atlasPreview?.code ?? null,
+    atlas_summary: atlasPreviewToJson(atlasPreview),
     created_at: params.message.createdAt.toISOString()
   };
 
@@ -1002,7 +1120,7 @@ async function requireIntelTopic(topicId: string): Promise<IntelTopicRow> {
   return topic;
 }
 
-async function getIntelTopic(topicId: string): Promise<IntelTopicRow | null> {
+export async function getIntelTopic(topicId: string): Promise<IntelTopicRow | null> {
   const { data, error } = await supabase.from("intel_topics").select("*").eq("id", topicId).maybeSingle();
   assertNoDbError(error, "get intel topic");
   return data;
@@ -1046,6 +1164,60 @@ function isIntelReportChannel(channel: GuildBasedChannel | null): channel is Int
 
 function isMessageFetchableChannel(channel: GuildBasedChannel | null): channel is GuildBasedChannel & TextBasedChannel {
   return Boolean(channel?.isTextBased() && "messages" in channel);
+}
+
+function catchallTopicFromSettings(settings: IntelSettingsRow, topics: IntelTopicRow[]): IntelTopicRow | null {
+  if (!settings.catchall_topic_id) {
+    return null;
+  }
+
+  return topics.find((topic) => topic.id === settings.catchall_topic_id) ?? null;
+}
+
+function routeIntelContent(params: {
+  content: string;
+  topics: IntelTopicRow[];
+  catchallTopic: IntelTopicRow | null;
+}): { topics: IntelTopicRow[]; isCatchall: boolean } {
+  const matchedTopics = params.topics.filter(
+    (topic) => topic.id !== params.catchallTopic?.id && topicMatchesContent(topic, params.content)
+  );
+  if (matchedTopics.length > 0) {
+    return { topics: matchedTopics, isCatchall: false };
+  }
+
+  return params.catchallTopic ? { topics: [params.catchallTopic], isCatchall: true } : { topics: [], isCatchall: false };
+}
+
+async function removeCatchallReportForDiscordMessage(params: {
+  guild: Guild;
+  catchallTopicId: string;
+  channelId: string;
+  messageId: string;
+}): Promise<number> {
+  const { data: reports, error } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .eq("topic_id", params.catchallTopicId)
+    .eq("discord_channel_id", params.channelId)
+    .eq("discord_message_id", params.messageId);
+
+  assertNoDbError(error, "list catchall intel reports for categorized message");
+  if (!reports?.length) {
+    return 0;
+  }
+
+  for (const report of reports) {
+    await deleteBulletinMessageForReport(params.guild, report);
+  }
+
+  const { error: deleteError } = await supabase
+    .from("intel_reports")
+    .delete()
+    .in("id", reports.map((report) => report.id));
+
+  assertNoDbError(deleteError, "delete catchall intel reports for categorized message");
+  return reports.length;
 }
 
 function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {
@@ -1108,8 +1280,9 @@ function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkR
     : "Unknown";
   const originalUrl = `https://discord.com/channels/${guild.id}/${report.discord_channel_id}/${report.discord_message_id}`;
   const where = trailmark ? `${trailmark.name} (${trailmark.hold})` : "Unknown Trailmark";
+  const atlasField = atlasReportFieldValue(report.atlas_summary, report.atlas_share_code);
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setTitle(`${trailmark?.name ?? "Unknown Trailmark"} - ${formatDiscordTime(report.created_at)}`)
     .setDescription(formatReportContent(report.content))
     .addFields(
@@ -1122,6 +1295,12 @@ function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkR
     )
     .setColor(0x587c4a)
     .setTimestamp(new Date(report.created_at));
+
+  if (atlasField) {
+    embed.addFields({ name: "Atlas Share", value: atlasField, inline: false });
+  }
+
+  return embed;
 }
 
 function formatDiscordTime(value: string, style = "f"): string {

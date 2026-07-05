@@ -4,8 +4,10 @@ import {
   createIntelTopic,
   findIntelTopicsByName,
   getIntelSettings,
+  getIntelTopic,
   listIntelTopics,
   refreshIntelTopicBulletin,
+  setIntelCatchallTopic,
   setIntelHqTrailmark,
   updateIntelTopicKeywords
 } from "../services/intelService.js";
@@ -67,6 +69,26 @@ export const intelCommand: BotCommand = {
         )
     )
     .addSubcommand((subcommand) => subcommand.setName("topic-list").setDescription("List intel topics and HQ setup."))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("catchall-set")
+        .setDescription("Set or create the fallback topic for uncategorized delivered reports.")
+        .addStringOption((option) =>
+          option.setName("topic").setDescription("Existing intel topic to use as the catchall.").setAutocomplete(true)
+        )
+        .addStringOption((option) =>
+          option.setName("name").setDescription("Name for a new catchall topic if topic is omitted.").setMaxLength(80)
+        )
+        .addChannelOption((option) =>
+          option
+            .setName("channel")
+            .setDescription("Existing report channel for a new catchall topic. If omitted, Wayfinder creates one.")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("catchall-clear").setDescription("Disable future uncategorized intel capture.")
+    )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("refresh")
@@ -172,10 +194,14 @@ export const intelCommand: BotCommand = {
     if (subcommand === "topic-list") {
       const settings = await getIntelSettings();
       const hqTrailmark = settings.hq_trailmark_id ? await getTrailmark(settings.hq_trailmark_id) : null;
+      const catchallTopic = settings.catchall_topic_id ? await getIntelTopic(settings.catchall_topic_id) : null;
       const topics = await listIntelTopics(true);
       const embed = new EmbedBuilder()
         .setTitle("Trailmark Intel")
-        .setDescription(`HQ delivery Trailmark: ${hqTrailmark ? hqTrailmark.name : "Not set"}`)
+        .setDescription([
+          `HQ delivery Trailmark: ${hqTrailmark ? hqTrailmark.name : "Not set"}`,
+          `Catchall topic: ${catchallTopic ? `${catchallTopic.name} - <#${catchallTopic.discord_channel_id}>` : "Not set"}`
+        ].join("\n"))
         .setColor(0x587c4a);
 
       embed.addFields({
@@ -186,6 +212,43 @@ export const intelCommand: BotCommand = {
       });
 
       await interaction.reply({ embeds: [embed], ephemeral: true });
+      return;
+    }
+
+    if (subcommand === "catchall-set") {
+      await interaction.deferReply({ ephemeral: true });
+
+      const topicId = interaction.options.getString("topic");
+      const name = interaction.options.getString("name")?.trim();
+      const selectedChannel = interaction.options.getChannel("channel");
+
+      if (topicId && (name || selectedChannel)) {
+        throw new UserFacingError("Choose either an existing topic or new catchall topic details, not both.");
+      }
+
+      const topic = topicId ? await getIntelTopic(topicId) : null;
+      if (topicId && (!topic || !topic.active)) {
+        throw new UserFacingError("Catchall topic was not found or inactive.");
+      }
+
+      const catchallTopic = topic ?? await createCatchallTopic(interaction, name || "Uncategorized Field Reports");
+      await setIntelCatchallTopic(catchallTopic.id);
+
+      await interaction.editReply({
+        content: [
+          `Set catchall intel topic to ${catchallTopic.name} in <#${catchallTopic.discord_channel_id}>.`,
+          "Unmatched Trailmark messages will be posted there only after they are delivered to HQ."
+        ].join("\n")
+      });
+      return;
+    }
+
+    if (subcommand === "catchall-clear") {
+      await setIntelCatchallTopic(null);
+      await interaction.reply({
+        content: "Disabled future catchall intel capture. Existing catchall reports were left unchanged.",
+        ephemeral: true
+      });
       return;
     }
 
@@ -218,6 +281,7 @@ export const intelCommand: BotCommand = {
           `Legacy forum threads scanned: ${result.legacyForumThreadsScanned}`,
           `Messages scanned: ${result.messagesScanned}`,
           `Matched reports: ${result.matchedReports}`,
+          `Catchall reports: ${result.catchallReports}`,
           `Historically delivered: ${result.deliveredReports}`,
           `Bulletins refreshed: ${result.topicsRefreshed}`
         ].join("\n")
@@ -251,6 +315,28 @@ async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]
     parent: INTEL_CATEGORY_ID,
     reason: `Create Trailmark intel topic channel for ${name}`
   });
+}
+
+async function createCatchallTopic(interaction: Parameters<BotCommand["execute"]>[0], name: string) {
+  if (!interaction.inCachedGuild()) {
+    throw new UserFacingError("This command can only be used in the configured guild.");
+  }
+
+  const topicName = name.trim();
+  if (!topicName) {
+    throw new UserFacingError("Catchall topic name cannot be blank.");
+  }
+
+  const channel = await resolveTopicChannel(interaction, topicName);
+  const topic = await createIntelTopic({
+    name: topicName,
+    keywords: [],
+    channelId: channel.id,
+    createdByDiscordUserId: interaction.user.id
+  });
+
+  await refreshIntelTopicBulletin(interaction.guild, topic.id);
+  return topic;
 }
 
 function isIntelTopicChannel(channel: GuildBasedChannel | null): channel is TextChannel | NewsChannel {

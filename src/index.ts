@@ -21,6 +21,7 @@ import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
 import { handleMemberJoin, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
+import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
 import { captureTrailmarkIntelReports, removeIntelReportsForDiscordMessage } from "./services/intelService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
@@ -83,6 +84,9 @@ client.on("messageCreate", (message) => {
       if (result.reactivated) {
         await refreshStoredAssignmentsBoard(guild);
       }
+      await maybeSendAtlasSharePreview(message).catch((error) => {
+        console.warn(`Failed to preview Atlas share for message ${message.id}:`, error);
+      });
       await captureTrailmarkIntelReports(message);
     })
     .catch((error) => {

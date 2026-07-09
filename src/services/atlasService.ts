@@ -220,6 +220,11 @@ function atlasShareReferencesFromContent(content: string): AtlasShareReference[]
     }
   }
 
+  const bareCode = bareRemoteShareCodeFromContent(content);
+  if (bareCode) {
+    return [{ source: "remote", code: bareCode, input: bareCode }];
+  }
+
   return [];
 }
 
@@ -418,6 +423,22 @@ function normalizeRemoteShareCode(value: string): string {
   }
 
   return RANDOM_SHARE_CODE_PATTERN.test(normalized) ? normalized : "";
+}
+
+function bareRemoteShareCodeFromContent(content: string): string {
+  const candidates = content
+    .split(/\r?\n/u)
+    .map((line) => line.trim().replace(/^`|`$/gu, ""))
+    .flatMap((line) => {
+      if (RANDOM_SHARE_CODE_PATTERN.test(line.toUpperCase())) {
+        return [line];
+      }
+
+      const firstToken = trimShareCodePunctuation(line.split(/\s+/u)[0] ?? "");
+      return RANDOM_SHARE_CODE_PATTERN.test(firstToken.toUpperCase()) ? [firstToken] : [];
+    });
+
+  return candidates.length === 1 ? normalizeRemoteShareCode(candidates[0] ?? "") : "";
 }
 
 function trimShareCodePunctuation(value: string): string {

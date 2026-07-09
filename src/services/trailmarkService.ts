@@ -80,6 +80,18 @@ export async function getTrailmark(id: string): Promise<TrailmarkRow | null> {
   return data;
 }
 
+export async function getActiveTrailmarkByChannelId(channelId: string): Promise<TrailmarkRow | null> {
+  const { data, error } = await supabase
+    .from("trailmarks")
+    .select("*")
+    .eq("discord_channel_id", channelId)
+    .eq("active", true)
+    .maybeSingle();
+
+  assertNoDbError(error, "get active Trailmark by channel");
+  return data;
+}
+
 export async function createTrailmark(params: {
   guild: Guild;
   name: string;

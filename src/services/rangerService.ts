@@ -150,6 +150,18 @@ export async function setRangerStatus(discordUserId: string, status: RangerStatu
   return data;
 }
 
+export async function retireDepartedRanger(discordUserId: string): Promise<RangerRow | null> {
+  const { data, error } = await supabase
+    .from("rangers")
+    .update({ status: "Retired", updated_at: new Date().toISOString() })
+    .eq("discord_user_id", discordUserId)
+    .select("*")
+    .maybeSingle();
+
+  assertNoDbError(error, "retire departed ranger");
+  return data;
+}
+
 export async function setRangerHold(discordUserId: string, hold: string): Promise<RangerRow> {
   const { data, error } = await supabase
     .from("rangers")

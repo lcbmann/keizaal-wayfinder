@@ -15,6 +15,7 @@ import {
   listAllRangers,
   listRangersWithAssignedHolds,
   promoteRanger,
+  retireDepartedRanger,
   setRangerHold,
   setRangerStatus,
   syncAllRankedMembers,
@@ -68,6 +69,19 @@ export const rangerCommand: BotCommand = {
             .setDescription("New status.")
             .setRequired(true)
             .addChoices(...statuses.map((status) => ({ name: status, value: status })))
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("retire-left")
+        .setDescription("Mark a roster entry Retired after the Discord user has left.")
+        .addStringOption((option) =>
+          option
+            .setName("discord_user_id")
+            .setDescription("Discord user ID from the roster.")
+            .setRequired(true)
+            .setMinLength(17)
+            .setMaxLength(20)
         )
     )
     .addSubcommand((subcommand) =>
@@ -202,6 +216,27 @@ export const rangerCommand: BotCommand = {
       const ranger = await setRangerStatus(user.id, status);
       await refreshStoredAssignmentsBoard(interaction.guild);
       await interaction.reply({ content: `Set ${user} to ${ranger.status}.`, ephemeral: true });
+      return;
+    }
+
+    if (subcommand === "retire-left") {
+      requireMarshal(actor);
+      const discordUserId = interaction.options.getString("discord_user_id", true).trim();
+      if (!/^\d{17,20}$/.test(discordUserId)) {
+        throw new UserFacingError("Discord user ID must be a numeric snowflake.");
+      }
+
+      const ranger = await retireDepartedRanger(discordUserId);
+      if (!ranger) {
+        await interaction.reply({ content: "No roster entry exists for that Discord user ID.", ephemeral: true });
+        return;
+      }
+
+      await refreshStoredAssignmentsBoard(interaction.guild);
+      await interaction.reply({
+        content: `Set ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} to Retired.`,
+        ephemeral: true
+      });
       return;
     }
 

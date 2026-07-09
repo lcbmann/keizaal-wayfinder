@@ -230,6 +230,9 @@ export const intelCommand: BotCommand = {
       if (topicId && (!topic || !topic.active)) {
         throw new UserFacingError("Catchall topic was not found or inactive.");
       }
+      if (topic && topic.keywords.length > 0) {
+        throw new UserFacingError("Use a dedicated catchall topic with no keywords, or omit topic to let Wayfinder create one.");
+      }
 
       const catchallTopic = topic ?? await createCatchallTopic(interaction, name || "Uncategorized Field Reports");
       await setIntelCatchallTopic(catchallTopic.id);

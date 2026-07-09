@@ -87,6 +87,10 @@ export async function setIntelCatchallTopic(topicId: string | null): Promise<Int
     .select("*")
     .single();
 
+  if (isMissingColumnError(error)) {
+    throw new UserFacingError("Run migration 007_add_intel_catchall_topic.sql before configuring the catchall topic.");
+  }
+
   assertNoDbError(error, "set intel catchall topic");
   return data;
 }
@@ -722,7 +726,7 @@ async function upsertIntelReport(params: {
   isHqReport: boolean;
 }): Promise<boolean> {
   const atlasPreview = await resolveAtlasSharePreviewFromContent(params.message.content);
-  const payload = {
+  const basePayload = {
     topic_id: params.topic.id,
     trailmark_id: params.trailmark.id,
     discord_message_id: params.message.id,
@@ -732,14 +736,25 @@ async function upsertIntelReport(params: {
     delivered_by_discord_user_id: params.isHqReport ? params.message.author.id : null,
     delivered_to_trailmark_id: params.isHqReport ? params.trailmark.id : null,
     delivered_at: params.isHqReport ? params.message.createdAt.toISOString() : null,
-    atlas_share_code: atlasPreview?.code ?? null,
-    atlas_summary: atlasPreviewToJson(atlasPreview),
     created_at: params.message.createdAt.toISOString()
+  };
+  const payload = {
+    ...basePayload,
+    atlas_share_code: atlasPreview?.code ?? null,
+    atlas_summary: atlasPreviewToJson(atlasPreview)
   };
 
   const { error } = await supabase
     .from("intel_reports")
     .upsert(payload, { onConflict: "topic_id,discord_message_id", ignoreDuplicates: !params.isHqReport });
+
+  if (isMissingColumnError(error)) {
+    const { error: retryError } = await supabase
+      .from("intel_reports")
+      .upsert(basePayload, { onConflict: "topic_id,discord_message_id", ignoreDuplicates: !params.isHqReport });
+    assertNoDbError(retryError, "upsert Trailmark intel report without Atlas summary");
+    return true;
+  }
 
   assertNoDbError(error, "upsert Trailmark intel report");
   return true;
@@ -785,12 +800,7 @@ async function deliverCarriedReportsToHq(params: {
   assertNoDbError(reportsError, "list carried intel reports");
 
   const deliverableReports = (pendingReports ?? []).filter((report) =>
-    sourceWindows.some(
-      (window) =>
-        window.trailmarkId === report.trailmark_id &&
-        window.openedAt <= report.created_at &&
-        report.created_at <= window.carriedThroughAt
-    )
+    sourceWindows.some((window) => window.trailmarkId === report.trailmark_id && timestampInWindow(report.created_at, window))
   );
 
   if (deliverableReports.length === 0) {
@@ -827,13 +837,27 @@ function sourceAccessWindows(
     ...sessions.map((session) => ({
       trailmarkId: session.trailmark_id,
       openedAt: session.created_at,
-      carriedThroughAt: minIsoTimestamp(session.expires_at, hqVisitedAt)
+      carriedThroughAt: earlierIsoTimestamp(session.expires_at, hqVisitedAt)
     }))
   ];
 }
 
-function minIsoTimestamp(a: string, b: string): string {
-  return a < b ? a : b;
+function timestampInWindow(timestamp: string, window: { openedAt: string; carriedThroughAt: string }): boolean {
+  const value = timestampMs(timestamp);
+  return timestampMs(window.openedAt) <= value && value <= timestampMs(window.carriedThroughAt);
+}
+
+function earlierIsoTimestamp(a: string, b: string): string {
+  return timestampMs(a) <= timestampMs(b) ? a : b;
+}
+
+function laterIsoTimestamp(a: string, b: string): string {
+  return timestampMs(a) >= timestampMs(b) ? a : b;
+}
+
+function timestampMs(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 async function deliverHistoricallyCarriedReports(params: {
@@ -912,18 +936,19 @@ function historicalDeliveryUpdates(
     let bestDelivery: { deliveredByDiscordUserId: string; deliveredAt: string } | null = null;
 
     for (const sourceSession of sourceSessions) {
-      if (sourceSession.created_at < report.created_at) {
+      const sourceAvailableAt = carriedReportAvailableAt(report.created_at, sourceSession);
+      if (!sourceAvailableAt) {
         continue;
       }
 
       const hqSession = (hqSessionsByUser.get(sourceSession.discord_user_id) ?? []).find(
-        (session) => session.created_at > sourceSession.created_at
+        (session) => timestampMs(session.created_at) > timestampMs(sourceAvailableAt)
       );
       if (!hqSession) {
         continue;
       }
 
-      if (!bestDelivery || hqSession.created_at < bestDelivery.deliveredAt) {
+      if (!bestDelivery || timestampMs(hqSession.created_at) < timestampMs(bestDelivery.deliveredAt)) {
         bestDelivery = {
           deliveredByDiscordUserId: sourceSession.discord_user_id,
           deliveredAt: hqSession.created_at
@@ -937,6 +962,21 @@ function historicalDeliveryUpdates(
   }
 
   return updates;
+}
+
+function carriedReportAvailableAt(reportCreatedAt: string, sourceSession: TrailmarkSessionRow): string | null {
+  const reportAt = timestampMs(reportCreatedAt);
+  const openedAt = timestampMs(sourceSession.created_at);
+  const expiresAt = timestampMs(sourceSession.expires_at);
+  if (openedAt <= reportAt && reportAt <= expiresAt) {
+    return reportCreatedAt;
+  }
+
+  if (reportAt <= openedAt) {
+    return sourceSession.created_at;
+  }
+
+  return null;
 }
 
 async function refreshDeliveredTopics(guild: Guild, topicIds: Set<string>): Promise<void> {
@@ -1230,12 +1270,48 @@ function keywordMatchesContent(keyword: string, content: string): boolean {
     return false;
   }
 
-  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRegExp(normalizedKeyword)}(?=$|[^\\p{L}\\p{N}_])`, "iu");
-  return pattern.test(content);
+  return keywordInflectionVariants(normalizedKeyword).some((variant) => {
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRegExp(variant)}(?=$|[^\\p{L}\\p{N}_])`, "iu");
+    return pattern.test(content);
+  });
+}
+
+function isMissingColumnError(error: { message: string; code?: string } | null): boolean {
+  return Boolean(error && (error.code === "42703" || error.message.includes("column") && error.message.includes("does not exist")));
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function keywordInflectionVariants(keyword: string): string[] {
+  const variants = new Set([keyword]);
+  const lower = keyword.toLocaleLowerCase();
+
+  if (lower.length > 4 && lower.endsWith("ies")) {
+    variants.add(`${keyword.slice(0, -3)}y`);
+  } else if (lower.length > 4 && lower.endsWith("ves")) {
+    variants.add(`${keyword.slice(0, -3)}f`);
+    variants.add(`${keyword.slice(0, -3)}fe`);
+  } else if (lower.length > 4 && lower.endsWith("es")) {
+    variants.add(keyword.slice(0, -2));
+  } else if (lower.length > 3 && lower.endsWith("s")) {
+    variants.add(keyword.slice(0, -1));
+  }
+
+  if (lower.endsWith("y")) {
+    variants.add(`${keyword.slice(0, -1)}ies`);
+  } else if (lower.endsWith("fe")) {
+    variants.add(`${keyword.slice(0, -2)}ves`);
+  } else if (lower.endsWith("f")) {
+    variants.add(`${keyword.slice(0, -1)}ves`);
+  } else if (/(s|x|z|ch|sh)$/iu.test(keyword)) {
+    variants.add(`${keyword}es`);
+  } else {
+    variants.add(`${keyword}s`);
+  }
+
+  return [...variants].filter(Boolean);
 }
 
 function dedupeKeywords(keywords: string[]): string[] {

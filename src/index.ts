@@ -15,15 +15,18 @@ import { rosterCommand } from "./commands/roster.js";
 import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
 import { intelCommand } from "./commands/intel.js";
+import { strongboxCommand } from "./commands/strongbox.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
-import { handleMemberJoin, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
+import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
 import { captureTrailmarkIntelReports, removeIntelReportsForDiscordMessage } from "./services/intelService.js";
+import { handleStrongboxDropMessage } from "./services/strongboxService.js";
+import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
@@ -35,7 +38,8 @@ for (const command of [
   rosterCommand,
   recruitCommand,
   fundsCommand,
-  intelCommand
+  intelCommand,
+  strongboxCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -73,6 +77,16 @@ client.on("guildMemberUpdate", (oldMember, newMember) => {
   );
 });
 
+client.on("guildMemberRemove", (member) => {
+  void handleMemberRemove(member)
+    .then(async (retired) => {
+      if (retired) {
+        await refreshStoredAssignmentsBoard(member.guild);
+      }
+    })
+    .catch((error) => console.error(`Failed to retire departed member ${member.id}:`, error));
+});
+
 client.on("messageCreate", (message) => {
   if (!message.guild || message.author.bot) {
     return;
@@ -84,9 +98,14 @@ client.on("messageCreate", (message) => {
       if (result.reactivated) {
         await refreshStoredAssignmentsBoard(guild);
       }
-      await maybeSendAtlasSharePreview(message).catch((error) => {
-        console.warn(`Failed to preview Atlas share for message ${message.id}:`, error);
-      });
+      if (await handleStrongboxDropMessage(message)) {
+        return;
+      }
+      if (await getActiveTrailmarkByChannelId(message.channelId)) {
+        await maybeSendAtlasSharePreview(message).catch((error) => {
+          console.warn(`Failed to preview Atlas share for message ${message.id}:`, error);
+        });
+      }
       await captureTrailmarkIntelReports(message);
     })
     .catch((error) => {

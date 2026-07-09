@@ -193,7 +193,9 @@ export function atlasPreviewToJson(preview: AtlasSharePreview | null): Json | nu
 }
 
 function atlasShareReferencesFromContent(content: string): AtlasShareReference[] {
-  const inlineCodes = content.match(/\b(?:RGFA2|RGFA1|RCFA1)\.[A-Za-z0-9._-]+/g) ?? [];
+  const inlineCodes = (content.match(/\b(?:RGFA2|RGFA1|RCFA1)\.[A-Za-z0-9._-]+/g) ?? [])
+    .map(trimShareCodePunctuation)
+    .filter(Boolean);
   if (inlineCodes.length > 0) {
     const source = inlineCodes.some((code) => code.startsWith(SHARE_CODE_PREFIX)) ? "inline" : "legacy";
     return [{
@@ -416,6 +418,10 @@ function normalizeRemoteShareCode(value: string): string {
   }
 
   return RANDOM_SHARE_CODE_PATTERN.test(normalized) ? normalized : "";
+}
+
+function trimShareCodePunctuation(value: string): string {
+  return value.replace(/[.,;:!?]+$/u, "");
 }
 
 function isLegacyShareCode(code: string): boolean {

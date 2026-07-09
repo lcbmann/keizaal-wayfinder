@@ -8,6 +8,7 @@ import { rosterCommand } from "./commands/roster.js";
 import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
 import { intelCommand } from "./commands/intel.js";
+import { strongboxCommand } from "./commands/strongbox.js";
 
 const commands = [
   pingCommand,
@@ -17,7 +18,8 @@ const commands = [
   rosterCommand,
   recruitCommand,
   fundsCommand,
-  intelCommand
+  intelCommand,
+  strongboxCommand
 ].map((command) => command.data.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(env.DISCORD_TOKEN);

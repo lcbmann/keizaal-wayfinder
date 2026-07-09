@@ -91,7 +91,9 @@ The migration creates:
 - `intel_reports`
 - `intel_trailmark_visits`
 
-It also creates enum types, update triggers, indexes, the Trailmark pinned flag, and a partial unique index enforcing one active Trailmark session per Discord user.
+It also creates enum types, update triggers, indexes, the Trailmark pinned flag, a partial unique index enforcing one active Trailmark session per Discord user, intel catchall topic state, and Atlas summary columns for intel reports.
+
+Atlas remote share previews also expect the Supabase RPC `get_atlas_share(share_code text)` to exist. The current Ranger Corps Supabase project has that RPC; new database projects must provide the same function or remote Atlas share-code previews will be skipped.
 
 ## Commands
 
@@ -129,6 +131,7 @@ Implemented commands:
 - `/ranger sync-member`
 - `/ranger sync-all`
 - `/ranger status`
+- `/ranger retire-left`
 - `/ranger set-hold`
 - `/ranger sync-hold-roles`
 - `/ranger note`
@@ -159,10 +162,14 @@ Implemented commands:
 - `/funds history`
 - `/funds undo-last`
 - `/funds monthly`
+- `/strongbox drop`
+- `/strongbox setup`
 - `/intel set-hq`
 - `/intel topic-add`
 - `/intel topic-edit`
 - `/intel topic-list`
+- `/intel catchall-set`
+- `/intel catchall-clear`
 - `/intel refresh`
 - `/intel backfill`
 
@@ -180,11 +187,19 @@ Users visit Trailmarks by selecting one from the bot message posted by `/trailma
 
 `/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, or pinned status. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
 
+## HQ Strongbox
+
+`/strongbox setup` creates or repairs two channels under the Trailmarks category: `strongbox-drop`, where members leave private reports, and `hq-strongbox`, where Ranger Marshal or higher reads them. When someone posts in `strongbox-drop`, Wayfinder forwards the message and attachments to `hq-strongbox`, then removes the public copy. `/strongbox drop` remains available as a backup slash-command path.
+
 ## Trailmark Intel
 
 Trailmark intel topics collect delivered reports from Trailmark channels into public bulletin channels. Configure the HQ delivery point with `/intel set-hq`, then add topics with `/intel topic-add`. Keywords are comma-separated, so a vampire topic should include variants such as `vampire,vampires`. Use `/intel topic-edit` to add keywords to an existing topic; set `append` to `false` only when you want to replace the full keyword list.
 
+`/intel catchall-set` configures a dedicated keywordless fallback topic for delivered reports that do not match any normal topic. `/intel catchall-clear` disables future catchall capture without deleting existing reports.
+
 When a message is posted in an active Trailmark channel, Wayfinder checks it against active intel topic keywords. Matching messages are stored as pending reports. A pending report is published only after a Ranger opens that source Trailmark after the report was written and later opens the configured HQ Trailmark. HQ-origin reports are published immediately. Bulletins are rebuilt in original report chronology and include the original reporter, source Trailmark, report time, original link, and the Ranger who delivered it to HQ.
+
+Atlas share codes in Trailmark messages get a preview reply when Wayfinder can decode them. Intel reports also store Atlas summary metadata and include an Atlas Share field in the report embed.
 
 `/intel backfill` scans old Trailmark messages into the current intel topics. It scans current Trailmark channels and the archived legacy `#trailmarks` forum (`1511443716420800673`), mapping forum thread names such as `Morthal Stash` to current Trailmarks where possible. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
@@ -203,6 +218,8 @@ The centralized rank config lives in `src/config/ranks.ts`. Main rank roles are:
 Rank roles are cumulative. A Ranger keeps Apprentice; a Ranger Marshal keeps Ranger and Apprentice; Captains and Commanders keep the ranks below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger is allowed to stack with normal rank roles.
 
 Discord onboarding remains the entry point. If onboarding gives a user the Apprentice role, the bot adds or updates their roster entry as an Apprentice and tries to DM the nickname reminder. Guest-only users are skipped.
+
+When a rostered member leaves the Discord, Wayfinder marks their roster entry Retired and refreshes the assignments board. Marshal+ can also use `/ranger retire-left` with a Discord user ID to clean up older roster entries for people who already left.
 
 ## Promotion Voting
 

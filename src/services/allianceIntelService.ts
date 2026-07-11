@@ -585,7 +585,7 @@ async function ensureHeadquartersCategory(
 async function configureHeadquartersCategory(category: CategoryChannel, viewerRoleId: string): Promise<void> {
   await category.permissionOverwrites.edit(category.guild.roles.everyone.id, { ViewChannel: false });
   await category.permissionOverwrites.edit(viewerRoleId, { ViewChannel: true, ReadMessageHistory: true });
-  await category.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { ViewChannel: true, ReadMessageHistory: true });
+  await category.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
   await category.permissionOverwrites.edit(category.guild.client.user.id, {
     ViewChannel: true,
     SendMessages: true,
@@ -604,8 +604,9 @@ async function ensureIntakeChannel(
   if (storedChannelId) {
     const stored = await guild.channels.fetch(storedChannelId).catch(() => null);
     if (stored?.type === ChannelType.GuildText) {
-      await stored.permissionOverwrites.edit(definition.viewerRoleId, { SendMessages: true });
-      await stored.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { SendMessages: true });
+      await stored.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
+      await stored.permissionOverwrites.edit(definition.viewerRoleId, { ViewChannel: true, SendMessages: true });
+      await stored.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
       await stored.permissionOverwrites.edit(guild.client.user.id, { SendMessages: true, EmbedLinks: true });
       return stored;
     }
@@ -624,8 +625,9 @@ async function ensureIntakeChannel(
         parent: category.id,
         reason: `Create ${definition.name} report intake`
       });
-  await channel.permissionOverwrites.edit(definition.viewerRoleId, { SendMessages: true });
-  await channel.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { SendMessages: true });
+  await channel.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
+  await channel.permissionOverwrites.edit(definition.viewerRoleId, { ViewChannel: true, SendMessages: true });
+  await channel.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
   await channel.permissionOverwrites.edit(guild.client.user.id, { SendMessages: true, EmbedLinks: true });
   return channel;
 }
@@ -664,8 +666,9 @@ async function ensureHeadquartersTopicChannel(
         parent: hq.reports_category_id,
         reason: `Create ${hq.name} ${topic.name} reports`
       });
-  await channel.permissionOverwrites.edit(hq.viewer_role_id, { SendMessages: false });
-  await channel.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { SendMessages: false });
+  await channel.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
+  await channel.permissionOverwrites.edit(hq.viewer_role_id, { ViewChannel: true, SendMessages: false });
+  await channel.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
   await channel.permissionOverwrites.edit(guild.client.user.id, { SendMessages: true, EmbedLinks: true });
 
   const { error: upsertError } = await supabase.from("alliance_headquarters_topic_channels").upsert({
@@ -686,7 +689,7 @@ async function archiveLegacyAllianceCategory(guild: Guild): Promise<void> {
     await category.permissionOverwrites.delete(roleId).catch(() => undefined);
   }
   await category.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
-  await category.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { ViewChannel: true });
+  await category.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
   await category.permissionOverwrites.edit(guild.client.user.id, { ViewChannel: true });
   await guild.channels.fetch();
   const children = guild.channels.cache.filter((channel) => channel.parentId === category.id);
@@ -698,7 +701,7 @@ async function archiveLegacyAllianceCategory(guild: Guild): Promise<void> {
       await channel.permissionOverwrites.delete(roleId).catch(() => undefined);
     }
     await channel.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
-    await channel.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { ViewChannel: true });
+    await channel.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
     await channel.permissionOverwrites.edit(guild.client.user.id, { ViewChannel: true });
   }
   if (!category.name.toLocaleLowerCase().includes("archive")) {

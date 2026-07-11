@@ -44,7 +44,8 @@ const envSchema = z.object({
   RANGER_ALLIANCE_ROLE_LEADERS_ID: optionalId,
   RANGER_ALLIANCE_ROLE_UNDAUNTED_ID: optionalId,
   RANGER_ALLIANCE_ROLE_NORTH_STAR_ID: optionalId,
-  RANGER_ALLIANCE_ROLE_RANGER_CORPS_ID: optionalId
+  RANGER_ALLIANCE_ROLE_RANGER_CORPS_ID: optionalId,
+  RANGER_ALLIANCE_PRIVATE_MARKER: z.string().trim().min(1).default("[CORPS ONLY]")
 });
 
 const parsed = envSchema.safeParse(process.env);

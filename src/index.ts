@@ -31,7 +31,8 @@ import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
   handleAllianceReportMessage,
   isAllianceGuildId,
-  removeAllianceReportForDiscordMessage
+  removeAllianceReportForDiscordMessage,
+  syncCorpsReportAlliancePrivacyForMessage
 } from "./services/allianceIntelService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
 
@@ -166,15 +167,21 @@ client.on("messageDelete", (message) => {
 });
 
 client.on("messageUpdate", (_oldMessage, newMessage) => {
-  if (!newMessage.guild || !isAllianceGuildId(newMessage.guild.id) || newMessage.author?.bot) {
+  if (!newMessage.guild || newMessage.author?.bot) {
     return;
   }
 
   void (async () => {
     const message = newMessage.partial ? await newMessage.fetch() : newMessage;
-    await handleAllianceReportMessage(message);
+    if (isAllianceGuildId(message.guildId)) {
+      await handleAllianceReportMessage(message);
+      return;
+    }
+    if (message.guildId === env.DISCORD_GUILD_ID) {
+      await syncCorpsReportAlliancePrivacyForMessage(message);
+    }
   })().catch((error) => {
-    console.warn(`Failed to update Alliance report ${newMessage.id}:`, error);
+    console.warn(`Failed to synchronize edited intel report ${newMessage.id}:`, error);
   });
 });
 

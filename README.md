@@ -54,6 +54,7 @@ Optional:
 - `RANGER_ALLIANCE_ROLE_UNDAUNTED_ID`
 - `RANGER_ALLIANCE_ROLE_NORTH_STAR_ID`
 - `RANGER_ALLIANCE_ROLE_RANGER_CORPS_ID`
+- `RANGER_ALLIANCE_PRIVATE_MARKER`, defaults to `[CORPS ONLY]`
 
 All Ranger Alliance values are optional as a group. Configure all of them to enable the Alliance intel bridge.
 
@@ -231,6 +232,8 @@ The Ranger Alliance bridge shares delivered Ranger Corps intel without exposing 
 Setup creates read-only mirrors of all active Corps intel topics under the configured Alliance reports category and creates `#ally-reports` under the Corps Intel category. Existing delivered Corps reports are backfilled once; future reports are mirrored incrementally. `/alliance sync` repairs missing channels and publications without duplicating stored reports.
 
 Human messages posted in the configured Alliance intake channel are attributed using exactly one of the configured Undaunted, North Star Rangers, or Ranger Corps roles. Every accepted submission appears in Corps `#ally-reports`. Keyword-matched submissions also appear in the corresponding Corps and Alliance topic channels. Editing or deleting the original Alliance intake message updates or removes all bot-created copies.
+
+Put `[CORPS ONLY]` anywhere in a Corps Trailmark report to keep that report inside the Ranger Corps. It will still be detected, delivered, and displayed in the normal Corps intel channels, but it will not be published to the Ranger Alliance. The marker is case-insensitive and can be changed with `RANGER_ALLIANCE_PRIVATE_MARKER`. Editing the marker onto an existing report removes an existing Alliance mirror; removing it allows `/alliance sync` to publish the report again.
 
 Only `/ping` and `/alliance` are registered in the Alliance server. All roster, rank, promotion, Trailmark, activity, funds, and strongbox event handling remains restricted to `DISCORD_GUILD_ID`.
 

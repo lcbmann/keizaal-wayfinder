@@ -60,6 +60,10 @@ export function isAllianceLeader(member: GuildMember): boolean {
   return Boolean(env.RANGER_ALLIANCE_ROLE_LEADERS_ID && member.roles.cache.has(env.RANGER_ALLIANCE_ROLE_LEADERS_ID));
 }
 
+export function isCorpsOnlyAllianceReport(content: string): boolean {
+  return content.toLocaleLowerCase().includes(env.RANGER_ALLIANCE_PRIVATE_MARKER.toLocaleLowerCase());
+}
+
 export async function setupAllianceBridge(client: Client): Promise<AllianceSetupResult> {
   requireAllianceConfiguration();
   const [corpsGuild, allianceGuild] = await fetchBridgeGuilds(client);
@@ -243,6 +247,11 @@ export async function publishCorpsIntelReportToAlliance(params: {
     return false;
   }
 
+  if (isCorpsOnlyAllianceReport(params.report.content)) {
+    await removeCorpsIntelReportFromAlliance(params.corpsGuild.client, params.report.id);
+    return false;
+  }
+
   const { data: existing, error: existingError } = await supabase
     .from("alliance_intel_publications")
     .select("*")
@@ -257,6 +266,14 @@ export async function publishCorpsIntelReportToAlliance(params: {
       existing.alliance_message_id
     );
     if (existingMessage) {
+      const reporterName = await discordDisplayName(params.corpsGuild, params.report.author_discord_user_id);
+      const deliveredBy = params.report.delivered_by_discord_user_id
+        ? await discordDisplayName(params.corpsGuild, params.report.delivered_by_discord_user_id)
+        : "Unknown";
+      await existingMessage.edit({
+        embeds: [corpsIntelMirrorEmbed(params.corpsGuild, params.report, params.trailmark, reporterName, deliveredBy)],
+        allowedMentions: { parse: [] }
+      });
       return false;
     }
 
@@ -285,6 +302,60 @@ export async function publishCorpsIntelReportToAlliance(params: {
   });
   assertNoDbError(error, "store Alliance intel publication");
   return true;
+}
+
+export async function syncCorpsReportAlliancePrivacyForMessage(message: Message): Promise<number> {
+  if (message.guildId !== env.DISCORD_GUILD_ID || message.author.bot) {
+    return 0;
+  }
+
+  const { data: reports, error } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .eq("discord_channel_id", message.channelId)
+    .eq("discord_message_id", message.id);
+  assertNoDbError(error, "list edited Corps intel reports");
+  if (!reports?.length) {
+    return 0;
+  }
+
+  const content = message.content.trim();
+  const { error: updateError } = await supabase
+    .from("intel_reports")
+    .update({ content })
+    .eq("discord_channel_id", message.channelId)
+    .eq("discord_message_id", message.id);
+  assertNoDbError(updateError, "update edited Corps intel report content");
+
+  const deliveredReports = reports.filter((report) => report.delivered_at).map((report) => ({ ...report, content }));
+  if (deliveredReports.length === 0) {
+    return reports.length;
+  }
+
+  const topicIds = [...new Set(deliveredReports.map((report) => report.topic_id))];
+  const trailmarkIds = [...new Set(deliveredReports.map((report) => report.trailmark_id))];
+  const [topicsResult, trailmarksResult] = await Promise.all([
+    supabase.from("intel_topics").select("*").in("id", topicIds),
+    supabase.from("trailmarks").select("*").in("id", trailmarkIds)
+  ]);
+  assertNoDbError(topicsResult.error, "list topics for edited Corps intel reports");
+  assertNoDbError(trailmarksResult.error, "list Trailmarks for edited Corps intel reports");
+  const topicById = new Map((topicsResult.data ?? []).map((topic) => [topic.id, topic]));
+  const trailmarkById = new Map((trailmarksResult.data ?? []).map((trailmark) => [trailmark.id, trailmark]));
+
+  for (const report of deliveredReports) {
+    const topic = topicById.get(report.topic_id);
+    if (!topic) {
+      continue;
+    }
+    await publishCorpsIntelReportToAlliance({
+      corpsGuild: message.guild!,
+      report,
+      topic,
+      trailmark: trailmarkById.get(report.trailmark_id)
+    });
+  }
+  return reports.length;
 }
 
 export async function removeCorpsIntelReportFromAlliance(client: Client, reportId: string): Promise<void> {

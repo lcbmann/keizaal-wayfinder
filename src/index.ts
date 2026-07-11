@@ -16,6 +16,7 @@ import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
 import { intelCommand } from "./commands/intel.js";
 import { strongboxCommand } from "./commands/strongbox.js";
+import { allianceCommand } from "./commands/alliance.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
@@ -27,6 +28,11 @@ import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService
 import { captureTrailmarkIntelReports, removeIntelReportsForDiscordMessage } from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
+import {
+  handleAllianceReportMessage,
+  isAllianceGuildId,
+  removeAllianceReportForDiscordMessage
+} from "./services/allianceIntelService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
@@ -39,7 +45,8 @@ for (const command of [
   recruitCommand,
   fundsCommand,
   intelCommand,
-  strongboxCommand
+  strongboxCommand,
+  allianceCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -68,16 +75,25 @@ client.on("interactionCreate", (interaction) => {
 });
 
 client.on("guildMemberAdd", (member) => {
+  if (member.guild.id !== env.DISCORD_GUILD_ID) {
+    return;
+  }
   void handleMemberJoin(member).catch((error) => console.error(`Failed to sync joined member ${member.id}:`, error));
 });
 
 client.on("guildMemberUpdate", (oldMember, newMember) => {
+  if (newMember.guild.id !== env.DISCORD_GUILD_ID) {
+    return;
+  }
   void handleMemberUpdate(oldMember, newMember).catch((error) =>
     console.error(`Failed to sync updated member ${newMember.id}:`, error)
   );
 });
 
 client.on("guildMemberRemove", (member) => {
+  if (member.guild.id !== env.DISCORD_GUILD_ID) {
+    return;
+  }
   void handleMemberRemove(member)
     .then(async (retired) => {
       if (retired) {
@@ -89,6 +105,17 @@ client.on("guildMemberRemove", (member) => {
 
 client.on("messageCreate", (message) => {
   if (!message.guild || message.author.bot) {
+    return;
+  }
+
+  if (isAllianceGuildId(message.guild.id)) {
+    void handleAllianceReportMessage(message).catch((error) => {
+      console.warn(`Failed to synchronize Alliance report ${message.id}:`, error);
+    });
+    return;
+  }
+
+  if (message.guild.id !== env.DISCORD_GUILD_ID) {
     return;
   }
 
@@ -118,12 +145,36 @@ client.on("messageDelete", (message) => {
     return;
   }
 
+  if (isAllianceGuildId(message.guild.id)) {
+    void removeAllianceReportForDiscordMessage(message.client, message.channelId, message.id).catch((error) => {
+      console.warn(`Failed to remove Alliance report ${message.id}:`, error);
+    });
+    return;
+  }
+
+  if (message.guild.id !== env.DISCORD_GUILD_ID) {
+    return;
+  }
+
   void removeIntelReportsForDiscordMessage({
     guild: message.guild,
     channelId: message.channelId,
     messageId: message.id
   }).catch((error) => {
     console.warn(`Failed to remove intel reports for deleted message ${message.id}:`, error);
+  });
+});
+
+client.on("messageUpdate", (_oldMessage, newMessage) => {
+  if (!newMessage.guild || !isAllianceGuildId(newMessage.guild.id) || newMessage.author?.bot) {
+    return;
+  }
+
+  void (async () => {
+    const message = newMessage.partial ? await newMessage.fetch() : newMessage;
+    await handleAllianceReportMessage(message);
+  })().catch((error) => {
+    console.warn(`Failed to update Alliance report ${newMessage.id}:`, error);
   });
 });
 
@@ -137,7 +188,19 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
   }
 
   if (interaction.isChatInputCommand()) {
-    await safelyRecordInteraction(interaction.user.id);
+    if (!interaction.guildId) {
+      throw new UserFacingError("Wayfinder commands can only be used in a configured server.");
+    }
+    if (isAllianceGuildId(interaction.guildId)) {
+      if (interaction.commandName !== "alliance" && interaction.commandName !== "ping") {
+        throw new UserFacingError("That command is not available in the Ranger Alliance server.");
+      }
+    } else if (interaction.guildId === env.DISCORD_GUILD_ID) {
+      await safelyRecordInteraction(interaction.user.id);
+    } else {
+      throw new UserFacingError("This server is not configured for Wayfinder.");
+    }
+
     const command = commands.get(interaction.commandName);
     if (!command) {
       throw new UserFacingError("Unknown command.");
@@ -148,12 +211,18 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
   }
 
   if (interaction.isButton() && interaction.customId.startsWith("promotion:vote:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Promotion voting is only available in the Ranger Corps server.");
+    }
     await safelyRecordInteraction(interaction.user.id);
     await handlePromotionButton(interaction);
     return;
   }
 
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith("trailmark:select")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Trailmarks are only available in the Ranger Corps server.");
+    }
     await safelyRecordInteraction(interaction.user.id);
     await handleTrailmarkSelect(interaction);
   }

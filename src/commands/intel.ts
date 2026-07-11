@@ -16,8 +16,9 @@ import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
 import { slugify } from "../utils/slugs.js";
 import type { BotCommand } from "./types.js";
+import { env } from "../config/env.js";
+import { syncAllianceTopicMirrors } from "../services/allianceIntelService.js";
 
-const INTEL_CATEGORY_ID = "1522171305884123216";
 
 export const intelCommand: BotCommand = {
   data: new SlashCommandBuilder()
@@ -172,6 +173,9 @@ export const intelCommand: BotCommand = {
       });
 
       await refreshIntelTopicBulletin(interaction.guild, topic.id);
+      await syncAllianceTopicMirrors(interaction.client).catch((error) => {
+        console.warn(`Failed to create Ranger Alliance mirror for intel topic ${topic.id}:`, error);
+      });
       await interaction.editReply({
         content: `Created intel topic ${topic.name} in ${channel} with keywords: ${keywords.join(", ")}.`,
       });
@@ -315,7 +319,7 @@ async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]
   return interaction.guild.channels.create({
     name: `${slugify(name)}-reports`.slice(0, 90),
     type: ChannelType.GuildText,
-    parent: INTEL_CATEGORY_ID,
+    ...(env.CORPS_INTEL_CATEGORY_ID ? { parent: env.CORPS_INTEL_CATEGORY_ID } : {}),
     reason: `Create Trailmark intel topic channel for ${name}`
   });
 }
@@ -339,6 +343,9 @@ async function createCatchallTopic(interaction: Parameters<BotCommand["execute"]
   });
 
   await refreshIntelTopicBulletin(interaction.guild, topic.id);
+  await syncAllianceTopicMirrors(interaction.client).catch((error) => {
+    console.warn(`Failed to create Ranger Alliance catchall mirror ${topic.id}:`, error);
+  });
   return topic;
 }
 

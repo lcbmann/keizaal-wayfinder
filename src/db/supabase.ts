@@ -146,6 +146,58 @@ export interface IntelTrailmarkVisitRow {
   visited_at: string;
 }
 
+export interface AllianceIntelSettingsRow {
+  id: boolean;
+  alliance_guild_id: string;
+  reports_category_id: string;
+  intake_channel_id: string;
+  admin_channel_id: string;
+  corps_ally_reports_channel_id: string | null;
+  active: boolean;
+  updated_at: string;
+}
+
+export interface AllianceTopicMirrorRow {
+  topic_id: string;
+  alliance_guild_id: string;
+  alliance_channel_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AllianceIntelPublicationRow {
+  report_id: string;
+  alliance_channel_id: string;
+  alliance_message_id: string;
+  published_at: string;
+}
+
+export interface AllianceReportRow {
+  id: string;
+  discord_message_id: string;
+  discord_channel_id: string;
+  author_discord_user_id: string;
+  author_display_name: string;
+  source_order: string;
+  content: string;
+  attachment_urls: string[];
+  corps_ally_channel_id: string | null;
+  corps_ally_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AllianceReportTopicPublicationRow {
+  alliance_report_id: string;
+  topic_id: string;
+  corps_channel_id: string;
+  corps_message_id: string;
+  alliance_channel_id: string;
+  alliance_message_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -255,6 +307,31 @@ export interface Database {
         Row: IntelTrailmarkVisitRow;
         Insert: Omit<IntelTrailmarkVisitRow, "id"> & { id?: string };
         Update: Partial<IntelTrailmarkVisitRow>;
+      };
+      alliance_intel_settings: {
+        Row: AllianceIntelSettingsRow;
+        Insert: Omit<AllianceIntelSettingsRow, "updated_at"> & { updated_at?: string };
+        Update: Partial<AllianceIntelSettingsRow>;
+      };
+      alliance_topic_mirrors: {
+        Row: AllianceTopicMirrorRow;
+        Insert: Omit<AllianceTopicMirrorRow, "created_at" | "updated_at">;
+        Update: Partial<AllianceTopicMirrorRow>;
+      };
+      alliance_intel_publications: {
+        Row: AllianceIntelPublicationRow;
+        Insert: Omit<AllianceIntelPublicationRow, "published_at"> & { published_at?: string };
+        Update: Partial<AllianceIntelPublicationRow>;
+      };
+      alliance_reports: {
+        Row: AllianceReportRow;
+        Insert: Omit<AllianceReportRow, "id" | "updated_at"> & { id?: string; updated_at?: string };
+        Update: Partial<AllianceReportRow>;
+      };
+      alliance_report_topic_publications: {
+        Row: AllianceReportTopicPublicationRow;
+        Insert: Omit<AllianceReportTopicPublicationRow, "created_at" | "updated_at">;
+        Update: Partial<AllianceReportTopicPublicationRow>;
       };
     };
     Functions: {

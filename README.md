@@ -45,6 +45,17 @@ Optional:
 - `PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER`, default `7`
 - `INVITE_CHANNEL_ID`, required only for `/recruit invite`
 - `CORPS_FUNDS_CHANNEL_ID`, required only for `/funds`
+- `CORPS_INTEL_CATEGORY_ID`, required for automatic Corps intel channel creation and the Ranger Alliance bridge
+- `RANGER_ALLIANCE_GUILD_ID`
+- `RANGER_ALLIANCE_REPORTS_CATEGORY_ID`
+- `RANGER_ALLIANCE_INTAKE_CHANNEL_ID`
+- `RANGER_ALLIANCE_ADMIN_CHANNEL_ID`
+- `RANGER_ALLIANCE_ROLE_LEADERS_ID`
+- `RANGER_ALLIANCE_ROLE_UNDAUNTED_ID`
+- `RANGER_ALLIANCE_ROLE_NORTH_STAR_ID`
+- `RANGER_ALLIANCE_ROLE_RANGER_CORPS_ID`
+
+All Ranger Alliance values are optional as a group. Configure all of them to enable the Alliance intel bridge.
 
 ## Discord Setup
 
@@ -90,6 +101,11 @@ The migration creates:
 - `intel_topics`
 - `intel_reports`
 - `intel_trailmark_visits`
+- `alliance_intel_settings`
+- `alliance_topic_mirrors`
+- `alliance_intel_publications`
+- `alliance_reports`
+- `alliance_report_topic_publications`
 
 It also creates enum types, update triggers, indexes, the Trailmark pinned flag, a partial unique index enforcing one active Trailmark session per Discord user, intel catchall topic state, and Atlas summary columns for intel reports.
 
@@ -172,6 +188,9 @@ Implemented commands:
 - `/intel catchall-clear`
 - `/intel refresh`
 - `/intel backfill`
+- `/alliance setup`
+- `/alliance sync`
+- `/alliance status`
 
 ## Corps Funds
 
@@ -204,6 +223,16 @@ Atlas share codes in Trailmark messages get a preview reply when Wayfinder can d
 `/intel backfill` scans old Trailmark messages into the current intel topics. It scans current Trailmark channels and the archived legacy `#trailmarks` forum (`1511443716420800673`), mapping forum thread names such as `Morthal Stash` to current Trailmarks where possible. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
 Automatic intel updates append newly delivered reports instead of rebuilding entire report channels. Use `/intel refresh` when you intentionally want to delete and rebuild a topic bulletin in strict original report chronology.
+
+## Ranger Alliance Intel Bridge
+
+The Ranger Alliance bridge shares delivered Ranger Corps intel without exposing Trailmarks or other internal Corps systems. Run migration `009_create_ranger_alliance_bridge.sql`, configure every `RANGER_ALLIANCE_*` value and `CORPS_INTEL_CATEGORY_ID`, and deploy the guarded bridge code before inviting Wayfinder to the Alliance server. Alliance command registration may warn until the bot has joined; after the invite, deploy commands again and run `/alliance setup` in the configured Alliance admin channel as a member with the Leaders role.
+
+Setup creates read-only mirrors of all active Corps intel topics under the configured Alliance reports category and creates `#ally-reports` under the Corps Intel category. Existing delivered Corps reports are backfilled once; future reports are mirrored incrementally. `/alliance sync` repairs missing channels and publications without duplicating stored reports.
+
+Human messages posted in the configured Alliance intake channel are attributed using exactly one of the configured Undaunted, North Star Rangers, or Ranger Corps roles. Every accepted submission appears in Corps `#ally-reports`. Keyword-matched submissions also appear in the corresponding Corps and Alliance topic channels. Editing or deleting the original Alliance intake message updates or removes all bot-created copies.
+
+Only `/ping` and `/alliance` are registered in the Alliance server. All roster, rank, promotion, Trailmark, activity, funds, and strongbox event handling remains restricted to `DISCORD_GUILD_ID`.
 
 ## Role Sync
 

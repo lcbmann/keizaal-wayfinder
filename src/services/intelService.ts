@@ -26,8 +26,13 @@ import {
   resolveAtlasSharePreviewFromContent
 } from "./atlasService.js";
 import { UserFacingError } from "../utils/errors.js";
+import { matchingIntelTopics } from "../utils/intelKeywords.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
+import {
+  publishCorpsIntelReportToAlliance,
+  removeCorpsIntelReportFromAlliance
+} from "./allianceIntelService.js";
 
 const INTEL_TOPIC_STATE_PREFIX = "intel-topic";
 const LEGACY_TRAILMARK_FORUM_CHANNEL_ID = "1511443716420800673";
@@ -245,6 +250,7 @@ export async function removeIntelReportsForDiscordMessage(params: {
 
   for (const report of reports) {
     await deleteBulletinMessageForReport(params.guild, report);
+    await removeCorpsIntelReportFromAlliance(params.guild.client, report.id);
   }
 
   const { error: deleteError } = await supabase
@@ -1011,6 +1017,12 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
       embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
     });
     await markReportPosted(report.id, channel.id, message.id);
+    await publishCorpsIntelReportToAlliance({
+      corpsGuild: guild,
+      report,
+      topic,
+      trailmark: trailmarks.get(report.trailmark_id)
+    }).catch((error) => console.warn(`Failed to mirror Corps intel report ${report.id} to the Alliance:`, error));
     sentMessages.push(message);
   }
 
@@ -1042,6 +1054,12 @@ async function publishUnpostedDeliveredReports(guild: Guild, topicId: string): P
       embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
     });
     await markReportPosted(report.id, channel.id, message.id);
+    await publishCorpsIntelReportToAlliance({
+      corpsGuild: guild,
+      report,
+      topic,
+      trailmark: trailmarks.get(report.trailmark_id)
+    }).catch((error) => console.warn(`Failed to mirror Corps intel report ${report.id} to the Alliance:`, error));
     sentMessageIds.push(message.id);
   }
 
@@ -1095,6 +1113,7 @@ async function filterReportsWithExistingOriginals(guild: Guild, reports: IntelRe
     }
 
     await deleteBulletinMessageForReport(guild, report);
+    await removeCorpsIntelReportFromAlliance(guild.client, report.id);
     const { error } = await supabase.from("intel_reports").delete().eq("id", report.id);
     assertNoDbError(error, "delete intel report with missing original message");
   }
@@ -1249,6 +1268,7 @@ async function removeCatchallReportForDiscordMessage(params: {
 
   for (const report of reports) {
     await deleteBulletinMessageForReport(params.guild, report);
+    await removeCorpsIntelReportFromAlliance(params.guild.client, report.id);
   }
 
   const { error: deleteError } = await supabase
@@ -1261,57 +1281,11 @@ async function removeCatchallReportForDiscordMessage(params: {
 }
 
 function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {
-  return topic.keywords.some((keyword) => keywordMatchesContent(keyword, content));
-}
-
-function keywordMatchesContent(keyword: string, content: string): boolean {
-  const normalizedKeyword = keyword.trim();
-  if (!normalizedKeyword) {
-    return false;
-  }
-
-  return keywordInflectionVariants(normalizedKeyword).some((variant) => {
-    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRegExp(variant)}(?=$|[^\\p{L}\\p{N}_])`, "iu");
-    return pattern.test(content);
-  });
+  return matchingIntelTopics([topic], content).length > 0;
 }
 
 function isMissingColumnError(error: { message: string; code?: string } | null): boolean {
   return Boolean(error && (error.code === "42703" || error.message.includes("column") && error.message.includes("does not exist")));
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function keywordInflectionVariants(keyword: string): string[] {
-  const variants = new Set([keyword]);
-  const lower = keyword.toLocaleLowerCase();
-
-  if (lower.length > 4 && lower.endsWith("ies")) {
-    variants.add(`${keyword.slice(0, -3)}y`);
-  } else if (lower.length > 4 && lower.endsWith("ves")) {
-    variants.add(`${keyword.slice(0, -3)}f`);
-    variants.add(`${keyword.slice(0, -3)}fe`);
-  } else if (lower.length > 4 && lower.endsWith("es")) {
-    variants.add(keyword.slice(0, -2));
-  } else if (lower.length > 3 && lower.endsWith("s")) {
-    variants.add(keyword.slice(0, -1));
-  }
-
-  if (lower.endsWith("y")) {
-    variants.add(`${keyword.slice(0, -1)}ies`);
-  } else if (lower.endsWith("fe")) {
-    variants.add(`${keyword.slice(0, -2)}ves`);
-  } else if (lower.endsWith("f")) {
-    variants.add(`${keyword.slice(0, -1)}ves`);
-  } else if (/(s|x|z|ch|sh)$/iu.test(keyword)) {
-    variants.add(`${keyword}es`);
-  } else {
-    variants.add(`${keyword}s`);
-  }
-
-  return [...variants].filter(Boolean);
 }
 
 function dedupeKeywords(keywords: string[]): string[] {

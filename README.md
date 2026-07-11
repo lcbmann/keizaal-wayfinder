@@ -107,6 +107,10 @@ The migration creates:
 - `alliance_intel_publications`
 - `alliance_reports`
 - `alliance_report_topic_publications`
+- `alliance_headquarters`
+- `alliance_headquarters_topic_channels`
+- `alliance_headquarters_deliveries`
+- `alliance_headquarters_publications`
 
 It also creates enum types, update triggers, indexes, the Trailmark pinned flag, a partial unique index enforcing one active Trailmark session per Discord user, intel catchall topic state, and Atlas summary columns for intel reports.
 
@@ -227,13 +231,15 @@ Automatic intel updates append newly delivered reports instead of rebuilding ent
 
 ## Ranger Alliance Intel Bridge
 
-The Ranger Alliance bridge shares delivered Ranger Corps intel without exposing Trailmarks or other internal Corps systems. Run migration `009_create_ranger_alliance_bridge.sql`, configure every `RANGER_ALLIANCE_*` value and `CORPS_INTEL_CATEGORY_ID`, and deploy the guarded bridge code before inviting Wayfinder to the Alliance server. Alliance command registration may warn until the bot has joined; after the invite, deploy commands again and run `/alliance setup` in the configured Alliance admin channel as a member with the Leaders role.
+The Ranger Alliance bridge uses separate information-delivery points rather than directly mirroring Corps intel. Run migrations `009_create_ranger_alliance_bridge.sql` and `010_create_alliance_headquarters.sql`, configure every `RANGER_ALLIANCE_*` value and `CORPS_INTEL_CATEGORY_ID`, deploy commands, then run `/alliance setup` in the configured Alliance admin channel as a member with the Leaders role.
 
-Setup creates read-only mirrors of all active Corps intel topics under the configured Alliance reports category and creates `#ally-reports` under the Corps Intel category. Existing delivered Corps reports are backfilled once; future reports are mirrored incrementally. `/alliance sync` repairs missing channels and publications without duplicating stored reports.
+Setup creates two Corps Trailmarks: `Stonehills - North Star Headquarters` and `Dancing Horse Inn - Undaunted Headquarters`. It also creates private `NORTH STAR INTEL` and `UNDAUNTED INTEL` categories in the Alliance server. North Star Rangers can only see Stonehills reports, Undaunted members can only see Dancing Horse Inn reports, and Leaders can see both. The Ranger Corps role alone cannot see either category. The retired direct-mirror category is preserved as a Leaders-only archive.
 
-Human messages posted in the configured Alliance intake channel are attributed using exactly one of the configured Undaunted, North Star Rangers, or Ranger Corps roles. Every accepted submission appears in Corps `#ally-reports`. Keyword-matched submissions also appear in the corresponding Corps and Alliance topic channels. Editing or deleting the original Alliance intake message updates or removes all bot-created copies.
+Each headquarters receives its own read-only copy of every active intel topic plus its own submission channel. A submission in `#north-star-submit-report` becomes an attributed note in the Stonehills Trailmark and is immediately available in North Star topic channels. An Undaunted submission behaves the same way at the Dancing Horse Inn. Neither submission reaches Hunter's Rest or the Corps intel channels until a Corps Ranger opens the source HQ Trailmark and later opens the Corps HQ Trailmark.
 
-Put `[CORPS ONLY]` anywhere in a Corps Trailmark report to keep that report inside the Ranger Corps. It will still be detected, delivered, and displayed in the normal Corps intel channels, but it will not be published to the Ranger Alliance. The marker is case-insensitive and can be changed with `RANGER_ALLIANCE_PRIVATE_MARKER`. Editing the marker onto an existing report removes an existing Alliance mirror; removing it allows `/alliance sync` to publish the report again.
+Corps Trailmark reports travel independently. Opening a source Trailmark and then Stonehills delivers those reports only to North Star channels. Carrying the same information to the Dancing Horse Inn delivers it only to Undaunted channels. Hunter's Rest remains the existing Corps delivery point and continues using the existing Corps intel channels.
+
+Put `[CORPS ONLY]` anywhere in a Corps Trailmark report to prevent publication at Stonehills or the Dancing Horse Inn. It remains available through normal Corps delivery. The marker is case-insensitive and can be changed with `RANGER_ALLIANCE_PRIVATE_MARKER`.
 
 Only `/ping` and `/alliance` are registered in the Alliance server. All roster, rank, promotion, Trailmark, activity, funds, and strongbox event handling remains restricted to `DISCORD_GUILD_ID`.
 

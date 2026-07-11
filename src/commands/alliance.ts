@@ -15,10 +15,10 @@ export const allianceCommand: BotCommand = {
     .setName("alliance")
     .setDescription("Manage the Ranger Alliance intel bridge.")
     .addSubcommand((subcommand) =>
-      subcommand.setName("setup").setDescription("Create report mirrors and backfill delivered Corps intel.")
+      subcommand.setName("setup").setDescription("Create allied HQ Trailmarks and private intel sections.")
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("sync").setDescription("Repair channels and publish any missing reports.")
+      subcommand.setName("sync").setDescription("Repair HQ channels and migrate stored allied reports.")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("status").setDescription("Show Ranger Alliance bridge status.")
@@ -47,14 +47,10 @@ export const allianceCommand: BotCommand = {
         .setTitle("Ranger Alliance Intel Bridge")
         .setDescription(status.configured ? "Configured and active." : "Not configured in Supabase.")
         .addFields(
-          { name: "Topic mirrors", value: String(status.topicChannels), inline: true },
-          { name: "Corps reports mirrored", value: String(status.mirroredCorpsReports), inline: true },
+          { name: "Headquarters", value: String(status.headquarters), inline: true },
+          { name: "HQ topic channels", value: String(status.topicChannels), inline: true },
+          { name: "HQ deliveries", value: String(status.deliveredReports), inline: true },
           { name: "Alliance reports", value: String(status.allianceReports), inline: true },
-          {
-            name: "Corps Ally Reports",
-            value: status.allyReportsChannelId ? `<#${status.allyReportsChannelId}>` : "Not created",
-            inline: false
-          }
         )
         .setColor(0x4f6f91)
         .setTimestamp(new Date());
@@ -66,11 +62,10 @@ export const allianceCommand: BotCommand = {
     const result = await setupAllianceBridge(interaction.client);
     await interaction.editReply({
       content: [
-        subcommand === "setup" ? "Ranger Alliance intel bridge set up." : "Ranger Alliance intel bridge synchronized.",
-        `Topic mirrors: ${result.topicChannels}`,
-        `New Corps reports mirrored: ${result.corpsReportsBackfilled}`,
-        `Alliance reports synchronized: ${result.allianceReportsSynced}`,
-        `Corps Ally Reports: <#${result.allyReportsChannelId}>`
+        subcommand === "setup" ? "Ranger Alliance headquarters network set up." : "Ranger Alliance headquarters network synchronized.",
+        `Headquarters configured: ${result.headquarters}`,
+        `HQ topic channels: ${result.topicChannels}`,
+        `Alliance reports migrated: ${result.allianceReportsMigrated}`
       ].join("\n")
     });
   }

@@ -136,6 +136,9 @@ export interface IntelReportRow {
   bulletin_posted_at: string | null;
   atlas_share_code: string | null;
   atlas_summary: Json | null;
+  author_display_name: string | null;
+  source_order: string | null;
+  source_alliance_report_id: string | null;
   created_at: string;
 }
 
@@ -183,8 +186,49 @@ export interface AllianceReportRow {
   attachment_urls: string[];
   corps_ally_channel_id: string | null;
   corps_ally_message_id: string | null;
+  headquarters_id: string | null;
+  trailmark_message_channel_id: string | null;
+  trailmark_message_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AllianceHeadquartersRow {
+  id: string;
+  headquarters_key: string;
+  name: string;
+  source_order: string;
+  trailmark_id: string;
+  alliance_guild_id: string;
+  viewer_role_id: string;
+  reports_category_id: string;
+  intake_channel_id: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AllianceHeadquartersTopicChannelRow {
+  headquarters_id: string;
+  topic_id: string;
+  discord_channel_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AllianceHeadquartersDeliveryRow {
+  report_id: string;
+  headquarters_id: string;
+  delivered_by_discord_user_id: string;
+  delivered_at: string;
+}
+
+export interface AllianceHeadquartersPublicationRow {
+  report_id: string;
+  headquarters_id: string;
+  discord_channel_id: string;
+  discord_message_id: string;
+  published_at: string;
 }
 
 export interface AllianceReportTopicPublicationRow {
@@ -293,6 +337,7 @@ export interface Database {
         Insert: Omit<
           IntelReportRow,
           "id" | "bulletin_channel_id" | "bulletin_message_id" | "bulletin_posted_at" | "atlas_share_code" | "atlas_summary"
+          | "author_display_name" | "source_order" | "source_alliance_report_id"
         > & {
           id?: string;
           bulletin_channel_id?: string | null;
@@ -300,6 +345,9 @@ export interface Database {
           bulletin_posted_at?: string | null;
           atlas_share_code?: string | null;
           atlas_summary?: Json | null;
+          author_display_name?: string | null;
+          source_order?: string | null;
+          source_alliance_report_id?: string | null;
         };
         Update: Partial<IntelReportRow>;
       };
@@ -325,13 +373,42 @@ export interface Database {
       };
       alliance_reports: {
         Row: AllianceReportRow;
-        Insert: Omit<AllianceReportRow, "id" | "updated_at"> & { id?: string; updated_at?: string };
+        Insert: Omit<
+          AllianceReportRow,
+          "id" | "updated_at" | "headquarters_id" | "trailmark_message_channel_id" | "trailmark_message_id"
+        > & {
+          id?: string;
+          updated_at?: string;
+          headquarters_id?: string | null;
+          trailmark_message_channel_id?: string | null;
+          trailmark_message_id?: string | null;
+        };
         Update: Partial<AllianceReportRow>;
       };
       alliance_report_topic_publications: {
         Row: AllianceReportTopicPublicationRow;
         Insert: Omit<AllianceReportTopicPublicationRow, "created_at" | "updated_at">;
         Update: Partial<AllianceReportTopicPublicationRow>;
+      };
+      alliance_headquarters: {
+        Row: AllianceHeadquartersRow;
+        Insert: Omit<AllianceHeadquartersRow, "id" | "created_at" | "updated_at"> & { id?: string };
+        Update: Partial<AllianceHeadquartersRow>;
+      };
+      alliance_headquarters_topic_channels: {
+        Row: AllianceHeadquartersTopicChannelRow;
+        Insert: Omit<AllianceHeadquartersTopicChannelRow, "created_at" | "updated_at">;
+        Update: Partial<AllianceHeadquartersTopicChannelRow>;
+      };
+      alliance_headquarters_deliveries: {
+        Row: AllianceHeadquartersDeliveryRow;
+        Insert: Omit<AllianceHeadquartersDeliveryRow, "delivered_at"> & { delivered_at?: string };
+        Update: Partial<AllianceHeadquartersDeliveryRow>;
+      };
+      alliance_headquarters_publications: {
+        Row: AllianceHeadquartersPublicationRow;
+        Insert: Omit<AllianceHeadquartersPublicationRow, "published_at"> & { published_at?: string };
+        Update: Partial<AllianceHeadquartersPublicationRow>;
       };
     };
     Functions: {

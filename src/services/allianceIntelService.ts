@@ -1,6 +1,8 @@
 import {
   ChannelType,
   EmbedBuilder,
+  PermissionFlagsBits,
+  type CategoryChannel,
   type Client,
   type Guild,
   type GuildBasedChannel,
@@ -13,8 +15,10 @@ import { env } from "../config/env.js";
 import {
   assertNoDbError,
   supabase,
+  type AllianceHeadquartersDeliveryRow,
+  type AllianceHeadquartersPublicationRow,
+  type AllianceHeadquartersRow,
   type AllianceReportRow,
-  type AllianceReportTopicPublicationRow,
   type IntelReportRow,
   type IntelTopicRow,
   type TrailmarkRow
@@ -22,26 +26,36 @@ import {
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
 import { slugify } from "../utils/slugs.js";
+import { createTrailmark } from "./trailmarkService.js";
 import { atlasReportFieldValue } from "./atlasService.js";
 
 const MAX_DESCRIPTION_LENGTH = 4000;
-const ALLY_REPORTS_CHANNEL_NAME = "ally-reports";
-
 type ReportChannel = TextChannel | NewsChannel;
 
+interface HeadquartersDefinition {
+  key: "north-star" | "undaunted";
+  name: string;
+  sourceOrder: string;
+  viewerRoleId: string;
+  categoryName: string;
+  intakeChannelName: string;
+  trailmarkName: string;
+  trailmarkHold: string;
+  trailmarkDescription: string;
+}
+
 export interface AllianceSetupResult {
+  headquarters: number;
   topicChannels: number;
-  corpsReportsBackfilled: number;
-  allianceReportsSynced: number;
-  allyReportsChannelId: string;
+  allianceReportsMigrated: number;
 }
 
 export interface AllianceStatus {
   configured: boolean;
+  headquarters: number;
   topicChannels: number;
-  mirroredCorpsReports: number;
+  deliveredReports: number;
   allianceReports: number;
-  allyReportsChannelId: string | null;
 }
 
 export function allianceBridgeConfigured(): boolean {
@@ -50,10 +64,6 @@ export function allianceBridgeConfigured(): boolean {
 
 export function isAllianceGuildId(guildId: string | null | undefined): boolean {
   return Boolean(env.RANGER_ALLIANCE_GUILD_ID && guildId === env.RANGER_ALLIANCE_GUILD_ID);
-}
-
-export function isAllianceIntakeMessage(message: Message): boolean {
-  return isAllianceGuildId(message.guildId) && message.channelId === env.RANGER_ALLIANCE_INTAKE_CHANNEL_ID;
 }
 
 export function isAllianceLeader(member: GuildMember): boolean {
@@ -67,65 +77,46 @@ export function isCorpsOnlyAllianceReport(content: string): boolean {
 export async function setupAllianceBridge(client: Client): Promise<AllianceSetupResult> {
   requireAllianceConfiguration();
   const [corpsGuild, allianceGuild] = await fetchBridgeGuilds(client);
-  await validateAllianceDiscordConfiguration(allianceGuild);
-  await validateCorpsDiscordConfiguration(corpsGuild);
+  await validateDiscordConfiguration(corpsGuild, allianceGuild);
+  await archiveLegacyAllianceCategory(allianceGuild);
 
-  const { error: settingsError } = await supabase.from("alliance_intel_settings").upsert({
-    id: true,
-    alliance_guild_id: env.RANGER_ALLIANCE_GUILD_ID,
-    reports_category_id: env.RANGER_ALLIANCE_REPORTS_CATEGORY_ID,
-    intake_channel_id: env.RANGER_ALLIANCE_INTAKE_CHANNEL_ID,
-    admin_channel_id: env.RANGER_ALLIANCE_ADMIN_CHANNEL_ID,
-    corps_ally_reports_channel_id: null,
-    active: true
-  });
-  assertNoDbError(settingsError, "save Ranger Alliance settings");
-
-  const allyReportsChannel = await ensureCorpsAllyReportsChannel(corpsGuild);
   const topics = await listActiveTopics();
-  for (const topic of topics) {
-    await ensureAllianceTopicMirror(allianceGuild, topic);
+  const headquarters: AllianceHeadquartersRow[] = [];
+  let topicChannels = 0;
+  for (const definition of headquartersDefinitions()) {
+    const hq = await ensureHeadquarters(corpsGuild, allianceGuild, definition);
+    headquarters.push(hq);
+    for (const topic of topics) {
+      await ensureHeadquartersTopicChannel(allianceGuild, hq, topic);
+      topicChannels += 1;
+    }
   }
 
-  const corpsReportsBackfilled = await backfillDeliveredCorpsReports(corpsGuild, topics);
-  const allianceReportsSynced = await syncStoredAllianceReports(client);
-  return {
-    topicChannels: topics.length,
-    corpsReportsBackfilled,
-    allianceReportsSynced,
-    allyReportsChannelId: allyReportsChannel.id
-  };
+  const allianceReportsMigrated = await migrateStoredAllianceReports(client, headquarters);
+  return { headquarters: headquarters.length, topicChannels, allianceReportsMigrated };
 }
 
 export async function getAllianceStatus(): Promise<AllianceStatus> {
   if (!allianceBridgeConfigured()) {
-    return {
-      configured: false,
-      topicChannels: 0,
-      mirroredCorpsReports: 0,
-      allianceReports: 0,
-      allyReportsChannelId: null
-    };
+    return { configured: false, headquarters: 0, topicChannels: 0, deliveredReports: 0, allianceReports: 0 };
   }
 
-  const [settingsResult, topicsResult, corpsReportsResult, allianceReportsResult] = await Promise.all([
-    supabase.from("alliance_intel_settings").select("*").eq("id", true).maybeSingle(),
-    supabase.from("alliance_topic_mirrors").select("topic_id", { count: "exact", head: true }),
-    supabase.from("alliance_intel_publications").select("report_id", { count: "exact", head: true }),
+  const [hqResult, topicResult, deliveryResult, reportsResult] = await Promise.all([
+    supabase.from("alliance_headquarters").select("id", { count: "exact", head: true }).eq("active", true),
+    supabase.from("alliance_headquarters_topic_channels").select("topic_id", { count: "exact", head: true }),
+    supabase.from("alliance_headquarters_deliveries").select("report_id", { count: "exact", head: true }),
     supabase.from("alliance_reports").select("id", { count: "exact", head: true })
   ]);
-
-  assertNoDbError(settingsResult.error, "get Ranger Alliance settings");
-  assertNoDbError(topicsResult.error, "count Ranger Alliance topic channels");
-  assertNoDbError(corpsReportsResult.error, "count mirrored Corps reports");
-  assertNoDbError(allianceReportsResult.error, "count Alliance reports");
-
+  assertNoDbError(hqResult.error, "count Alliance headquarters");
+  assertNoDbError(topicResult.error, "count Alliance headquarters topic channels");
+  assertNoDbError(deliveryResult.error, "count Alliance headquarters deliveries");
+  assertNoDbError(reportsResult.error, "count Alliance reports");
   return {
-    configured: Boolean(settingsResult.data?.active),
-    topicChannels: topicsResult.count ?? 0,
-    mirroredCorpsReports: corpsReportsResult.count ?? 0,
-    allianceReports: allianceReportsResult.count ?? 0,
-    allyReportsChannelId: settingsResult.data?.corps_ally_reports_channel_id ?? null
+    configured: (hqResult.count ?? 0) > 0,
+    headquarters: hqResult.count ?? 0,
+    topicChannels: topicResult.count ?? 0,
+    deliveredReports: deliveryResult.count ?? 0,
+    allianceReports: reportsResult.count ?? 0
   };
 }
 
@@ -134,36 +125,36 @@ export async function syncAllianceTopicMirrors(client: Client): Promise<number> 
     return 0;
   }
   const allianceGuild = await client.guilds.fetch(env.RANGER_ALLIANCE_GUILD_ID);
-  const topics = await listActiveTopics();
-  for (const topic of topics) {
-    await ensureAllianceTopicMirror(allianceGuild, topic);
+  const [headquarters, topics] = await Promise.all([listHeadquarters(), listActiveTopics()]);
+  for (const hq of headquarters) {
+    for (const topic of topics) {
+      await ensureHeadquartersTopicChannel(allianceGuild, hq, topic);
+    }
   }
-  return topics.length;
+  return headquarters.length * topics.length;
 }
 
 export async function handleAllianceReportMessage(message: Message): Promise<boolean> {
-  if (!isAllianceIntakeMessage(message) || message.author.bot) {
+  if (!isAllianceGuildId(message.guildId) || message.author.bot) {
     return false;
   }
 
-  requireAllianceConfiguration();
-  const content = message.content.trim();
-  const attachmentUrls = [...message.attachments.values()].map((attachment) => attachment.url);
-  if (!content && attachmentUrls.length === 0) {
+  const hq = await getHeadquartersByIntakeChannel(message.channelId);
+  if (!hq) {
+    return false;
+  }
+  const member = message.member ?? await message.guild?.members.fetch(message.author.id).catch(() => null);
+  if (!member || (!member.roles.cache.has(hq.viewer_role_id) && !isAllianceLeader(member))) {
+    await message.reply({
+      content: `Only ${hq.source_order} members and Alliance Leaders may submit reports here.`,
+      allowedMentions: { repliedUser: false }
+    });
     return true;
   }
 
-  const member = message.member ?? await message.guild?.members.fetch(message.author.id).catch(() => null);
-  if (!member) {
-    throw new UserFacingError("The Alliance report author could not be resolved.");
-  }
-
-  const sourceOrder = allianceOrderForMember(member);
-  if (!sourceOrder) {
-    await message.reply({
-      content: "This report was not synced. You must have exactly one Alliance order role: Undaunted, North Star Rangers, or Ranger Corps.",
-      allowedMentions: { repliedUser: false }
-    });
+  const content = message.content.trim();
+  const attachmentUrls = [...message.attachments.values()].map((attachment) => attachment.url);
+  if (!content && attachmentUrls.length === 0) {
     return true;
   }
 
@@ -173,142 +164,141 @@ export async function handleAllianceReportMessage(message: Message): Promise<boo
     discord_channel_id: message.channelId,
     author_discord_user_id: message.author.id,
     author_display_name: member.displayName,
-    source_order: sourceOrder,
+    source_order: hq.source_order,
     content,
     attachment_urls: attachmentUrls,
+    headquarters_id: hq.id,
     created_at: message.createdAt.toISOString()
   };
 
   let report: AllianceReportRow;
   if (existing) {
-    const { data, error } = await supabase
-      .from("alliance_reports")
-      .update(values)
-      .eq("id", existing.id)
-      .select("*")
-      .single();
-    assertNoDbError(error, "update Alliance report");
+    const { data, error } = await supabase.from("alliance_reports").update(values).eq("id", existing.id).select("*").single();
+    assertNoDbError(error, "update allied headquarters report");
     report = data;
   } else {
-    const { data, error } = await supabase
-      .from("alliance_reports")
-      .insert({
-        ...values,
-        corps_ally_channel_id: null,
-        corps_ally_message_id: null
-      })
-      .select("*")
-      .single();
-    assertNoDbError(error, "create Alliance report");
+    const { data, error } = await supabase.from("alliance_reports").insert({
+      ...values,
+      corps_ally_channel_id: null,
+      corps_ally_message_id: null,
+      trailmark_message_channel_id: null,
+      trailmark_message_id: null
+    }).select("*").single();
+    assertNoDbError(error, "create allied headquarters report");
     report = data;
   }
 
-  await syncAllianceReportPublications(message.client, report);
+  await synchronizeAllianceReport(message.client, report, hq);
   return true;
 }
 
 export async function removeAllianceReportForDiscordMessage(
   client: Client,
-  channelId: string,
+  _channelId: string,
   messageId: string
 ): Promise<boolean> {
-  if (channelId !== env.RANGER_ALLIANCE_INTAKE_CHANNEL_ID) {
-    return false;
-  }
-
   const report = await getAllianceReportByDiscordMessageId(messageId);
   if (!report) {
     return false;
   }
 
-  await deleteMessageIfPresent(client, env.DISCORD_GUILD_ID, report.corps_ally_channel_id, report.corps_ally_message_id);
-  const { data: publications, error: publicationsError } = await supabase
-    .from("alliance_report_topic_publications")
+  await deleteMessageIfPresent(client, env.DISCORD_GUILD_ID, report.trailmark_message_channel_id, report.trailmark_message_id);
+  const { data: intelReports, error } = await supabase
+    .from("intel_reports")
     .select("*")
-    .eq("alliance_report_id", report.id);
-  assertNoDbError(publicationsError, "list Alliance report publications");
-
-  for (const publication of publications ?? []) {
-    await deleteAllianceReportTopicPublication(client, publication);
+    .eq("source_alliance_report_id", report.id);
+  assertNoDbError(error, "list intel records for deleted Alliance report");
+  for (const intelReport of intelReports ?? []) {
+    await deleteIntelReportCopies(client, intelReport);
   }
-
-  const { error } = await supabase.from("alliance_reports").delete().eq("id", report.id);
-  assertNoDbError(error, "delete Alliance report");
+  const { error: deleteError } = await supabase.from("alliance_reports").delete().eq("id", report.id);
+  assertNoDbError(deleteError, "delete Alliance report");
   return true;
 }
 
-export async function publishCorpsIntelReportToAlliance(params: {
-  corpsGuild: Guild;
-  report: IntelReportRow;
-  topic: IntelTopicRow;
-  trailmark: TrailmarkRow | undefined;
-}): Promise<boolean> {
-  if (!allianceBridgeConfigured() || !params.report.delivered_at) {
-    return false;
+export async function deliverReportsOriginatingAtAllianceHeadquarters(params: {
+  guild: Guild;
+  trailmark: TrailmarkRow;
+  deliveredByDiscordUserId: string;
+  discordMessageId?: string;
+}): Promise<number> {
+  const hq = await getHeadquartersByTrailmarkId(params.trailmark.id);
+  if (!hq) {
+    return 0;
   }
 
-  if (isCorpsOnlyAllianceReport(params.report.content)) {
-    await removeCorpsIntelReportFromAlliance(params.corpsGuild.client, params.report.id);
-    return false;
+  let query = supabase.from("intel_reports").select("*").eq("trailmark_id", params.trailmark.id);
+  if (params.discordMessageId) {
+    query = query.eq("discord_message_id", params.discordMessageId);
+  }
+  const { data: reports, error } = await query;
+  assertNoDbError(error, "list reports originating at allied headquarters");
+  return deliverReportsToHeadquarters({
+    guild: params.guild,
+    headquarters: hq,
+    reports: reports ?? [],
+    deliveredByDiscordUserId: params.deliveredByDiscordUserId,
+    deliveredAt: new Date().toISOString()
+  });
+}
+
+export async function deliverCarriedReportsToAllianceHeadquarters(params: {
+  guild: Guild;
+  discordUserId: string;
+  trailmark: TrailmarkRow;
+  hqVisitedAt: string;
+}): Promise<number> {
+  const hq = await getHeadquartersByTrailmarkId(params.trailmark.id);
+  if (!hq) {
+    return 0;
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("alliance_intel_publications")
+  let delivered = await deliverReportsOriginatingAtAllianceHeadquarters({
+    guild: params.guild,
+    trailmark: params.trailmark,
+    deliveredByDiscordUserId: params.discordUserId
+  });
+
+  const { data: sessions, error: sessionsError } = await supabase
+    .from("trailmark_sessions")
     .select("*")
-    .eq("report_id", params.report.id)
-    .maybeSingle();
-  assertNoDbError(existingError, "get Alliance intel publication");
-  if (existing) {
-    const existingMessage = await fetchMessage(
-      params.corpsGuild.client,
-      env.RANGER_ALLIANCE_GUILD_ID,
-      existing.alliance_channel_id,
-      existing.alliance_message_id
-    );
-    if (existingMessage) {
-      const reporterName = await discordDisplayName(params.corpsGuild, params.report.author_discord_user_id);
-      const deliveredBy = params.report.delivered_by_discord_user_id
-        ? await discordDisplayName(params.corpsGuild, params.report.delivered_by_discord_user_id)
-        : "Unknown";
-      await existingMessage.edit({
-        embeds: [corpsIntelMirrorEmbed(params.corpsGuild, params.report, params.trailmark, reporterName, deliveredBy)],
-        allowedMentions: { parse: [] }
-      });
+    .eq("discord_user_id", params.discordUserId)
+    .neq("trailmark_id", params.trailmark.id)
+    .lte("created_at", params.hqVisitedAt);
+  assertNoDbError(sessionsError, "list Trailmark sessions carried to allied headquarters");
+  if (!sessions?.length) {
+    return delivered;
+  }
+
+  const sourceIds = [...new Set(sessions.map((session) => session.trailmark_id))];
+  const { data: reports, error: reportsError } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .in("trailmark_id", sourceIds)
+    .order("created_at", { ascending: true });
+  assertNoDbError(reportsError, "list reports carried to allied headquarters");
+
+  const deliverable = (reports ?? []).filter((report) => sessions.some((session) => {
+    if (session.trailmark_id !== report.trailmark_id) {
       return false;
     }
-
-    const { error: staleError } = await supabase
-      .from("alliance_intel_publications")
-      .delete()
-      .eq("report_id", params.report.id);
-    assertNoDbError(staleError, "remove stale Alliance intel publication");
-  }
-
-  const allianceGuild = await params.corpsGuild.client.guilds.fetch(env.RANGER_ALLIANCE_GUILD_ID);
-  const channel = await ensureAllianceTopicMirror(allianceGuild, params.topic);
-  const reporterName = await discordDisplayName(params.corpsGuild, params.report.author_discord_user_id);
-  const deliveredBy = params.report.delivered_by_discord_user_id
-    ? await discordDisplayName(params.corpsGuild, params.report.delivered_by_discord_user_id)
-    : "Unknown";
-  const message = await channel.send({
-    embeds: [corpsIntelMirrorEmbed(params.corpsGuild, params.report, params.trailmark, reporterName, deliveredBy)],
-    allowedMentions: { parse: [] }
+    const carriedThrough = Math.min(Date.parse(session.expires_at), Date.parse(params.hqVisitedAt));
+    return Date.parse(report.created_at) <= carriedThrough;
+  }));
+  delivered += await deliverReportsToHeadquarters({
+    guild: params.guild,
+    headquarters: hq,
+    reports: deliverable,
+    deliveredByDiscordUserId: params.discordUserId,
+    deliveredAt: params.hqVisitedAt
   });
-
-  const { error } = await supabase.from("alliance_intel_publications").insert({
-    report_id: params.report.id,
-    alliance_channel_id: channel.id,
-    alliance_message_id: message.id
-  });
-  assertNoDbError(error, "store Alliance intel publication");
-  return true;
+  return delivered;
 }
 
 export async function syncCorpsReportAlliancePrivacyForMessage(message: Message): Promise<number> {
   if (message.guildId !== env.DISCORD_GUILD_ID || message.author.bot) {
     return 0;
   }
-
   const { data: reports, error } = await supabase
     .from("intel_reports")
     .select("*")
@@ -327,284 +317,502 @@ export async function syncCorpsReportAlliancePrivacyForMessage(message: Message)
     .eq("discord_message_id", message.id);
   assertNoDbError(updateError, "update edited Corps intel report content");
 
-  const deliveredReports = reports.filter((report) => report.delivered_at).map((report) => ({ ...report, content }));
-  if (deliveredReports.length === 0) {
-    return reports.length;
-  }
-
-  const topicIds = [...new Set(deliveredReports.map((report) => report.topic_id))];
-  const trailmarkIds = [...new Set(deliveredReports.map((report) => report.trailmark_id))];
-  const [topicsResult, trailmarksResult] = await Promise.all([
-    supabase.from("intel_topics").select("*").in("id", topicIds),
-    supabase.from("trailmarks").select("*").in("id", trailmarkIds)
-  ]);
-  assertNoDbError(topicsResult.error, "list topics for edited Corps intel reports");
-  assertNoDbError(trailmarksResult.error, "list Trailmarks for edited Corps intel reports");
-  const topicById = new Map((topicsResult.data ?? []).map((topic) => [topic.id, topic]));
-  const trailmarkById = new Map((trailmarksResult.data ?? []).map((trailmark) => [trailmark.id, trailmark]));
-
-  for (const report of deliveredReports) {
-    const topic = topicById.get(report.topic_id);
-    if (!topic) {
-      continue;
+  for (const report of reports.map((item) => ({ ...item, content }))) {
+    const { data: deliveries, error: deliveriesError } = await supabase
+      .from("alliance_headquarters_deliveries")
+      .select("*")
+      .eq("report_id", report.id);
+    assertNoDbError(deliveriesError, "list allied deliveries for edited report");
+    for (const delivery of deliveries ?? []) {
+      const hq = await getHeadquarters(delivery.headquarters_id);
+      if (hq) {
+        await publishHeadquartersReport(message.guild!, hq, report, delivery);
+      }
     }
-    await publishCorpsIntelReportToAlliance({
-      corpsGuild: message.guild!,
-      report,
-      topic,
-      trailmark: trailmarkById.get(report.trailmark_id)
-    });
   }
   return reports.length;
 }
 
 export async function removeCorpsIntelReportFromAlliance(client: Client, reportId: string): Promise<void> {
-  if (!allianceBridgeConfigured()) {
-    return;
+  const { data: publications, error } = await supabase
+    .from("alliance_headquarters_publications")
+    .select("*")
+    .eq("report_id", reportId);
+  if (!error) {
+    for (const publication of publications ?? []) {
+      await deleteMessageIfPresent(
+        client,
+        env.RANGER_ALLIANCE_GUILD_ID,
+        publication.discord_channel_id,
+        publication.discord_message_id
+      );
+    }
   }
 
-  const { data, error } = await supabase
+  const { data: legacy, error: legacyError } = await supabase
     .from("alliance_intel_publications")
     .select("*")
     .eq("report_id", reportId)
     .maybeSingle();
-  assertNoDbError(error, "get Alliance intel publication for deletion");
-  if (!data) {
+  if (!legacyError && legacy) {
+    await deleteMessageIfPresent(client, env.RANGER_ALLIANCE_GUILD_ID, legacy.alliance_channel_id, legacy.alliance_message_id);
+  }
+}
+
+async function synchronizeAllianceReport(client: Client, report: AllianceReportRow, hq: AllianceHeadquartersRow): Promise<void> {
+  const corpsGuild = await client.guilds.fetch(env.DISCORD_GUILD_ID);
+  const trailmark = await getTrailmark(hq.trailmark_id);
+  if (!trailmark) {
+    throw new UserFacingError(`${hq.name} Trailmark was not found.`);
+  }
+  const trailmarkChannel = await requireTextChannel(corpsGuild, trailmark.discord_channel_id);
+  const trailmarkEmbed = allianceTrailmarkNoteEmbed(report, hq);
+  const trailmarkMessage = await sendOrEditMessage(trailmarkChannel, report.trailmark_message_id, trailmarkEmbed);
+  if (report.trailmark_message_id !== trailmarkMessage.id || report.trailmark_message_channel_id !== trailmarkChannel.id) {
+    const { error } = await supabase.from("alliance_reports").update({
+      trailmark_message_channel_id: trailmarkChannel.id,
+      trailmark_message_id: trailmarkMessage.id
+    }).eq("id", report.id);
+    assertNoDbError(error, "store allied Trailmark note message");
+  }
+
+  const topics = await routedTopics(report.content);
+  const topicIds = new Set(topics.map((topic) => topic.id));
+  const { data: existingReports, error: existingError } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .eq("source_alliance_report_id", report.id);
+  assertNoDbError(existingError, "list intel records for Alliance report");
+
+  for (const existing of existingReports ?? []) {
+    if (!topicIds.has(existing.topic_id)) {
+      await deleteIntelReportCopies(client, existing);
+    }
+  }
+
+  for (const topic of topics) {
+    const existing = (existingReports ?? []).find((item) => item.topic_id === topic.id);
+    let intelReport: IntelReportRow;
+    if (existing) {
+      const { data, error } = await supabase.from("intel_reports").update({
+        content: report.content,
+        author_display_name: report.author_display_name,
+        source_order: report.source_order,
+        discord_message_id: trailmarkMessage.id,
+        discord_channel_id: trailmarkChannel.id,
+        trailmark_id: trailmark.id
+      }).eq("id", existing.id).select("*").single();
+      assertNoDbError(error, "update intel record for Alliance report");
+      intelReport = data;
+    } else {
+      const { data, error } = await supabase.from("intel_reports").insert({
+        topic_id: topic.id,
+        trailmark_id: trailmark.id,
+        discord_message_id: trailmarkMessage.id,
+        discord_channel_id: trailmarkChannel.id,
+        author_discord_user_id: report.author_discord_user_id,
+        author_display_name: report.author_display_name,
+        source_order: report.source_order,
+        source_alliance_report_id: report.id,
+        content: report.content,
+        delivered_by_discord_user_id: null,
+        delivered_to_trailmark_id: null,
+        delivered_at: null,
+        created_at: report.created_at
+      }).select("*").single();
+      assertNoDbError(error, "create intel record for Alliance report");
+      intelReport = data;
+    }
+
+    const delivery = await upsertHeadquartersDelivery(intelReport.id, hq.id, report.author_discord_user_id, report.created_at);
+    await publishHeadquartersReport(corpsGuild, hq, intelReport, delivery);
+  }
+}
+
+async function deliverReportsToHeadquarters(params: {
+  guild: Guild;
+  headquarters: AllianceHeadquartersRow;
+  reports: IntelReportRow[];
+  deliveredByDiscordUserId: string;
+  deliveredAt: string;
+}): Promise<number> {
+  const eligible = params.reports.filter((report) => !isCorpsOnlyAllianceReport(report.content));
+  if (eligible.length === 0) {
+    return 0;
+  }
+  const { data: existing, error } = await supabase
+    .from("alliance_headquarters_deliveries")
+    .select("report_id")
+    .eq("headquarters_id", params.headquarters.id)
+    .in("report_id", eligible.map((report) => report.id));
+  assertNoDbError(error, "list existing allied headquarters deliveries");
+  const existingIds = new Set((existing ?? []).map((delivery) => delivery.report_id));
+  const fresh = eligible.filter((report) => !existingIds.has(report.id));
+  for (const report of fresh) {
+    const delivery = await upsertHeadquartersDelivery(
+      report.id,
+      params.headquarters.id,
+      params.deliveredByDiscordUserId,
+      params.deliveredAt
+    );
+    await publishHeadquartersReport(params.guild, params.headquarters, report, delivery);
+  }
+  return fresh.length;
+}
+
+async function publishHeadquartersReport(
+  corpsGuild: Guild,
+  hq: AllianceHeadquartersRow,
+  report: IntelReportRow,
+  delivery: AllianceHeadquartersDeliveryRow
+): Promise<void> {
+  const { data: existing, error } = await supabase
+    .from("alliance_headquarters_publications")
+    .select("*")
+    .eq("report_id", report.id)
+    .eq("headquarters_id", hq.id)
+    .maybeSingle();
+  assertNoDbError(error, "get allied headquarters publication");
+
+  if (isCorpsOnlyAllianceReport(report.content)) {
+    if (existing) {
+      await deleteHeadquartersPublication(corpsGuild.client, existing);
+    }
     return;
   }
 
-  await deleteMessageIfPresent(
-    client,
-    env.RANGER_ALLIANCE_GUILD_ID,
-    data.alliance_channel_id,
-    data.alliance_message_id
-  );
-  const { error: deleteError } = await supabase
-    .from("alliance_intel_publications")
-    .delete()
-    .eq("report_id", reportId);
-  assertNoDbError(deleteError, "delete Alliance intel publication");
+  const allianceGuild = await corpsGuild.client.guilds.fetch(env.RANGER_ALLIANCE_GUILD_ID);
+  const topic = await getTopic(report.topic_id);
+  if (!topic) {
+    return;
+  }
+  const channel = await ensureHeadquartersTopicChannel(allianceGuild, hq, topic);
+  const trailmark = await getTrailmark(report.trailmark_id);
+  const embed = await headquartersReportEmbed(corpsGuild, hq, report, delivery, trailmark);
+  const message = await sendOrEditMessage(channel, existing?.discord_message_id ?? null, embed);
+  const { error: upsertError } = await supabase.from("alliance_headquarters_publications").upsert({
+    report_id: report.id,
+    headquarters_id: hq.id,
+    discord_channel_id: channel.id,
+    discord_message_id: message.id
+  });
+  assertNoDbError(upsertError, "store allied headquarters publication");
 }
 
-async function syncAllianceReportPublications(client: Client, report: AllianceReportRow): Promise<void> {
-  const [corpsGuild, allianceGuild] = await fetchBridgeGuilds(client);
-  const allyReportsChannel = await ensureCorpsAllyReportsChannel(corpsGuild);
-  const embed = allianceReportEmbed(report);
-  const allyMessage = await sendOrEditMessage(
-    allyReportsChannel,
-    report.corps_ally_message_id,
-    embed
-  );
-
-  if (report.corps_ally_channel_id !== allyReportsChannel.id || report.corps_ally_message_id !== allyMessage.id) {
-    const { error } = await supabase
-      .from("alliance_reports")
-      .update({ corps_ally_channel_id: allyReportsChannel.id, corps_ally_message_id: allyMessage.id })
-      .eq("id", report.id);
-    assertNoDbError(error, "store Corps Ally Reports publication");
-  }
-
-  const topics = matchingIntelTopics(await listActiveTopics(), report.content);
-  const topicIds = new Set(topics.map((topic) => topic.id));
-  const { data: existingPublications, error: existingError } = await supabase
-    .from("alliance_report_topic_publications")
+async function ensureHeadquarters(
+  corpsGuild: Guild,
+  allianceGuild: Guild,
+  definition: HeadquartersDefinition
+): Promise<AllianceHeadquartersRow> {
+  const { data: stored, error: storedError } = await supabase.from("alliance_headquarters")
     .select("*")
-    .eq("alliance_report_id", report.id);
-  assertNoDbError(existingError, "list Alliance report topic publications");
-
-  for (const publication of existingPublications ?? []) {
-    if (!topicIds.has(publication.topic_id)) {
-      await deleteAllianceReportTopicPublication(client, publication);
-      const { error } = await supabase
-        .from("alliance_report_topic_publications")
-        .delete()
-        .eq("alliance_report_id", report.id)
-        .eq("topic_id", publication.topic_id);
-      assertNoDbError(error, "remove unmatched Alliance report topic publication");
-    }
-  }
-
-  const publicationByTopic = new Map((existingPublications ?? []).map((publication) => [publication.topic_id, publication]));
-  for (const topic of topics) {
-    const corpsChannel = await requireReportChannel(corpsGuild, topic.discord_channel_id);
-    const allianceChannel = await ensureAllianceTopicMirror(allianceGuild, topic);
-    const existing = publicationByTopic.get(topic.id);
-    const [corpsMessage, allianceMessage] = await Promise.all([
-      sendOrEditMessage(corpsChannel, existing?.corps_message_id ?? null, embed),
-      sendOrEditMessage(allianceChannel, existing?.alliance_message_id ?? null, embed)
-    ]);
-
-    const { error } = await supabase.from("alliance_report_topic_publications").upsert({
-      alliance_report_id: report.id,
-      topic_id: topic.id,
-      corps_channel_id: corpsChannel.id,
-      corps_message_id: corpsMessage.id,
-      alliance_channel_id: allianceChannel.id,
-      alliance_message_id: allianceMessage.id
-    });
-    assertNoDbError(error, "store Alliance report topic publication");
-  }
-}
-
-async function syncStoredAllianceReports(client: Client): Promise<number> {
-  const { data, error } = await supabase.from("alliance_reports").select("*").order("created_at", { ascending: true });
-  assertNoDbError(error, "list stored Alliance reports");
-  for (const report of data ?? []) {
-    await syncAllianceReportPublications(client, report);
-  }
-  return data?.length ?? 0;
-}
-
-async function backfillDeliveredCorpsReports(corpsGuild: Guild, topics: IntelTopicRow[]): Promise<number> {
-  const { data: reports, error } = await supabase
-    .from("intel_reports")
-    .select("*")
-    .not("delivered_at", "is", null)
-    .order("created_at", { ascending: true });
-  assertNoDbError(error, "list delivered Corps reports for Alliance backfill");
-
-  const topicById = new Map(topics.map((topic) => [topic.id, topic]));
-  const trailmarkIds = [...new Set((reports ?? []).map((report) => report.trailmark_id))];
-  const { data: trailmarks, error: trailmarksError } = trailmarkIds.length
-    ? await supabase.from("trailmarks").select("*").in("id", trailmarkIds)
-    : { data: [], error: null };
-  assertNoDbError(trailmarksError, "list Trailmarks for Alliance backfill");
-  const trailmarkById = new Map((trailmarks ?? []).map((trailmark) => [trailmark.id, trailmark]));
-
-  let published = 0;
-  for (const report of reports ?? []) {
-    const topic = topicById.get(report.topic_id);
-    if (!topic) {
-      continue;
-    }
-    if (await publishCorpsIntelReportToAlliance({
-      corpsGuild,
-      report,
-      topic,
-      trailmark: trailmarkById.get(report.trailmark_id)
-    })) {
-      published += 1;
-    }
-  }
-  return published;
-}
-
-async function ensureCorpsAllyReportsChannel(corpsGuild: Guild): Promise<TextChannel> {
-  const { data: settings, error } = await supabase
-    .from("alliance_intel_settings")
-    .select("*")
-    .eq("id", true)
+    .eq("headquarters_key", definition.key)
     .maybeSingle();
-  assertNoDbError(error, "get Ranger Alliance settings");
+  assertNoDbError(storedError, `get stored ${definition.name} headquarters configuration`);
+  const trailmark = await ensureHeadquartersTrailmark(corpsGuild, definition, stored?.trailmark_id ?? null);
+  const category = await ensureHeadquartersCategory(allianceGuild, definition, stored?.reports_category_id ?? null);
+  const intake = await ensureIntakeChannel(allianceGuild, category, definition, stored?.intake_channel_id ?? null);
+  const { data, error } = await supabase.from("alliance_headquarters").upsert({
+    headquarters_key: definition.key,
+    name: definition.name,
+    source_order: definition.sourceOrder,
+    trailmark_id: trailmark.id,
+    alliance_guild_id: allianceGuild.id,
+    viewer_role_id: definition.viewerRoleId,
+    reports_category_id: category.id,
+    intake_channel_id: intake.id,
+    active: true
+  }, { onConflict: "headquarters_key" }).select("*").single();
+  assertNoDbError(error, `store ${definition.name} headquarters configuration`);
+  return data;
+}
 
-  if (settings?.corps_ally_reports_channel_id) {
-    const stored = await corpsGuild.channels.fetch(settings.corps_ally_reports_channel_id).catch(() => null);
-    if (stored?.type === ChannelType.GuildText) {
+async function ensureHeadquartersTrailmark(
+  guild: Guild,
+  definition: HeadquartersDefinition,
+  storedTrailmarkId: string | null
+): Promise<TrailmarkRow> {
+  if (storedTrailmarkId) {
+    const stored = await getTrailmark(storedTrailmarkId);
+    if (stored?.active) {
       return stored;
     }
   }
+  const slug = slugify(definition.trailmarkName);
+  const { data, error } = await supabase.from("trailmarks").select("*").eq("slug", slug).maybeSingle();
+  assertNoDbError(error, `find ${definition.name} Trailmark`);
+  if (data) {
+    return data;
+  }
+  return createTrailmark({
+    guild,
+    name: definition.trailmarkName,
+    hold: definition.trailmarkHold,
+    locationDescription: definition.trailmarkDescription,
+    createdByDiscordUserId: guild.client.user.id
+  });
+}
 
-  await corpsGuild.channels.fetch();
-  const existing = corpsGuild.channels.cache.find(
+async function ensureHeadquartersCategory(
+  guild: Guild,
+  definition: HeadquartersDefinition,
+  storedCategoryId: string | null
+): Promise<CategoryChannel> {
+  if (storedCategoryId) {
+    const stored = await guild.channels.fetch(storedCategoryId).catch(() => null);
+    if (stored?.type === ChannelType.GuildCategory) {
+      await configureHeadquartersCategory(stored, definition.viewerRoleId);
+      return stored;
+    }
+  }
+  await guild.channels.fetch();
+  const existing = guild.channels.cache.find(
+    (channel) => channel.type === ChannelType.GuildCategory && channel.name === definition.categoryName
+  );
+  if (existing?.type === ChannelType.GuildCategory) {
+    await configureHeadquartersCategory(existing, definition.viewerRoleId);
+    return existing;
+  }
+  const category = await guild.channels.create({
+    name: definition.categoryName,
+    type: ChannelType.GuildCategory,
+    reason: `Create ${definition.name} intel section`
+  });
+  await configureHeadquartersCategory(category, definition.viewerRoleId);
+  return category;
+}
+
+async function configureHeadquartersCategory(category: CategoryChannel, viewerRoleId: string): Promise<void> {
+  await category.permissionOverwrites.edit(category.guild.roles.everyone.id, { ViewChannel: false });
+  await category.permissionOverwrites.edit(viewerRoleId, { ViewChannel: true, ReadMessageHistory: true });
+  await category.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { ViewChannel: true, ReadMessageHistory: true });
+  await category.permissionOverwrites.edit(category.guild.client.user.id, {
+    ViewChannel: true,
+    SendMessages: true,
+    EmbedLinks: true,
+    ReadMessageHistory: true,
+    ManageChannels: true
+  });
+}
+
+async function ensureIntakeChannel(
+  guild: Guild,
+  category: CategoryChannel,
+  definition: HeadquartersDefinition,
+  storedChannelId: string | null
+): Promise<TextChannel> {
+  if (storedChannelId) {
+    const stored = await guild.channels.fetch(storedChannelId).catch(() => null);
+    if (stored?.type === ChannelType.GuildText) {
+      await stored.permissionOverwrites.edit(definition.viewerRoleId, { SendMessages: true });
+      await stored.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { SendMessages: true });
+      await stored.permissionOverwrites.edit(guild.client.user.id, { SendMessages: true, EmbedLinks: true });
+      return stored;
+    }
+  }
+  await guild.channels.fetch();
+  const existing = guild.channels.cache.find(
     (channel) => channel.type === ChannelType.GuildText
-      && channel.parentId === env.CORPS_INTEL_CATEGORY_ID
-      && channel.name === ALLY_REPORTS_CHANNEL_NAME
+      && channel.parentId === category.id
+      && channel.name === definition.intakeChannelName
   );
   const channel = existing?.type === ChannelType.GuildText
     ? existing
-    : await corpsGuild.channels.create({
-        name: ALLY_REPORTS_CHANNEL_NAME,
+    : await guild.channels.create({
+        name: definition.intakeChannelName,
         type: ChannelType.GuildText,
-        parent: env.CORPS_INTEL_CATEGORY_ID,
-        reason: "Create Ranger Alliance report archive"
+        parent: category.id,
+        reason: `Create ${definition.name} report intake`
       });
-  await ensureReadOnlyChannel(channel);
-
-  const { error: updateError } = await supabase
-    .from("alliance_intel_settings")
-    .update({ corps_ally_reports_channel_id: channel.id })
-    .eq("id", true);
-  assertNoDbError(updateError, "store Corps Ally Reports channel");
+  await channel.permissionOverwrites.edit(definition.viewerRoleId, { SendMessages: true });
+  await channel.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { SendMessages: true });
+  await channel.permissionOverwrites.edit(guild.client.user.id, { SendMessages: true, EmbedLinks: true });
   return channel;
 }
 
-async function ensureAllianceTopicMirror(allianceGuild: Guild, topic: IntelTopicRow): Promise<TextChannel> {
-  const { data: mirror, error } = await supabase
-    .from("alliance_topic_mirrors")
+async function ensureHeadquartersTopicChannel(
+  guild: Guild,
+  hq: AllianceHeadquartersRow,
+  topic: IntelTopicRow
+): Promise<TextChannel> {
+  const { data: stored, error } = await supabase
+    .from("alliance_headquarters_topic_channels")
     .select("*")
+    .eq("headquarters_id", hq.id)
     .eq("topic_id", topic.id)
     .maybeSingle();
-  assertNoDbError(error, "get Ranger Alliance topic mirror");
-
-  if (mirror) {
-    const stored = await allianceGuild.channels.fetch(mirror.alliance_channel_id).catch(() => null);
-    if (stored?.type === ChannelType.GuildText) {
-      return stored;
+  assertNoDbError(error, "get allied headquarters topic channel");
+  if (stored) {
+    const channel = await guild.channels.fetch(stored.discord_channel_id).catch(() => null);
+    if (channel?.type === ChannelType.GuildText) {
+      return channel;
     }
   }
 
+  await guild.channels.fetch();
   const channelName = `${slugify(topic.name)}-reports`.slice(0, 90);
-  await allianceGuild.channels.fetch();
-  const existing = allianceGuild.channels.cache.find(
+  const existing = guild.channels.cache.find(
     (channel) => channel.type === ChannelType.GuildText
-      && channel.parentId === env.RANGER_ALLIANCE_REPORTS_CATEGORY_ID
+      && channel.parentId === hq.reports_category_id
       && channel.name === channelName
   );
   const channel = existing?.type === ChannelType.GuildText
     ? existing
-    : await allianceGuild.channels.create({
+    : await guild.channels.create({
         name: channelName,
         type: ChannelType.GuildText,
-        parent: env.RANGER_ALLIANCE_REPORTS_CATEGORY_ID,
-        reason: `Create Ranger Alliance mirror for ${topic.name}`
+        parent: hq.reports_category_id,
+        reason: `Create ${hq.name} ${topic.name} reports`
       });
-  await ensureReadOnlyChannel(channel);
+  await channel.permissionOverwrites.edit(hq.viewer_role_id, { SendMessages: false });
+  await channel.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { SendMessages: false });
+  await channel.permissionOverwrites.edit(guild.client.user.id, { SendMessages: true, EmbedLinks: true });
 
-  const { error: upsertError } = await supabase.from("alliance_topic_mirrors").upsert({
+  const { error: upsertError } = await supabase.from("alliance_headquarters_topic_channels").upsert({
+    headquarters_id: hq.id,
     topic_id: topic.id,
-    alliance_guild_id: allianceGuild.id,
-    alliance_channel_id: channel.id
+    discord_channel_id: channel.id
   });
-  assertNoDbError(upsertError, "store Ranger Alliance topic mirror");
+  assertNoDbError(upsertError, "store allied headquarters topic channel");
   return channel;
 }
 
-async function ensureReadOnlyChannel(channel: TextChannel): Promise<void> {
-  await channel.permissionOverwrites.edit(channel.guild.roles.everyone.id, { SendMessages: false });
-  await channel.permissionOverwrites.edit(channel.guild.client.user.id, {
-    ViewChannel: true,
-    SendMessages: true,
-    EmbedLinks: true,
-    AttachFiles: true,
-    ReadMessageHistory: true
-  });
-}
-
-async function sendOrEditMessage(channel: ReportChannel, messageId: string | null, embed: EmbedBuilder): Promise<Message> {
-  if (messageId) {
-    const existing = await channel.messages.fetch(messageId).catch(() => null);
-    if (existing) {
-      return existing.edit({ embeds: [embed], allowedMentions: { parse: [] } });
-    }
+async function archiveLegacyAllianceCategory(guild: Guild): Promise<void> {
+  const category = await guild.channels.fetch(env.RANGER_ALLIANCE_REPORTS_CATEGORY_ID).catch(() => null);
+  if (category?.type !== ChannelType.GuildCategory) {
+    return;
   }
-
-  return channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+  for (const roleId of allianceOrderRoleIds()) {
+    await category.permissionOverwrites.delete(roleId).catch(() => undefined);
+  }
+  await category.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
+  await category.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { ViewChannel: true });
+  await category.permissionOverwrites.edit(guild.client.user.id, { ViewChannel: true });
+  await guild.channels.fetch();
+  const children = guild.channels.cache.filter((channel) => channel.parentId === category.id);
+  for (const channel of children.values()) {
+    if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+      continue;
+    }
+    for (const roleId of allianceOrderRoleIds()) {
+      await channel.permissionOverwrites.delete(roleId).catch(() => undefined);
+    }
+    await channel.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
+    await channel.permissionOverwrites.edit(env.RANGER_ALLIANCE_ROLE_LEADERS_ID, { ViewChannel: true });
+    await channel.permissionOverwrites.edit(guild.client.user.id, { ViewChannel: true });
+  }
+  if (!category.name.toLocaleLowerCase().includes("archive")) {
+    await category.setName("archive-shared-reports", "Archive the retired direct Alliance mirror");
+  }
 }
 
-function allianceReportEmbed(report: AllianceReportRow): EmbedBuilder {
+async function migrateStoredAllianceReports(client: Client, headquarters: AllianceHeadquartersRow[]): Promise<number> {
+  const { data, error } = await supabase.from("alliance_reports").select("*").order("created_at", { ascending: true });
+  assertNoDbError(error, "list stored Alliance reports for headquarters migration");
+  let migrated = 0;
+  for (const report of data ?? []) {
+    const hq = report.headquarters_id
+      ? headquarters.find((candidate) => candidate.id === report.headquarters_id)
+      : headquarters.find((candidate) => normalizedOrder(candidate.source_order) === normalizedOrder(report.source_order));
+    if (!hq) {
+      continue;
+    }
+    if (report.headquarters_id !== hq.id) {
+      const { error: updateError } = await supabase.from("alliance_reports").update({ headquarters_id: hq.id }).eq("id", report.id);
+      assertNoDbError(updateError, "assign historical Alliance report headquarters");
+    }
+    await synchronizeAllianceReport(client, { ...report, headquarters_id: hq.id }, hq);
+    migrated += 1;
+  }
+  return migrated;
+}
+
+async function deleteIntelReportCopies(client: Client, report: IntelReportRow): Promise<void> {
+  if (report.bulletin_channel_id && report.bulletin_message_id && report.bulletin_message_id !== "legacy") {
+    await deleteMessageIfPresent(client, env.DISCORD_GUILD_ID, report.bulletin_channel_id, report.bulletin_message_id);
+  }
+  await removeCorpsIntelReportFromAlliance(client, report.id);
+  const { error } = await supabase.from("intel_reports").delete().eq("id", report.id);
+  assertNoDbError(error, "delete obsolete intel record");
+}
+
+async function deleteHeadquartersPublication(client: Client, publication: AllianceHeadquartersPublicationRow): Promise<void> {
+  await deleteMessageIfPresent(
+    client,
+    env.RANGER_ALLIANCE_GUILD_ID,
+    publication.discord_channel_id,
+    publication.discord_message_id
+  );
+  const { error } = await supabase.from("alliance_headquarters_publications")
+    .delete()
+    .eq("report_id", publication.report_id)
+    .eq("headquarters_id", publication.headquarters_id);
+  assertNoDbError(error, "delete allied headquarters publication");
+}
+
+async function upsertHeadquartersDelivery(
+  reportId: string,
+  headquartersId: string,
+  deliveredByDiscordUserId: string,
+  deliveredAt: string
+): Promise<AllianceHeadquartersDeliveryRow> {
+  const { data, error } = await supabase.from("alliance_headquarters_deliveries").upsert({
+    report_id: reportId,
+    headquarters_id: headquartersId,
+    delivered_by_discord_user_id: deliveredByDiscordUserId,
+    delivered_at: deliveredAt
+  }).select("*").single();
+  assertNoDbError(error, "store allied headquarters delivery");
+  return data;
+}
+
+async function headquartersReportEmbed(
+  corpsGuild: Guild,
+  hq: AllianceHeadquartersRow,
+  report: IntelReportRow,
+  delivery: AllianceHeadquartersDeliveryRow,
+  trailmark: TrailmarkRow | null
+): Promise<EmbedBuilder> {
+  const reporter = report.author_display_name
+    ?? await discordDisplayName(corpsGuild, report.author_discord_user_id);
+  const deliveredBy = await discordDisplayName(corpsGuild, delivery.delivered_by_discord_user_id);
+  const source = trailmark ? `${trailmark.name} (${trailmark.hold})` : "Unknown Trailmark";
+  const original = report.source_alliance_report_id
+    ? await allianceOriginalLink(report.source_alliance_report_id)
+    : `https://discord.com/channels/${corpsGuild.id}/${report.discord_channel_id}/${report.discord_message_id}`;
+  const embed = new EmbedBuilder()
+    .setTitle(`${trailmark?.name ?? "Ranger Report"} - ${discordTime(report.created_at)}`)
+    .setDescription(formatContent(report.content))
+    .addFields(
+      { name: "Reported by", value: reporter, inline: true },
+      { name: "Order", value: report.source_order ?? "Ranger Corps of Skyrim", inline: true },
+      { name: "Source", value: source, inline: true },
+      { name: "Report time", value: discordTime(report.created_at), inline: true },
+      { name: `Delivered to ${hq.name}`, value: `${deliveredBy} - ${discordTime(delivery.delivered_at)}`, inline: true },
+      { name: "Original", value: `[Open report](${original})`, inline: false }
+    )
+    .setColor(0x4f6f91)
+    .setTimestamp(new Date(report.created_at));
+  const atlasField = atlasReportFieldValue(report.atlas_summary, report.atlas_share_code);
+  if (atlasField) {
+    embed.addFields({ name: "Atlas Share", value: atlasField, inline: false });
+  }
+  return embed;
+}
+
+function allianceTrailmarkNoteEmbed(report: AllianceReportRow, hq: AllianceHeadquartersRow): EmbedBuilder {
   const originalUrl = `https://discord.com/channels/${env.RANGER_ALLIANCE_GUILD_ID}/${report.discord_channel_id}/${report.discord_message_id}`;
   const embed = new EmbedBuilder()
-    .setTitle(`Alliance Report - ${report.source_order}`)
+    .setTitle(`${report.source_order} Report Left at ${hq.name}`)
     .setDescription(formatContent(report.content || "Attachment-only report."))
     .addFields(
       { name: "Reported by", value: report.author_display_name, inline: true },
       { name: "Order", value: report.source_order, inline: true },
-      { name: "Report time", value: discordTime(report.created_at), inline: true },
-      { name: "Original", value: `[Open Alliance report](${originalUrl})`, inline: false }
+      { name: "Left at", value: hq.name, inline: true },
+      { name: "Original", value: `[Open Alliance submission](${originalUrl})`, inline: false }
     )
     .setColor(0x4f6f91)
     .setTimestamp(new Date(report.created_at));
-
   if (report.attachment_urls.length > 0) {
     embed.addFields({
       name: "Attachments",
@@ -614,49 +822,95 @@ function allianceReportEmbed(report: AllianceReportRow): EmbedBuilder {
   return embed;
 }
 
-function corpsIntelMirrorEmbed(
-  corpsGuild: Guild,
-  report: IntelReportRow,
-  trailmark: TrailmarkRow | undefined,
-  reporterName: string,
-  deliveredBy: string
-): EmbedBuilder {
-  const originalUrl = `https://discord.com/channels/${corpsGuild.id}/${report.discord_channel_id}/${report.discord_message_id}`;
-  const source = trailmark ? `${trailmark.name} (${trailmark.hold})` : "Unknown Trailmark";
-  const embed = new EmbedBuilder()
-    .setTitle(`${trailmark?.name ?? "Ranger Corps Report"} - ${discordTime(report.created_at)}`)
-    .setDescription(formatContent(report.content))
-    .addFields(
-      { name: "Reported by", value: reporterName, inline: true },
-      { name: "Order", value: "Ranger Corps of Skyrim", inline: true },
-      { name: "Source", value: source, inline: true },
-      { name: "Report time", value: discordTime(report.created_at), inline: true },
-      { name: "Delivered by", value: deliveredBy, inline: true },
-      { name: "Delivered to Corps HQ", value: report.delivered_at ? discordTime(report.delivered_at) : "Unknown", inline: true },
-      { name: "Corps archive", value: `[Open original report](${originalUrl})`, inline: false }
-    )
-    .setColor(0x587c4a)
-    .setTimestamp(new Date(report.created_at));
-  const atlasField = atlasReportFieldValue(report.atlas_summary, report.atlas_share_code);
-  if (atlasField) {
-    embed.addFields({ name: "Atlas Share", value: atlasField, inline: false });
+async function routedTopics(content: string): Promise<IntelTopicRow[]> {
+  const topics = await listActiveTopics();
+  const matched = matchingIntelTopics(topics, content);
+  if (matched.length > 0) {
+    return matched;
   }
-  return embed;
+  const { data: settings, error } = await supabase.from("intel_settings").select("*").eq("id", true).maybeSingle();
+  assertNoDbError(error, "get intel catchall for allied report");
+  const catchall = settings?.catchall_topic_id
+    ? topics.find((topic) => topic.id === settings.catchall_topic_id)
+    : null;
+  return catchall ? [catchall] : [];
 }
 
-async function deleteAllianceReportTopicPublication(
-  client: Client,
-  publication: AllianceReportTopicPublicationRow
-): Promise<void> {
-  await Promise.all([
-    deleteMessageIfPresent(client, env.DISCORD_GUILD_ID, publication.corps_channel_id, publication.corps_message_id),
-    deleteMessageIfPresent(
-      client,
-      env.RANGER_ALLIANCE_GUILD_ID,
-      publication.alliance_channel_id,
-      publication.alliance_message_id
-    )
-  ]);
+async function listHeadquarters(): Promise<AllianceHeadquartersRow[]> {
+  const { data, error } = await supabase.from("alliance_headquarters").select("*").eq("active", true).order("name");
+  assertNoDbError(error, "list allied headquarters");
+  return data ?? [];
+}
+
+async function getHeadquarters(id: string): Promise<AllianceHeadquartersRow | null> {
+  const { data, error } = await supabase.from("alliance_headquarters").select("*").eq("id", id).maybeSingle();
+  assertNoDbError(error, "get allied headquarters");
+  return data;
+}
+
+async function getHeadquartersByTrailmarkId(trailmarkId: string): Promise<AllianceHeadquartersRow | null> {
+  const { data, error } = await supabase.from("alliance_headquarters").select("*")
+    .eq("trailmark_id", trailmarkId).eq("active", true).maybeSingle();
+  assertNoDbError(error, "find allied headquarters by Trailmark");
+  return data;
+}
+
+async function getHeadquartersByIntakeChannel(channelId: string): Promise<AllianceHeadquartersRow | null> {
+  const { data, error } = await supabase.from("alliance_headquarters").select("*")
+    .eq("intake_channel_id", channelId).eq("active", true).maybeSingle();
+  assertNoDbError(error, "find allied headquarters intake channel");
+  return data;
+}
+
+async function getTrailmark(id: string): Promise<TrailmarkRow | null> {
+  const { data, error } = await supabase.from("trailmarks").select("*").eq("id", id).maybeSingle();
+  assertNoDbError(error, "get Trailmark for allied headquarters");
+  return data;
+}
+
+async function getTopic(id: string): Promise<IntelTopicRow | null> {
+  const { data, error } = await supabase.from("intel_topics").select("*").eq("id", id).maybeSingle();
+  assertNoDbError(error, "get topic for allied headquarters");
+  return data;
+}
+
+async function listActiveTopics(): Promise<IntelTopicRow[]> {
+  const { data, error } = await supabase.from("intel_topics").select("*").eq("active", true).order("name");
+  assertNoDbError(error, "list intel topics for allied headquarters");
+  return data ?? [];
+}
+
+async function getAllianceReportByDiscordMessageId(messageId: string): Promise<AllianceReportRow | null> {
+  const { data, error } = await supabase.from("alliance_reports").select("*")
+    .eq("discord_message_id", messageId).maybeSingle();
+  assertNoDbError(error, "get Alliance report");
+  return data;
+}
+
+async function allianceOriginalLink(reportId: string): Promise<string> {
+  const { data, error } = await supabase.from("alliance_reports").select("*").eq("id", reportId).maybeSingle();
+  assertNoDbError(error, "get original Alliance report link");
+  return data
+    ? `https://discord.com/channels/${env.RANGER_ALLIANCE_GUILD_ID}/${data.discord_channel_id}/${data.discord_message_id}`
+    : "https://discord.com";
+}
+
+async function requireTextChannel(guild: Guild, channelId: string): Promise<TextChannel> {
+  const channel = await guild.channels.fetch(channelId);
+  if (channel?.type !== ChannelType.GuildText) {
+    throw new UserFacingError("A required text channel was not found.");
+  }
+  return channel;
+}
+
+async function sendOrEditMessage(channel: ReportChannel, messageId: string | null, embed: EmbedBuilder): Promise<Message> {
+  if (messageId) {
+    const existing = await channel.messages.fetch(messageId).catch(() => null);
+    if (existing) {
+      return existing.edit({ embeds: [embed], allowedMentions: { parse: [] } });
+    }
+  }
+  return channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
 }
 
 async function deleteMessageIfPresent(
@@ -668,87 +922,17 @@ async function deleteMessageIfPresent(
   if (!channelId || !messageId) {
     return;
   }
-  const message = await fetchMessage(client, guildId, channelId, messageId);
-  await message?.delete().catch(() => undefined);
-}
-
-async function fetchMessage(client: Client, guildId: string, channelId: string, messageId: string): Promise<Message | null> {
   const guild = await client.guilds.fetch(guildId).catch(() => null);
   const channel = await guild?.channels.fetch(channelId).catch(() => null);
   if (!isReportChannel(channel)) {
-    return null;
+    return;
   }
-  return channel.messages.fetch(messageId).catch(() => null);
-}
-
-async function fetchBridgeGuilds(client: Client): Promise<[Guild, Guild]> {
-  const [corpsGuild, allianceGuild] = await Promise.all([
-    client.guilds.fetch(env.DISCORD_GUILD_ID),
-    client.guilds.fetch(env.RANGER_ALLIANCE_GUILD_ID)
-  ]);
-  return [corpsGuild, allianceGuild];
-}
-
-async function validateAllianceDiscordConfiguration(guild: Guild): Promise<void> {
-  const [category, intake, admin] = await Promise.all([
-    guild.channels.fetch(env.RANGER_ALLIANCE_REPORTS_CATEGORY_ID),
-    guild.channels.fetch(env.RANGER_ALLIANCE_INTAKE_CHANNEL_ID),
-    guild.channels.fetch(env.RANGER_ALLIANCE_ADMIN_CHANNEL_ID)
-  ]);
-  if (category?.type !== ChannelType.GuildCategory) {
-    throw new UserFacingError("RANGER_ALLIANCE_REPORTS_CATEGORY_ID must point to a category.");
-  }
-  if (intake?.type !== ChannelType.GuildText) {
-    throw new UserFacingError("RANGER_ALLIANCE_INTAKE_CHANNEL_ID must point to a text channel.");
-  }
-  if (admin?.type !== ChannelType.GuildText) {
-    throw new UserFacingError("RANGER_ALLIANCE_ADMIN_CHANNEL_ID must point to a text channel.");
-  }
-
-  for (const roleId of allianceOrderRoleIds().concat(env.RANGER_ALLIANCE_ROLE_LEADERS_ID)) {
-    if (!await guild.roles.fetch(roleId).catch(() => null)) {
-      throw new UserFacingError(`Configured Ranger Alliance role ${roleId} was not found.`);
-    }
-  }
-}
-
-async function validateCorpsDiscordConfiguration(guild: Guild): Promise<void> {
-  const category = await guild.channels.fetch(env.CORPS_INTEL_CATEGORY_ID);
-  if (category?.type !== ChannelType.GuildCategory) {
-    throw new UserFacingError("CORPS_INTEL_CATEGORY_ID must point to a category.");
-  }
-}
-
-async function requireReportChannel(guild: Guild, channelId: string): Promise<ReportChannel> {
-  const channel = await guild.channels.fetch(channelId);
-  if (!isReportChannel(channel)) {
-    throw new UserFacingError("An intel report channel was not found or is not a text channel.");
-  }
-  return channel;
+  const message = await channel.messages.fetch(messageId).catch(() => null);
+  await message?.delete().catch(() => undefined);
 }
 
 function isReportChannel(channel: GuildBasedChannel | null | undefined): channel is ReportChannel {
   return channel?.type === ChannelType.GuildText || channel?.type === ChannelType.GuildAnnouncement;
-}
-
-async function listActiveTopics(): Promise<IntelTopicRow[]> {
-  const { data, error } = await supabase
-    .from("intel_topics")
-    .select("*")
-    .eq("active", true)
-    .order("name", { ascending: true });
-  assertNoDbError(error, "list active intel topics for Ranger Alliance");
-  return data ?? [];
-}
-
-async function getAllianceReportByDiscordMessageId(messageId: string): Promise<AllianceReportRow | null> {
-  const { data, error } = await supabase
-    .from("alliance_reports")
-    .select("*")
-    .eq("discord_message_id", messageId)
-    .maybeSingle();
-  assertNoDbError(error, "get Alliance report");
-  return data;
 }
 
 async function discordDisplayName(guild: Guild, userId: string): Promise<string> {
@@ -760,13 +944,60 @@ async function discordDisplayName(guild: Guild, userId: string): Promise<string>
   return user?.displayName ?? user?.username ?? "Unknown Ranger";
 }
 
-function allianceOrderForMember(member: GuildMember): string | null {
-  const matches = [
-    { roleId: env.RANGER_ALLIANCE_ROLE_UNDAUNTED_ID, name: "Undaunted" },
-    { roleId: env.RANGER_ALLIANCE_ROLE_NORTH_STAR_ID, name: "North Star Rangers" },
-    { roleId: env.RANGER_ALLIANCE_ROLE_RANGER_CORPS_ID, name: "Ranger Corps of Skyrim" }
-  ].filter((order) => member.roles.cache.has(order.roleId));
-  return matches.length === 1 ? matches[0]?.name ?? null : null;
+async function fetchBridgeGuilds(client: Client): Promise<[Guild, Guild]> {
+  return Promise.all([
+    client.guilds.fetch(env.DISCORD_GUILD_ID),
+    client.guilds.fetch(env.RANGER_ALLIANCE_GUILD_ID)
+  ]);
+}
+
+async function validateDiscordConfiguration(corpsGuild: Guild, allianceGuild: Guild): Promise<void> {
+  const [corpsIntel, legacyCategory, admin] = await Promise.all([
+    corpsGuild.channels.fetch(env.CORPS_INTEL_CATEGORY_ID),
+    allianceGuild.channels.fetch(env.RANGER_ALLIANCE_REPORTS_CATEGORY_ID),
+    allianceGuild.channels.fetch(env.RANGER_ALLIANCE_ADMIN_CHANNEL_ID)
+  ]);
+  if (corpsIntel?.type !== ChannelType.GuildCategory) {
+    throw new UserFacingError("CORPS_INTEL_CATEGORY_ID must point to a category.");
+  }
+  if (legacyCategory?.type !== ChannelType.GuildCategory) {
+    throw new UserFacingError("RANGER_ALLIANCE_REPORTS_CATEGORY_ID must point to a category.");
+  }
+  if (admin?.type !== ChannelType.GuildText) {
+    throw new UserFacingError("RANGER_ALLIANCE_ADMIN_CHANNEL_ID must point to a text channel.");
+  }
+  for (const roleId of allianceOrderRoleIds().concat(env.RANGER_ALLIANCE_ROLE_LEADERS_ID)) {
+    if (!await allianceGuild.roles.fetch(roleId).catch(() => null)) {
+      throw new UserFacingError(`Configured Ranger Alliance role ${roleId} was not found.`);
+    }
+  }
+}
+
+function headquartersDefinitions(): HeadquartersDefinition[] {
+  return [
+    {
+      key: "north-star",
+      name: "Stonehills",
+      sourceOrder: "North Star Rangers",
+      viewerRoleId: env.RANGER_ALLIANCE_ROLE_NORTH_STAR_ID,
+      categoryName: "NORTH STAR INTEL",
+      intakeChannelName: "north-star-submit-report",
+      trailmarkName: "Stonehills - North Star Headquarters",
+      trailmarkHold: "Hjaalmarch",
+      trailmarkDescription: "The North Star Rangers leave and receive field reports at their headquarters in Stonehills."
+    },
+    {
+      key: "undaunted",
+      name: "Dancing Horse Inn",
+      sourceOrder: "Undaunted",
+      viewerRoleId: env.RANGER_ALLIANCE_ROLE_UNDAUNTED_ID,
+      categoryName: "UNDAUNTED INTEL",
+      intakeChannelName: "undaunted-submit-report",
+      trailmarkName: "Dancing Horse Inn - Undaunted Headquarters",
+      trailmarkHold: "Whiterun",
+      trailmarkDescription: "The Undaunted leave and receive field reports at their headquarters in the Dancing Horse Inn outside Whiterun."
+    }
+  ];
 }
 
 function allianceOrderRoleIds(): string[] {
@@ -782,7 +1013,6 @@ function allianceRequiredIds(): string[] {
     env.CORPS_INTEL_CATEGORY_ID,
     env.RANGER_ALLIANCE_GUILD_ID,
     env.RANGER_ALLIANCE_REPORTS_CATEGORY_ID,
-    env.RANGER_ALLIANCE_INTAKE_CHANNEL_ID,
     env.RANGER_ALLIANCE_ADMIN_CHANNEL_ID,
     env.RANGER_ALLIANCE_ROLE_LEADERS_ID,
     ...allianceOrderRoleIds()
@@ -793,6 +1023,10 @@ function requireAllianceConfiguration(): void {
   if (!allianceBridgeConfigured()) {
     throw new UserFacingError("Ranger Alliance environment configuration is incomplete.");
   }
+}
+
+function normalizedOrder(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^a-z]+/g, "");
 }
 
 function discordTime(value: string): string {

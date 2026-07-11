@@ -30,7 +30,8 @@ import { matchingIntelTopics } from "../utils/intelKeywords.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 import {
-  publishCorpsIntelReportToAlliance,
+  deliverCarriedReportsToAllianceHeadquarters,
+  deliverReportsOriginatingAtAllianceHeadquarters,
   removeCorpsIntelReportFromAlliance
 } from "./allianceIntelService.js";
 
@@ -229,6 +230,12 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
   }
 
   await refreshDeliveredTopics(message.guild, deliveredTopicIds);
+  await deliverReportsOriginatingAtAllianceHeadquarters({
+    guild: message.guild,
+    trailmark,
+    deliveredByDiscordUserId: message.author.id,
+    discordMessageId: message.id
+  });
   return routed.topics.length;
 }
 
@@ -447,16 +454,22 @@ export async function recordTrailmarkVisitAndDeliver(params: {
   assertNoDbError(visitError, "record Trailmark intel visit");
 
   const settings = await getIntelSettings();
-  if (!settings.hq_trailmark_id || settings.hq_trailmark_id !== params.trailmark.id) {
-    return 0;
+  let delivered = 0;
+  if (settings.hq_trailmark_id && settings.hq_trailmark_id === params.trailmark.id) {
+    delivered += await deliverCarriedReportsToHq({
+      guild: params.guild,
+      discordUserId: params.discordUserId,
+      hqTrailmarkId: params.trailmark.id,
+      hqVisitedAt: visitedAt
+    });
   }
-
-  return deliverCarriedReportsToHq({
+  delivered += await deliverCarriedReportsToAllianceHeadquarters({
     guild: params.guild,
     discordUserId: params.discordUserId,
-    hqTrailmarkId: params.trailmark.id,
+    trailmark: params.trailmark,
     hqVisitedAt: visitedAt
   });
+  return delivered;
 }
 
 async function backfillLegacyTrailmarkForum(params: {
@@ -1017,12 +1030,6 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
       embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
     });
     await markReportPosted(report.id, channel.id, message.id);
-    await publishCorpsIntelReportToAlliance({
-      corpsGuild: guild,
-      report,
-      topic,
-      trailmark: trailmarks.get(report.trailmark_id)
-    }).catch((error) => console.warn(`Failed to mirror Corps intel report ${report.id} to the Alliance:`, error));
     sentMessages.push(message);
   }
 
@@ -1054,12 +1061,6 @@ async function publishUnpostedDeliveredReports(guild: Guild, topicId: string): P
       embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
     });
     await markReportPosted(report.id, channel.id, message.id);
-    await publishCorpsIntelReportToAlliance({
-      corpsGuild: guild,
-      report,
-      topic,
-      trailmark: trailmarks.get(report.trailmark_id)
-    }).catch((error) => console.warn(`Failed to mirror Corps intel report ${report.id} to the Alliance:`, error));
     sentMessageIds.push(message.id);
   }
 
@@ -1336,7 +1337,12 @@ function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkR
     .setTitle(`${trailmark?.name ?? "Unknown Trailmark"} - ${formatDiscordTime(report.created_at)}`)
     .setDescription(formatReportContent(report.content))
     .addFields(
-      { name: "Reported by", value: `<@${report.author_discord_user_id}>`, inline: true },
+      {
+        name: "Reported by",
+        value: report.author_display_name ?? `<@${report.author_discord_user_id}>`,
+        inline: true
+      },
+      { name: "Order", value: report.source_order ?? "Ranger Corps of Skyrim", inline: true },
       { name: "Source", value: where, inline: true },
       { name: "Report time", value: formatDiscordTime(report.created_at), inline: true },
       { name: "Delivered by", value: deliveredBy, inline: true },

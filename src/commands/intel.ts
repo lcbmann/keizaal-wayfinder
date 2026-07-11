@@ -174,7 +174,7 @@ export const intelCommand: BotCommand = {
 
       await refreshIntelTopicBulletin(interaction.guild, topic.id);
       await syncAllianceTopicMirrors(interaction.client).catch((error) => {
-        console.warn(`Failed to create Ranger Alliance mirror for intel topic ${topic.id}:`, error);
+        console.warn(`Failed to create allied headquarters channels for intel topic ${topic.id}:`, error);
       });
       await interaction.editReply({
         content: `Created intel topic ${topic.name} in ${channel} with keywords: ${keywords.join(", ")}.`,
@@ -344,7 +344,7 @@ async function createCatchallTopic(interaction: Parameters<BotCommand["execute"]
 
   await refreshIntelTopicBulletin(interaction.guild, topic.id);
   await syncAllianceTopicMirrors(interaction.client).catch((error) => {
-    console.warn(`Failed to create Ranger Alliance catchall mirror ${topic.id}:`, error);
+    console.warn(`Failed to create allied headquarters catchall channels for ${topic.id}:`, error);
   });
   return topic;
 }

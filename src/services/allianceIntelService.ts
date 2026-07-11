@@ -647,6 +647,7 @@ async function ensureHeadquartersTopicChannel(
   if (stored) {
     const channel = await guild.channels.fetch(stored.discord_channel_id).catch(() => null);
     if (channel?.type === ChannelType.GuildText) {
+      await configureHeadquartersTopicChannel(channel, hq);
       return channel;
     }
   }
@@ -666,10 +667,7 @@ async function ensureHeadquartersTopicChannel(
         parent: hq.reports_category_id,
         reason: `Create ${hq.name} ${topic.name} reports`
       });
-  await channel.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
-  await channel.permissionOverwrites.edit(hq.viewer_role_id, { ViewChannel: true, SendMessages: false });
-  await channel.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
-  await channel.permissionOverwrites.edit(guild.client.user.id, { SendMessages: true, EmbedLinks: true });
+  await configureHeadquartersTopicChannel(channel, hq);
 
   const { error: upsertError } = await supabase.from("alliance_headquarters_topic_channels").upsert({
     headquarters_id: hq.id,
@@ -678,6 +676,25 @@ async function ensureHeadquartersTopicChannel(
   });
   assertNoDbError(upsertError, "store allied headquarters topic channel");
   return channel;
+}
+
+async function configureHeadquartersTopicChannel(
+  channel: TextChannel,
+  hq: AllianceHeadquartersRow
+): Promise<void> {
+  await channel.permissionOverwrites.edit(channel.guild.roles.everyone.id, { ViewChannel: false });
+  await channel.permissionOverwrites.edit(hq.viewer_role_id, {
+    ViewChannel: true,
+    SendMessages: false,
+    ReadMessageHistory: true
+  });
+  await channel.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
+  await channel.permissionOverwrites.edit(channel.guild.client.user.id, {
+    ViewChannel: true,
+    SendMessages: true,
+    EmbedLinks: true,
+    ReadMessageHistory: true
+  });
 }
 
 async function archiveLegacyAllianceCategory(guild: Guild): Promise<void> {

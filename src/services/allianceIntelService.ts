@@ -30,6 +30,7 @@ import { createTrailmark } from "./trailmarkService.js";
 import { atlasReportFieldValue } from "./atlasService.js";
 
 const MAX_DESCRIPTION_LENGTH = 4000;
+const ALLY_REPORTS_CHANNEL_NAME = "ally-reports";
 type ReportChannel = TextChannel | NewsChannel;
 
 interface HeadquartersDefinition {
@@ -93,6 +94,14 @@ export async function setupAllianceBridge(client: Client): Promise<AllianceSetup
   }
 
   const allianceReportsMigrated = await migrateStoredAllianceReports(client, headquarters);
+  const { data: deliveredAllianceReports, error: deliveredError } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .not("source_alliance_report_id", "is", null)
+    .not("delivered_at", "is", null)
+    .order("created_at", { ascending: true });
+  assertNoDbError(deliveredError, "list delivered Alliance reports for Corps archive");
+  await publishDeliveredAllianceReportsToCorps(corpsGuild, deliveredAllianceReports ?? []);
   return { headquarters: headquarters.length, topicChannels, allianceReportsMigrated };
 }
 
@@ -214,6 +223,41 @@ export async function removeAllianceReportForDiscordMessage(
   const { error: deleteError } = await supabase.from("alliance_reports").delete().eq("id", report.id);
   assertNoDbError(deleteError, "delete Alliance report");
   return true;
+}
+
+export async function publishDeliveredAllianceReportsToCorps(
+  corpsGuild: Guild,
+  reports: IntelReportRow[]
+): Promise<number> {
+  const sourceReportIds = [...new Set(reports
+    .map((report) => report.source_alliance_report_id)
+    .filter((reportId): reportId is string => Boolean(reportId)))];
+  if (sourceReportIds.length === 0) {
+    return 0;
+  }
+
+  const { data: allianceReports, error } = await supabase
+    .from("alliance_reports")
+    .select("*")
+    .in("id", sourceReportIds)
+    .order("created_at", { ascending: true });
+  assertNoDbError(error, "list delivered Alliance reports");
+  if (!allianceReports?.length) {
+    return 0;
+  }
+
+  const channel = await ensureCorpsAllyReportsChannel(corpsGuild);
+  for (const report of allianceReports) {
+    const message = await sendOrEditMessage(channel, report.corps_ally_message_id, allianceReportEmbed(report));
+    if (report.corps_ally_channel_id !== channel.id || report.corps_ally_message_id !== message.id) {
+      const { error: updateError } = await supabase.from("alliance_reports").update({
+        corps_ally_channel_id: channel.id,
+        corps_ally_message_id: message.id
+      }).eq("id", report.id);
+      assertNoDbError(updateError, "store Corps Ally Reports publication");
+    }
+  }
+  return allianceReports.length;
 }
 
 export async function deliverReportsOriginatingAtAllianceHeadquarters(params: {
@@ -840,6 +884,69 @@ function allianceTrailmarkNoteEmbed(report: AllianceReportRow, hq: AllianceHeadq
     });
   }
   return embed;
+}
+
+function allianceReportEmbed(report: AllianceReportRow): EmbedBuilder {
+  const originalUrl = `https://discord.com/channels/${env.RANGER_ALLIANCE_GUILD_ID}/${report.discord_channel_id}/${report.discord_message_id}`;
+  const embed = new EmbedBuilder()
+    .setTitle(`Alliance Report - ${report.source_order}`)
+    .setDescription(formatContent(report.content || "Attachment-only report."))
+    .addFields(
+      { name: "Reported by", value: report.author_display_name, inline: true },
+      { name: "Order", value: report.source_order, inline: true },
+      { name: "Report time", value: discordTime(report.created_at), inline: true },
+      { name: "Original", value: `[Open Alliance report](${originalUrl})`, inline: false }
+    )
+    .setColor(0x4f6f91)
+    .setTimestamp(new Date(report.created_at));
+  if (report.attachment_urls.length > 0) {
+    embed.addFields({
+      name: "Attachments",
+      value: report.attachment_urls.slice(0, 10).map((url, index) => `[Attachment ${index + 1}](${url})`).join("\n").slice(0, 1024)
+    });
+  }
+  return embed;
+}
+
+async function ensureCorpsAllyReportsChannel(corpsGuild: Guild): Promise<TextChannel> {
+  const { data: settings, error } = await supabase
+    .from("alliance_intel_settings")
+    .select("*")
+    .eq("id", true)
+    .maybeSingle();
+  assertNoDbError(error, "get Ranger Alliance settings");
+
+  if (settings?.corps_ally_reports_channel_id) {
+    const stored = await corpsGuild.channels.fetch(settings.corps_ally_reports_channel_id).catch(() => null);
+    if (stored?.type === ChannelType.GuildText) {
+      return stored;
+    }
+  }
+
+  await corpsGuild.channels.fetch();
+  const existing = corpsGuild.channels.cache.find((channel) =>
+    channel.type === ChannelType.GuildText
+      && channel.parentId === env.CORPS_INTEL_CATEGORY_ID
+      && channel.name === ALLY_REPORTS_CHANNEL_NAME
+  );
+  const channel = existing?.type === ChannelType.GuildText
+    ? existing
+    : await corpsGuild.channels.create({
+        name: ALLY_REPORTS_CHANNEL_NAME,
+        type: ChannelType.GuildText,
+        parent: env.CORPS_INTEL_CATEGORY_ID,
+        reason: "Create Ranger Alliance report archive"
+      });
+  await channel.permissionOverwrites.edit(corpsGuild.roles.everyone.id, { SendMessages: false });
+  await channel.permissionOverwrites.edit(corpsGuild.client.user.id, { ViewChannel: true, SendMessages: true, EmbedLinks: true });
+
+  if (settings) {
+    const { error: updateError } = await supabase.from("alliance_intel_settings")
+      .update({ corps_ally_reports_channel_id: channel.id })
+      .eq("id", true);
+    assertNoDbError(updateError, "store Corps Ally Reports channel");
+  }
+  return channel;
 }
 
 async function routedTopics(content: string): Promise<IntelTopicRow[]> {

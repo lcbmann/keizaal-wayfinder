@@ -32,6 +32,7 @@ import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from ".
 import {
   deliverCarriedReportsToAllianceHeadquarters,
   deliverReportsOriginatingAtAllianceHeadquarters,
+  publishDeliveredAllianceReportsToCorps,
   removeCorpsIntelReportFromAlliance
 } from "./allianceIntelService.js";
 
@@ -838,6 +839,7 @@ async function deliverCarriedReportsToHq(params: {
     .in("id", deliveredIds);
 
   assertNoDbError(deliveryError, "deliver intel reports to HQ");
+  await publishDeliveredAllianceReportsToCorps(params.guild, deliverableReports);
   await refreshDeliveredTopics(params.guild, new Set(deliverableReports.map((report) => report.topic_id)));
   return deliverableReports.length;
 }

@@ -30,12 +30,29 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
     throw new UserFacingError("Trailmark not found or inactive.");
   }
 
-  const session = await grantTrailmarkAccess({
+  await grantTrailmarkAccess({
     guild: interaction.guild,
     member,
     trailmark,
     minutes: env.DEFAULT_TRAILMARK_ACCESS_MINUTES
   });
+  await interaction.editReply({
+    content: `Opened <#${trailmark.discord_channel_id}>. Access expires in ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`
+  });
+
+  void processTrailmarkIntel(interaction, trailmark).catch(async (error: unknown) => {
+    console.error(`Failed to process intel for Trailmark ${trailmark.id}:`, error);
+    await interaction.followUp({
+      content: "Trailmark access was granted, but intel delivery failed. Please notify a Marshal.",
+      ephemeral: true
+    }).catch(() => undefined);
+  });
+}
+
+async function processTrailmarkIntel(
+  interaction: StringSelectMenuInteraction<"cached">,
+  trailmark: NonNullable<Awaited<ReturnType<typeof getTrailmark>>>
+): Promise<void> {
   await captureRecentTrailmarkMessagesForIntel({
     guild: interaction.guild,
     trailmark
@@ -45,11 +62,10 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
     discordUserId: interaction.user.id,
     trailmark
   });
-
-  await interaction.editReply({
-    content: [
-      `Opened <#${trailmark.discord_channel_id}>. Access expires in ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`,
-      deliveredReports > 0 ? `Delivered ${deliveredReports} report${deliveredReports === 1 ? "" : "s"} to HQ.` : null
-    ].filter(Boolean).join("\n")
-  });
+  if (deliveredReports > 0) {
+    await interaction.followUp({
+      content: `Delivered ${deliveredReports} report${deliveredReports === 1 ? "" : "s"} to HQ.`,
+      ephemeral: true
+    }).catch(() => undefined);
+  }
 }

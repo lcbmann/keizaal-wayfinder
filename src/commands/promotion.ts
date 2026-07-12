@@ -98,8 +98,11 @@ export const promotionCommand: BotCommand = {
       throw new UserFacingError("This command can only be used in the configured guild.");
     }
 
-    const actor = await interaction.guild.members.fetch(interaction.user.id);
     const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "approve") {
+      await interaction.deferReply();
+    }
+    const actor = await interaction.guild.members.fetch(interaction.user.id);
 
     if (subcommand === "eligible") {
       if (!canOpenPromotionVotes(actor)) {
@@ -175,14 +178,20 @@ export const promotionCommand: BotCommand = {
         approverDiscordUserId: interaction.user.id
       });
       const ballots = await listPromotionBallotsWithVoters(result.vote.id);
-      await refreshStoredAssignmentsBoard(interaction.guild);
-      await editPromotionVoteMessage(interaction.guild, result.vote.id).catch((error) => {
-        console.warn(`Could not refresh approved promotion vote ${result.vote.id}:`, error);
-      });
-      await interaction.reply({
+      await interaction.editReply({
         content: `<@${result.promoted.discord_user_id}>`,
         embeds: [promotionApprovalEmbed(result.promoted, result.previousRank, result.vote, ballots)],
         allowedMentions: { users: [result.promoted.discord_user_id] }
+      });
+      void Promise.allSettled([
+        refreshStoredAssignmentsBoard(interaction.guild),
+        editPromotionVoteMessage(interaction.guild, result.vote.id)
+      ]).then((results) => {
+        for (const result of results) {
+          if (result.status === "rejected") {
+            console.warn(`Could not run post-approval promotion refresh for ${interaction.id}:`, result.reason);
+          }
+        }
       });
       return;
     }

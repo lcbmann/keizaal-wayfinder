@@ -182,15 +182,10 @@ export async function listPromotionBallotsWithVoters(voteId: string): Promise<Pr
   }
 
   const ballots = await getBallots(voteId);
-  const withVoters: PromotionBallotWithVoter[] = [];
-  for (const ballot of ballots) {
-    withVoters.push({
-      ballot,
-      voter: await getRangerByDiscordId(ballot.voter_discord_user_id)
-    });
-  }
-
-  return withVoters;
+  return Promise.all(ballots.map(async (ballot) => ({
+    ballot,
+    voter: await getRangerByDiscordId(ballot.voter_discord_user_id)
+  })));
 }
 
 export async function closePromotionVote(voteId: string): Promise<{
@@ -202,7 +197,6 @@ export async function closePromotionVote(voteId: string): Promise<{
   if (!vote) {
     throw new UserFacingError("Promotion vote not found.");
   }
-
   const { data: updated, error } = await supabase
     .from("promotion_votes")
     .update({ status: "Closed", closed_at: new Date().toISOString() })
@@ -224,6 +218,12 @@ export async function approvePromotionVote(params: {
   const vote = await getPromotionVote(params.voteId);
   if (!vote) {
     throw new UserFacingError("Promotion vote not found.");
+  }
+  if (vote.status === "Approved") {
+    throw new UserFacingError("That promotion vote has already been approved.");
+  }
+  if (vote.status === "Denied") {
+    throw new UserFacingError("A denied promotion vote cannot be approved.");
   }
 
   const candidate = await getRangerById(vote.candidate_ranger_id);

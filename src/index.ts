@@ -257,7 +257,12 @@ async function handleInteractionError(interaction: Interaction, error: unknown):
 }
 
 async function replyWithError(interaction: RepliableInteraction, content: string): Promise<void> {
-  if (interaction.deferred || interaction.replied) {
+  if (interaction.deferred && !interaction.replied) {
+    await interaction.editReply({ content, embeds: [], components: [] });
+    return;
+  }
+
+  if (interaction.replied) {
     await interaction.followUp({ content, ephemeral: true });
     return;
   }

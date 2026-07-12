@@ -8,7 +8,7 @@ import {
   createSupplyAssignment,
   listSupplyAssignmentItems,
   listSupplyAssignments,
-  logSupplyContribution,
+  logSupplyContributions,
   refreshSupplyAssignmentBoard,
   setSupplyAssignmentStatus,
   supplyAssignmentEmbed,
@@ -49,6 +49,12 @@ const builder = new SlashCommandBuilder()
     .addStringOption(assignmentOption)
     .addStringOption((option) => option.setName("item").setDescription("Item contributed.").setRequired(true).setAutocomplete(true))
     .addIntegerOption((option) => option.setName("quantity").setDescription("Quantity contributed.").setRequired(true).setMinValue(1))
+    .addStringOption((option) => option.setName("item_2").setDescription("Optional second item.").setAutocomplete(true))
+    .addIntegerOption((option) => option.setName("quantity_2").setDescription("Second item quantity.").setMinValue(1))
+    .addStringOption((option) => option.setName("item_3").setDescription("Optional third item.").setAutocomplete(true))
+    .addIntegerOption((option) => option.setName("quantity_3").setDescription("Third item quantity.").setMinValue(1))
+    .addStringOption((option) => option.setName("item_4").setDescription("Optional fourth item.").setAutocomplete(true))
+    .addIntegerOption((option) => option.setName("quantity_4").setDescription("Fourth item quantity.").setMinValue(1))
     .addUserOption((option) => option.setName("member").setDescription("Marshal+: log for another Ranger."))
     .addStringOption((option) => option.setName("note").setDescription("Optional contribution note.").setMaxLength(500)))
   .addSubcommand((subcommand) => subcommand
@@ -76,7 +82,7 @@ export const supplyCommand: BotCommand = {
       })));
       return;
     }
-    if (focused.name === "item") {
+    if (focused.name === "item" || /^item_[2-4]$/u.test(focused.name)) {
       const code = interaction.options.getString("assignment");
       if (!code) {
         await interaction.respond([]);
@@ -139,17 +145,20 @@ export const supplyCommand: BotCommand = {
         }
       }
       await interaction.deferReply({ ephemeral: true });
-      const result = await logSupplyContribution({
+      const contributions = supplyContributionInputs(interaction);
+      const result = await logSupplyContributions({
         guild: interaction.guild,
         assignmentCode,
-        itemName: interaction.options.getString("item", true),
-        quantity: interaction.options.getInteger("quantity", true),
+        contributions,
         memberDiscordUserId: target.id,
         loggedByDiscordUserId: interaction.user.id,
         note: interaction.options.getString("note")?.trim() || null
       });
+      const summary = result.items.map(({ item, quantity }) =>
+        `${quantity.toLocaleString("en-US")} ${item.item_name}`
+      ).join(", ");
       await interaction.editReply({
-        content: `Logged ${interaction.options.getInteger("quantity", true).toLocaleString("en-US")} ${result.item.item_name} for ${target}. ${result.assignment.status === "Completed" ? "The assignment is now complete." : ""}`.trim()
+        content: `Logged ${summary} for ${target}. ${result.assignment.status === "Completed" ? "The assignment is now complete." : ""}`.trim()
       });
       return;
     }
@@ -216,6 +225,24 @@ function supplyItemInputs(interaction: ChatInputCommandInteraction): Array<{ nam
     throw new UserFacingError("Each supply item must have a unique name.");
   }
   return items;
+}
+
+function supplyContributionInputs(interaction: ChatInputCommandInteraction): Array<{ itemName: string; quantity: number }> {
+  const contributions = [{
+    itemName: interaction.options.getString("item", true),
+    quantity: interaction.options.getInteger("quantity", true)
+  }];
+  for (let index = 2; index <= 4; index += 1) {
+    const itemName = interaction.options.getString(`item_${index}`);
+    const quantity = interaction.options.getInteger(`quantity_${index}`);
+    if (Boolean(itemName) !== Boolean(quantity)) {
+      throw new UserFacingError(`item_${index} and quantity_${index} must be provided together.`);
+    }
+    if (itemName && quantity) {
+      contributions.push({ itemName, quantity });
+    }
+  }
+  return contributions;
 }
 
 function requireMarshal(member: GuildMember): void {

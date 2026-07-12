@@ -76,32 +76,38 @@ export async function createSupplyAssignment(params: {
   }
 }
 
-export async function logSupplyContribution(params: {
+export async function logSupplyContributions(params: {
   guild: Guild;
   assignmentCode: string;
-  itemName: string;
-  quantity: number;
+  contributions: Array<{ itemName: string; quantity: number }>;
   memberDiscordUserId: string;
   loggedByDiscordUserId: string;
   note?: string | null;
-}): Promise<{ assignment: SupplyAssignmentRow; item: SupplyAssignmentItemRow }> {
+}): Promise<{ assignment: SupplyAssignmentRow; items: Array<{ item: SupplyAssignmentItemRow; quantity: number }> }> {
   const snapshot = await requireSupplySnapshot(params.assignmentCode);
   if (snapshot.assignment.status !== "Active") {
     throw new UserFacingError(`Supply assignment ${snapshot.assignment.code} is ${snapshot.assignment.status.toLowerCase()}.`);
   }
-  const item = findItem(snapshot.items, params.itemName);
-  if (!item) {
-    throw new UserFacingError(`Item not found. Available items: ${snapshot.items.map((entry) => entry.item_name).join(", ")}.`);
+  const resolved = params.contributions.map((contribution) => ({
+    item: findItem(snapshot.items, contribution.itemName),
+    quantity: contribution.quantity
+  }));
+  if (resolved.some((entry) => !entry.item)) {
+    throw new UserFacingError(`One or more items were not found. Available items: ${snapshot.items.map((entry) => entry.item_name).join(", ")}.`);
+  }
+  const items = resolved as Array<{ item: SupplyAssignmentItemRow; quantity: number }>;
+  if (new Set(items.map((entry) => entry.item.id)).size !== items.length) {
+    throw new UserFacingError("Each item can only be included once per supply log.");
   }
 
-  const { error } = await supabase.from("supply_contributions").insert({
+  const { error } = await supabase.from("supply_contributions").insert(items.map(({ item, quantity }) => ({
     assignment_id: snapshot.assignment.id,
     item_id: item.id,
     member_discord_user_id: params.memberDiscordUserId,
-    quantity: params.quantity,
+    quantity,
     note: params.note ?? null,
     logged_by_discord_user_id: params.loggedByDiscordUserId
-  });
+  })));
   if (error) {
     if (error.message.includes("exceeds the remaining item quota")) {
       throw new UserFacingError(error.message.replace(/^.*?:\s*/u, ""));
@@ -113,7 +119,7 @@ export async function logSupplyContribution(params: {
   }
 
   await completeIfQuotaReached(snapshot.assignment.id);
-  return { assignment: await publishSupplyBoard(params.guild, snapshot.assignment.id), item };
+  return { assignment: await publishSupplyBoard(params.guild, snapshot.assignment.id), items };
 }
 
 export async function undoLatestSupplyContribution(params: {

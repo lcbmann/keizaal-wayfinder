@@ -97,6 +97,9 @@ The migration creates:
 - `member_activity_events`
 - `corps_fund_transactions`
 - `corps_fund_summary_state`
+- `supply_assignments`
+- `supply_assignment_items`
+- `supply_contributions`
 - `bot_message_state`
 - `intel_settings`
 - `intel_topics`
@@ -179,6 +182,15 @@ Implemented commands:
 - `/funds spend`
 - `/funds set-balance`
 - `/funds refresh-summary`
+- `/supply create`
+- `/supply log`
+- `/supply undo-last`
+- `/supply status`
+- `/supply contributors`
+- `/supply refresh`
+- `/supply close`
+- `/supply reopen`
+- `/supply cancel`
 - `/funds balance`
 - `/funds history`
 - `/funds undo-last`
@@ -202,6 +214,14 @@ Implemented commands:
 The `/funds` commands log donations, expenses, and balance adjustments in the configured Corps funds channel. Run the migration in `src/db/migrations/002_create_corps_fund_tables.sql`, set `CORPS_FUNDS_CHANNEL_ID`, and register slash commands again.
 
 Use `/funds set-balance` once to seed the current fund total from old manual records. After that, use `/funds deposit` and `/funds spend`; Wayfinder posts each transaction and replaces the summary message so the current total stays at the bottom. `/funds history`, `/funds balance`, `/funds undo-last`, and `/funds monthly` support review and cleanup.
+
+## Supply Assignments
+
+Supply assignments track multi-item collection contracts in an auto-updating Discord post. Run `src/db/migrations/011_create_supply_assignments.sql` and redeploy slash commands before first use.
+
+Ranger Marshal or higher can use `/supply create` in the channel where the board should remain. A job supports up to four item quotas, one client price per item, one Ranger payout rate per item, an organizer, and optional instructions. The board shows each quota, overall progress, contract value, expected Ranger payout, Corps margin, current amount owed, and contributor totals.
+
+Apprentice or higher can use `/supply log` to record their own deliveries. Marshal+ can select another member when recording or undoing a delivery. Assignment and item fields use autocomplete. Contributions cannot exceed an item's remaining quota, and completing every quota automatically marks the assignment Completed. `/supply undo-last` corrects the latest member entry and reopens an automatically completed job when necessary. Marshal+ can also refresh, close, reopen, or cancel a job manually.
 
 ## Trailmarks
 

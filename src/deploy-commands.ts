@@ -10,6 +10,7 @@ import { fundsCommand } from "./commands/funds.js";
 import { intelCommand } from "./commands/intel.js";
 import { strongboxCommand } from "./commands/strongbox.js";
 import { allianceCommand } from "./commands/alliance.js";
+import { supplyCommand } from "./commands/supply.js";
 
 const corpsCommands = [
   pingCommand,
@@ -20,7 +21,8 @@ const corpsCommands = [
   recruitCommand,
   fundsCommand,
   intelCommand,
-  strongboxCommand
+  strongboxCommand,
+  supplyCommand
 ].map((command) => command.data.toJSON());
 
 const allianceCommands = [pingCommand, allianceCommand].map((command) => command.data.toJSON());

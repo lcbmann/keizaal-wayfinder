@@ -17,6 +17,7 @@ import { fundsCommand } from "./commands/funds.js";
 import { intelCommand } from "./commands/intel.js";
 import { strongboxCommand } from "./commands/strongbox.js";
 import { allianceCommand } from "./commands/alliance.js";
+import { supplyCommand } from "./commands/supply.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
@@ -47,7 +48,8 @@ for (const command of [
   fundsCommand,
   intelCommand,
   strongboxCommand,
-  allianceCommand
+  allianceCommand,
+  supplyCommand
 ]) {
   commands.set(command.data.name, command);
 }

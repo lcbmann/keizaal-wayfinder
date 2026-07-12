@@ -6,6 +6,7 @@ export type RangerStatus = "Active" | "Inactive" | "On Leave" | "Retired";
 export type PromotionVoteStatus = "Open" | "Closed" | "Approved" | "Denied";
 export type BallotVote = "promote" | "hold" | "abstain";
 export type CorpsFundTransactionType = "Donation" | "Expense" | "Adjustment";
+export type SupplyAssignmentStatus = "Active" | "Completed" | "Cancelled";
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface RangerRow {
@@ -147,6 +148,44 @@ export interface IntelTrailmarkVisitRow {
   discord_user_id: string;
   trailmark_id: string;
   visited_at: string;
+}
+
+export interface SupplyAssignmentRow {
+  id: string;
+  code: string;
+  name: string;
+  client_name: string;
+  status: SupplyAssignmentStatus;
+  sale_price_per_item: number;
+  ranger_rate_per_item: number;
+  organizer_discord_user_id: string | null;
+  notes: string | null;
+  created_by_discord_user_id: string;
+  discord_channel_id: string | null;
+  discord_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface SupplyAssignmentItemRow {
+  id: string;
+  assignment_id: string;
+  item_name: string;
+  target_quantity: number;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface SupplyContributionRow {
+  id: string;
+  assignment_id: string;
+  item_id: string;
+  member_discord_user_id: string;
+  quantity: number;
+  note: string | null;
+  logged_by_discord_user_id: string;
+  created_at: string;
 }
 
 export interface AllianceIntelSettingsRow {
@@ -355,6 +394,27 @@ export interface Database {
         Row: IntelTrailmarkVisitRow;
         Insert: Omit<IntelTrailmarkVisitRow, "id"> & { id?: string };
         Update: Partial<IntelTrailmarkVisitRow>;
+      };
+      supply_assignments: {
+        Row: SupplyAssignmentRow;
+        Insert: Omit<SupplyAssignmentRow, "id" | "code" | "created_at" | "updated_at" | "completed_at"> & {
+          id?: string;
+          code?: string;
+          created_at?: string;
+          updated_at?: string;
+          completed_at?: string | null;
+        };
+        Update: Partial<SupplyAssignmentRow>;
+      };
+      supply_assignment_items: {
+        Row: SupplyAssignmentItemRow;
+        Insert: Omit<SupplyAssignmentItemRow, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: Partial<SupplyAssignmentItemRow>;
+      };
+      supply_contributions: {
+        Row: SupplyContributionRow;
+        Insert: Omit<SupplyContributionRow, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: never;
       };
       alliance_intel_settings: {
         Row: AllianceIntelSettingsRow;

@@ -219,7 +219,7 @@ Use `/funds set-balance` once to seed the current fund total from old manual rec
 
 Supply assignments track multi-item collection contracts in an auto-updating Discord post. Run `src/db/migrations/011_create_supply_assignments.sql` and redeploy slash commands before first use.
 
-Ranger Marshal or higher can use `/supply create` in the channel where the board should remain. A job supports up to four item quotas, one client price per item, one Ranger payout rate per item, an organizer, and optional instructions. The board shows each quota, overall progress, contract value, expected Ranger payout, Corps margin, current amount owed, and contributor totals.
+Ranger Marshal or higher can use `/supply create` in the text channel or assignments forum post where the board should remain. A job supports up to four item quotas, one client price per item, one Ranger payout rate per item, an organizer, and optional instructions. The board shows each quota, overall progress, contract value, expected Ranger payout, Corps margin, current amount owed, and contributor totals.
 
 Apprentice or higher can use `/supply log` to record their own deliveries. Marshal+ can select another member when recording or undoing a delivery. Assignment and item fields use autocomplete. Contributions cannot exceed an item's remaining quota, and completing every quota automatically marks the assignment Completed. `/supply undo-last` corrects the latest member entry and reopens an automatically completed job when necessary. Marshal+ can also refresh, close, reopen, or cancel a job manually.
 

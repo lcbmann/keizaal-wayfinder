@@ -1,5 +1,4 @@
 import {
-  ChannelType,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
   type GuildMember,
@@ -14,7 +13,8 @@ import {
   setSupplyAssignmentStatus,
   supplyAssignmentEmbed,
   supplyContributorsEmbed,
-  undoLatestSupplyContribution
+  undoLatestSupplyContribution,
+  isSupplyBoardChannel
 } from "../services/supplyAssignmentService.js";
 import { canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -103,8 +103,8 @@ export const supplyCommand: BotCommand = {
 
     if (subcommand === "create") {
       requireMarshal(actor);
-      if (!interaction.channel || interaction.channel.type !== ChannelType.GuildText) {
-        throw new UserFacingError("Supply boards can only be created in a text channel.");
+      if (!interaction.channel || !isSupplyBoardChannel(interaction.channel)) {
+        throw new UserFacingError("Supply boards can only be created in a text channel or forum post.");
       }
       const salePrice = interaction.options.getNumber("sale_price", true);
       const rangerRate = interaction.options.getNumber("ranger_rate", true);

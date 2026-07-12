@@ -1,4 +1,13 @@
-import { ChannelType, EmbedBuilder, type Guild, type Message, type TextChannel } from "discord.js";
+import {
+  ChannelType,
+  EmbedBuilder,
+  type Guild,
+  type GuildBasedChannel,
+  type Message,
+  type PrivateThreadChannel,
+  type PublicThreadChannel,
+  type TextChannel,
+} from "discord.js";
 import {
   assertNoDbError,
   supabase,
@@ -15,8 +24,14 @@ interface SupplySnapshot {
   contributions: SupplyContributionRow[];
 }
 
+export type SupplyBoardChannel = TextChannel | PublicThreadChannel | PrivateThreadChannel;
+
+export function isSupplyBoardChannel(channel: GuildBasedChannel | null): channel is SupplyBoardChannel {
+  return channel?.type === ChannelType.GuildText || Boolean(channel?.isThread());
+}
+
 export async function createSupplyAssignment(params: {
-  channel: TextChannel;
+  channel: SupplyBoardChannel;
   name: string;
   clientName: string;
   salePricePerItem: number;
@@ -187,7 +202,7 @@ export async function listSupplyAssignmentItems(assignmentCode: string): Promise
   return data ?? [];
 }
 
-async function publishSupplyBoard(guild: Guild, assignmentId: string, fallbackChannel?: TextChannel): Promise<SupplyAssignmentRow> {
+async function publishSupplyBoard(guild: Guild, assignmentId: string, fallbackChannel?: SupplyBoardChannel): Promise<SupplyAssignmentRow> {
   const snapshot = await getSupplySnapshotById(assignmentId);
   if (!snapshot) {
     throw new UserFacingError("Supply assignment not found.");
@@ -195,6 +210,9 @@ async function publishSupplyBoard(guild: Guild, assignmentId: string, fallbackCh
   const channel = fallbackChannel ?? await storedSupplyChannel(guild, snapshot.assignment);
   if (!channel) {
     throw new UserFacingError("The supply assignment channel could not be found.");
+  }
+  if (channel.isThread() && channel.archived) {
+    await channel.setArchived(false, "Update supply assignment board").catch(() => undefined);
   }
 
   let message: Message | null = null;
@@ -347,12 +365,12 @@ function findItem(items: SupplyAssignmentItemRow[], value: string): SupplyAssign
   return items.find((item) => item.id === value || item.item_name.toLocaleLowerCase() === normalized);
 }
 
-async function storedSupplyChannel(guild: Guild, assignment: SupplyAssignmentRow): Promise<TextChannel | null> {
+async function storedSupplyChannel(guild: Guild, assignment: SupplyAssignmentRow): Promise<SupplyBoardChannel | null> {
   if (!assignment.discord_channel_id) {
     return null;
   }
   const channel = await guild.channels.fetch(assignment.discord_channel_id).catch(() => null);
-  return channel?.type === ChannelType.GuildText ? channel : null;
+  return isSupplyBoardChannel(channel) ? channel : null;
 }
 
 function progressBar(value: number, target: number): string {

@@ -23,6 +23,7 @@ import {
   updateRangerNotes
 } from "../services/rangerService.js";
 import { setMemberHoldRole, syncAssignedHoldRoles } from "../services/holdRoleService.js";
+import { isRankRoleSyncExempt } from "../services/discordRoleService.js";
 import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
@@ -376,8 +377,10 @@ function rosterAuditEmbed(members: GuildMember[], rangers: RangerRow[]): EmbedBu
       issues.push(`${member} roster rank is ${ranger.current_rank}, but that Discord role is missing.`);
     }
 
-    const missingLowerRanks = MAIN_RANKS.filter((rank) => rankAtLeast(ranger.current_rank, rank))
-      .filter((rank) => !member.roles.cache.has(roleIdForRank(rank)));
+    const missingLowerRanks = isRankRoleSyncExempt(member.id)
+      ? []
+      : MAIN_RANKS.filter((rank) => rankAtLeast(ranger.current_rank, rank))
+          .filter((rank) => !member.roles.cache.has(roleIdForRank(rank)));
     if (missingLowerRanks.length > 0) {
       issues.push(`${member} is missing cumulative role(s): ${missingLowerRanks.join(", ")}.`);
     }

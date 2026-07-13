@@ -35,6 +35,7 @@ const envSchema = z.object({
   PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER: z.coerce.number().int().nonnegative().default(7),
   INVITE_CHANNEL_ID: optionalId,
   CORPS_FUNDS_CHANNEL_ID: optionalId,
+  RANK_ROLE_SYNC_EXEMPT_USER_IDS: optionalId,
 
   CORPS_INTEL_CATEGORY_ID: optionalId,
   RANGER_ALLIANCE_GUILD_ID: optionalId,

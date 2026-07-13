@@ -36,6 +36,7 @@ Required:
 - `ROLE_RANGER_ID`
 - `ROLE_APPRENTICE_ID`
 - `ROLE_SENIOR_RANGER_ID`
+- `RANK_ROLE_SYNC_EXEMPT_USER_IDS` (optional comma-separated Discord user IDs that should keep only their highest rank role)
 - `GUEST_ROLE_ID`
 - all `CAREER_*_ROLE_ID` values in `.env.example`
 
@@ -273,7 +274,7 @@ The centralized rank config lives in `src/config/ranks.ts`. Main rank roles are:
 4. Ranger
 5. Apprentice
 
-Rank roles are cumulative. A Ranger keeps Apprentice; a Ranger Marshal keeps Ranger and Apprentice; Captains and Commanders keep the ranks below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger is allowed to stack with normal rank roles.
+Rank roles are cumulative. A Ranger keeps Apprentice; a Ranger Marshal keeps Ranger and Apprentice; Captains and Commanders keep the ranks below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger is allowed to stack with normal rank roles. Users listed in `RANK_ROLE_SYNC_EXEMPT_USER_IDS` keep only their stored highest rank role, while their rank and permissions remain unchanged.
 
 Discord onboarding remains the entry point. If onboarding gives a user the Apprentice role, the bot adds or updates their roster entry as an Apprentice and tries to DM the nickname reminder. Guest-only users are skipped.
 

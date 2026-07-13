@@ -8,9 +8,11 @@ export function getMemberMainRank(member: GuildMember): MainRank | null {
 }
 
 export async function syncCumulativeMainRanks(member: GuildMember, rank: MainRank): Promise<void> {
-  const desiredRoleIds = MAIN_RANKS.filter((candidateRank) => rankAtLeast(rank, candidateRank)).map((candidateRank) =>
-    roleIdForRank(candidateRank)
-  );
+  const desiredRoleIds = isRankRoleSyncExempt(member.id)
+    ? [roleIdForRank(rank)]
+    : MAIN_RANKS.filter((candidateRank) => rankAtLeast(rank, candidateRank)).map((candidateRank) =>
+        roleIdForRank(candidateRank)
+      );
   const desiredRoleIdSet = new Set(desiredRoleIds);
   const rankRoleIds = mainRankRoleIds();
   const removeRoleIds = rankRoleIds.filter((roleId) => !desiredRoleIdSet.has(roleId) && member.roles.cache.has(roleId));
@@ -23,6 +25,14 @@ export async function syncCumulativeMainRanks(member: GuildMember, rank: MainRan
   if (addRoleIds.length > 0) {
     await member.roles.add(addRoleIds, `Sync Ranger cumulative ranks to ${rank}`);
   }
+}
+
+export function isRankRoleSyncExempt(discordUserId: string): boolean {
+  return env.RANK_ROLE_SYNC_EXEMPT_USER_IDS
+    .split(",")
+    .map((userId) => userId.trim())
+    .filter(Boolean)
+    .includes(discordUserId);
 }
 
 export function hasGuestOnly(member: GuildMember): boolean {

@@ -153,7 +153,7 @@ export async function setRangerStatus(discordUserId: string, status: RangerStatu
 export async function retireDepartedRanger(discordUserId: string): Promise<RangerRow | null> {
   const { data, error } = await supabase
     .from("rangers")
-    .update({ status: "Retired", updated_at: new Date().toISOString() })
+    .update({ status: "Retired", assigned_hold: null, updated_at: new Date().toISOString() })
     .eq("discord_user_id", discordUserId)
     .select("*")
     .maybeSingle();

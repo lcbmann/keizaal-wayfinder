@@ -157,6 +157,7 @@ Implemented commands:
 - `/ranger sync-all`
 - `/ranger status`
 - `/ranger retire-left`
+- `/ranger clear-hold`
 - `/ranger set-hold`
 - `/ranger sync-hold-roles`
 - `/ranger note`

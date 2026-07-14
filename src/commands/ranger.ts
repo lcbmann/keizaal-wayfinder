@@ -85,6 +85,19 @@ export const rangerCommand: BotCommand = {
             .setMaxLength(20)
         )
     )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("clear-hold")
+        .setDescription("Remove a hold assignment by Discord user ID, including for departed members.")
+        .addStringOption((option) =>
+          option
+            .setName("discord_user_id")
+            .setDescription("Discord user ID from the roster.")
+            .setRequired(true)
+            .setMinLength(17)
+            .setMaxLength(20)
+        )
+    )
     .addSubcommand((subcommand) => {
       subcommand
         .setName("set-hold")
@@ -245,6 +258,22 @@ export const rangerCommand: BotCommand = {
       await refreshStoredAssignmentsBoard(interaction.guild);
       await interaction.reply({
         content: `Set ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} to Retired.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (subcommand === "clear-hold") {
+      requireMarshal(actor);
+      const discordUserId = interaction.options.getString("discord_user_id", true).trim();
+      if (!/^\d{17,20}$/u.test(discordUserId)) {
+        throw new UserFacingError("Discord user ID must be a numeric snowflake.");
+      }
+
+      const ranger = await setRangerHold(discordUserId, null);
+      await refreshStoredAssignmentsBoard(interaction.guild);
+      await interaction.reply({
+        content: `Removed the hold assignment from ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId}.`,
         ephemeral: true
       });
       return;

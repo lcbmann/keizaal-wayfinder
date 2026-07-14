@@ -26,6 +26,16 @@ export async function setMemberHoldRole(member: GuildMember, hold: string): Prom
   return role;
 }
 
+export async function clearMemberHoldRole(member: GuildMember): Promise<void> {
+  const staleHoldRoleIds = member.roles.cache
+    .filter((memberRole) => isManagedHoldRole(memberRole))
+    .map((memberRole) => memberRole.id);
+
+  if (staleHoldRoleIds.length > 0) {
+    await member.roles.remove(staleHoldRoleIds, "Clear assigned hold");
+  }
+}
+
 export async function syncAssignedHoldRoles(guild: Guild, rangers: RangerRow[]): Promise<{ synced: number; skipped: number }> {
   let synced = 0;
   let skipped = 0;

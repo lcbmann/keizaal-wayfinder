@@ -162,7 +162,7 @@ export async function retireDepartedRanger(discordUserId: string): Promise<Range
   return data;
 }
 
-export async function setRangerHold(discordUserId: string, hold: string): Promise<RangerRow> {
+export async function setRangerHold(discordUserId: string, hold: string | null): Promise<RangerRow> {
   const { data, error } = await supabase
     .from("rangers")
     .update({ assigned_hold: hold, updated_at: new Date().toISOString() })

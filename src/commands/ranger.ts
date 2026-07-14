@@ -22,7 +22,7 @@ import {
   syncMemberToRoster,
   updateRangerNotes
 } from "../services/rangerService.js";
-import { setMemberHoldRole, syncAssignedHoldRoles } from "../services/holdRoleService.js";
+import { clearMemberHoldRole, setMemberHoldRole, syncAssignedHoldRoles } from "../services/holdRoleService.js";
 import { isRankRoleSyncExempt } from "../services/discordRoleService.js";
 import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { mainRankFromMember } from "../utils/permissions.js";
@@ -85,19 +85,28 @@ export const rangerCommand: BotCommand = {
             .setMaxLength(20)
         )
     )
-    .addSubcommand((subcommand) =>
+    .addSubcommand((subcommand) => {
       subcommand
         .setName("set-hold")
-        .setDescription("Set a Ranger assigned hold or range.")
+        .setDescription("Set or remove assigned holds for one or more Rangers.")
         .addUserOption((option) => option.setName("user").setDescription("Member to update.").setRequired(true))
         .addStringOption((option) =>
           option
             .setName("hold")
             .setDescription("Assigned hold.")
             .setRequired(true)
-            .addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold })))
-        )
-    )
+            .addChoices(
+              { name: "Unassigned", value: "__unassigned__" },
+              ...HOLDS.map((hold) => ({ name: hold, value: hold }))
+            )
+        );
+      for (let index = 2; index <= 10; index += 1) {
+        subcommand.addUserOption((option) =>
+          option.setName(`user_${index}`).setDescription(`Additional member ${index}.`)
+        );
+      }
+      return subcommand;
+    })
     .addSubcommand((subcommand) =>
       subcommand.setName("sync-hold-roles").setDescription("Create and sync assigned hold roles for the current roster.")
     )
@@ -242,22 +251,48 @@ export const rangerCommand: BotCommand = {
     }
 
     if (subcommand === "set-hold") {
-      const user = interaction.options.getUser("user", true);
       if (!canOpenPromotionVotes(actor)) {
         throw new UserFacingError("Ranger Marshal or higher is required to set assigned holds.");
       }
 
-      const member = user.id === interaction.user.id ? actor : await interaction.guild.members.fetch(user.id);
-      const synced = await syncMemberToRoster(member, interaction.user.id);
-      if (!synced) {
-        throw new UserFacingError("That member does not have a Ranger rank role, so no roster entry can be updated.");
+      const users = [interaction.options.getUser("user", true)];
+      for (let index = 2; index <= 10; index += 1) {
+        const user = interaction.options.getUser(`user_${index}`);
+        if (user) {
+          users.push(user);
+        }
+      }
+      if (new Set(users.map((user) => user.id)).size !== users.length) {
+        throw new UserFacingError("Each member can only be included once.");
       }
 
-      const hold = interaction.options.getString("hold", true);
-      const ranger = await setRangerHold(user.id, hold);
-      const role = await setMemberHoldRole(member, hold);
+      const holdValue = interaction.options.getString("hold", true);
+      const hold = holdValue === "__unassigned__" ? null : holdValue;
+      const members = await Promise.all(users.map((user) =>
+        user.id === interaction.user.id ? actor : interaction.guild.members.fetch(user.id)
+      ));
+      const synced = await Promise.all(members.map((member) => syncMemberToRoster(member, interaction.user.id)));
+      if (synced.some((ranger) => !ranger)) {
+        throw new UserFacingError("Every selected member must have a Ranger rank role.");
+      }
+
+      for (let index = 0; index < users.length; index += 1) {
+        const user = users[index];
+        const member = members[index];
+        if (!user || !member) {
+          throw new UserFacingError("Could not resolve every selected member.");
+        }
+        await setRangerHold(user.id, hold);
+        if (hold) {
+          await setMemberHoldRole(member, hold);
+        } else {
+          await clearMemberHoldRole(member);
+        }
+      }
       await interaction.reply({
-        content: `Set ${user}'s assigned hold to ${ranger.assigned_hold} and assigned ${role}.`,
+        content: hold
+          ? `Set ${users.join(", ")}'s assigned hold to ${hold}.`
+          : `Removed hold assignments from ${users.join(", ")}.`,
         ephemeral: true
       });
       await refreshStoredAssignmentsBoard(interaction.guild);

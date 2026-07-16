@@ -15,7 +15,7 @@ import {
 import { env } from "../config/env.js";
 import { roleIdForRank } from "../config/roles.js";
 import { UserFacingError } from "../utils/errors.js";
-import { getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
+import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
 const STRONGBOX_STATE_KEY = "hq-strongbox-channel";
 const STRONGBOX_DROP_STATE_KEY = "hq-strongbox-drop-channel";
@@ -68,6 +68,7 @@ async function setupStrongboxDropChannel(guild: Guild): Promise<TextChannel> {
   const existing = await getStrongboxDropChannel(guild);
   if (existing) {
     await applyStrongboxDropPermissions(existing);
+    await ensureStrongboxDropInstructions(existing);
     return existing;
   }
 
@@ -80,19 +81,85 @@ async function setupStrongboxDropChannel(guild: Guild): Promise<TextChannel> {
   });
 
   await saveBotMessageState(STRONGBOX_DROP_STATE_KEY, channel.id, []);
-  await channel.send({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle("Strongbox Drop")
-        .setDescription([
-          "Leave private messages for Ranger Marshal or higher in this channel, or use the duty and apprenticeship submission commands.",
-          "Wayfinder forwards each entry to the HQ Strongbox, creates a private discussion thread, and removes any public copy."
-        ].join("\n"))
-        .setColor(0x587c4a)
-        .setTimestamp(new Date())
-    ]
-  });
+  await ensureStrongboxDropInstructions(channel);
   return channel;
+}
+
+async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Message> {
+  await channel.setTopic(strongboxDropTopic(), "Update Strongbox submission instructions").catch((error) => {
+    console.warn(`Could not update Strongbox Drop topic ${channel.id}:`, error);
+  });
+  const state = await getBotMessageState(STRONGBOX_DROP_STATE_KEY);
+  let message: Message | null = null;
+
+  if (state?.discord_channel_id === channel.id && state.discord_message_ids[0]) {
+    message = await channel.messages.fetch(state.discord_message_ids[0]).catch(() => null);
+  }
+
+  if (!message) {
+    const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    message = recent?.find((candidate) =>
+      candidate.author.id === channel.client.user.id && candidate.embeds[0]?.title === "Strongbox Drop"
+    ) ?? null;
+  }
+
+  const payload = { embeds: [strongboxDropInstructionsEmbed()] };
+  message = message ? await message.edit(payload) : await channel.send(payload);
+  if (!message.pinned) {
+    await message.pin("Keep Strongbox submission instructions available").catch((error) => {
+      console.warn(`Could not pin Strongbox Drop instructions ${message?.id}:`, error);
+    });
+  }
+  await saveBotMessageState(STRONGBOX_DROP_STATE_KEY, channel.id, [message.id]);
+  return message;
+}
+
+function strongboxDropTopic(): string {
+  return [
+    "Private submissions to Ranger Marshal+. Ordinary messages are forwarded and removed.",
+    "Duties: /duty volunteer, /duty withdraw.",
+    "Apprenticeships: /apprenticeship looking-for, /apprenticeship withdraw-looking, /apprenticeship propose, /apprenticeship sponsor, /apprenticeship info, /apprenticeship end."
+  ].join(" ");
+}
+
+function strongboxDropInstructionsEmbed(): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle("Strongbox Drop")
+    .setDescription([
+      "Use this channel for private submissions to Ranger Marshal or higher.",
+      "You cannot read previous submissions. Wayfinder forwards each entry to the private Strongbox, creates a Marshal discussion thread, and removes any public copy."
+    ].join("\n"))
+    .addFields(
+      {
+        name: "Private Message",
+        value: "Type an ordinary message here, or use `/strongbox drop` with an optional attachment."
+      },
+      {
+        name: "Corps Duties",
+        value: [
+          "`/duty volunteer` - Apply for Quartermaster, Craftsman, Warden, Detective, or Courier.",
+          "`/duty withdraw` - Withdraw a pending duty application."
+        ].join("\n")
+      },
+      {
+        name: "Finding a Mentor or Apprentice",
+        value: [
+          "`/apprenticeship looking-for` - Tell the Marshals you are looking for a mentor or Apprentice.",
+          "`/apprenticeship withdraw-looking` - Remove your matching request.",
+          "`/apprenticeship propose` - Propose a pairing with an existing Corps member."
+        ].join("\n")
+      },
+      {
+        name: "Recruiting and Current Pairings",
+        value: [
+          "`/apprenticeship sponsor` - Sponsor a new member who has already joined the Discord.",
+          "`/apprenticeship info` - View your current pairing.",
+          "`/apprenticeship end` - End your current pairing."
+        ].join("\n")
+      }
+    )
+    .setColor(0x587c4a)
+    .setFooter({ text: "Submission commands must be run in this channel. Wayfinder replies privately." });
 }
 
 export async function dropStrongboxMessage(params: {

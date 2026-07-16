@@ -9,6 +9,9 @@ Keizaal Wayfinder is a TypeScript Discord bot for the Ranger Corps of Skyrim, an
 - Senior Ranger is preserved as a separate recognition role and is not treated as a main rank.
 - Private Trailmark channels with temporary per-user access.
 - Promotion votes with buttons and manual approval or denial.
+- Database-backed Corps duties with private applications, Marshal review, and Discord role sync.
+- Voluntary Ranger-Apprentice pairings with matching requests, consent, and sponsored-recruit review.
+- One private discussion thread per Strongbox entry.
 - Lightweight activity tracking without storing message content.
 
 ## Install
@@ -71,6 +74,9 @@ Recommended bot permissions:
 - Read Message History
 - Manage Channels
 - Manage Roles
+- Create Public Threads
+- Send Messages in Threads
+- Manage Threads
 - Create Instant Invite, if using `/recruit invite`
 
 The bot role must be above all Ranger rank roles it manages:
@@ -101,6 +107,11 @@ The migration creates:
 - `supply_assignments`
 - `supply_assignment_items`
 - `supply_contributions`
+- `corps_duties`
+- `duty_applications`
+- `ranger_duty_assignments`
+- `apprenticeship_preferences`
+- `apprenticeships`
 - `bot_message_state`
 - `intel_settings`
 - `intel_topics`
@@ -199,6 +210,21 @@ Implemented commands:
 - `/funds monthly`
 - `/strongbox drop`
 - `/strongbox setup`
+- `/duty volunteer`
+- `/duty withdraw`
+- `/duty assign`
+- `/duty remove`
+- `/duty list`
+- `/duty applications`
+- `/duty setup`
+- `/apprenticeship looking-for`
+- `/apprenticeship withdraw-looking`
+- `/apprenticeship propose`
+- `/apprenticeship sponsor`
+- `/apprenticeship assign`
+- `/apprenticeship end`
+- `/apprenticeship info`
+- `/apprenticeship requests`
 - `/intel set-hq`
 - `/intel topic-add`
 - `/intel topic-edit`
@@ -235,7 +261,29 @@ Users visit Trailmarks by selecting one from the bot message posted by `/trailma
 
 ## HQ Strongbox
 
-`/strongbox setup` creates or repairs two channels under the Trailmarks category: `strongbox-drop`, where members leave private reports, and `hq-strongbox`, where Ranger Marshal or higher reads them. When someone posts in `strongbox-drop`, Wayfinder forwards the message and attachments to `hq-strongbox`, then removes the public copy. `/strongbox drop` remains available as a backup slash-command path.
+`/strongbox setup` creates or repairs two channels under the Trailmarks category: `strongbox-drop`, where members leave private reports, and `hq-strongbox`, where Ranger Marshal or higher reads them. When someone posts in `strongbox-drop`, Wayfinder forwards the message and attachments to `hq-strongbox`, removes the public copy, and starts a separate discussion thread from the private entry. Marshal+ can reply inside that thread without mixing separate Strongbox discussions together. `/strongbox drop` remains available as a backup slash-command path and creates the same threaded entry.
+
+After deploying the threaded Strongbox update, run `/strongbox setup` once to add the required thread permissions to the existing channels.
+
+## Corps Duties
+
+Run migration `012_create_duties_and_apprenticeships.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Detective, and Courier roles and stores their Discord role IDs in Supabase. The Wayfinder bot role must remain above these roles.
+
+Apprentice or higher can run `/duty volunteer` in `strongbox-drop`. The application appears as a review card in the Marshal-only Strongbox and receives its own discussion thread. Marshal+ approves or denies it using the card buttons. Approval records the assignment and grants the corresponding Discord role. Quartermaster permits only one active holder. Warden applications and assignments require a free-text Range; this will later be replaced by the Atlas-backed Range model.
+
+Marshal+ can use `/duty assign` and `/duty remove` for direct administration, `/duty applications` to find pending review threads, and `/duty setup` to repair missing roles. `/duty list` is available to Corps members, and active duties also appear in `/ranger info`. Applicants can use `/duty withdraw` while an application is still pending.
+
+## Apprenticeships
+
+Apprenticeships are voluntary and do not replace the promotion vote system. Apprentice or higher uses the submission commands in `strongbox-drop`.
+
+`/apprenticeship looking-for` records either an Apprentice seeking a mentor or a Ranger+ seeking an Apprentice, then creates a matching-request thread in the Marshal Strongbox. `/apprenticeship withdraw-looking` removes that request. Marshal+ can see all current requests and pairings with `/apprenticeship requests`.
+
+`/apprenticeship propose` pairs an existing Apprentice with an existing Ranger or higher. Wayfinder DMs the other participant with Accept and Decline buttons. An accepted proposal becomes active immediately and creates an informational Strongbox thread; it does not require Marshal approval.
+
+`/apprenticeship sponsor` is for a new recruit who has already joined the Discord but does not yet have a Ranger roster entry. The sponsorship reason goes to a dedicated Strongbox review thread. Marshal approval gives the recruit the Apprentice role, removes Guest, creates the roster entry, and activates the pairing. Marshal+ can also use `/apprenticeship assign` to pair existing roster members directly.
+
+Either participant may use `/apprenticeship end` to end their current pairing. Marshal+ may select another member to end that pairing. `/apprenticeship info` shows the current pairing for a selected member.
 
 ## Trailmark Intel
 
@@ -261,7 +309,7 @@ Each headquarters receives its own read-only copy of every active intel topic pl
 
 Corps Trailmark reports travel independently. Opening a source Trailmark and then Stonehills delivers those reports only to North Star channels. Carrying the same information to the Dancing Horse Inn delivers it only to Undaunted channels. Hunter's Rest remains the existing Corps delivery point and continues using the existing Corps intel channels.
 
-Put `[CORPS ONLY]` anywhere in a Corps Trailmark report to prevent publication at Stonehills or the Dancing Horse Inn. It remains available through normal Corps delivery. The marker is case-insensitive and can be changed with `RANGER_ALLIANCE_PRIVATE_MARKER`.
+Put `[CORPS ONLY]` anywhere in a Corps Trailmark message to keep it entirely inside the Trailmark network. Wayfinder does not create Corps intel records for it, publish it in Corps report channels, or deliver it to Stonehills, the Dancing Horse Inn, or the Ranger Alliance server. The marker is case-insensitive and can be changed with `RANGER_ALLIANCE_PRIVATE_MARKER`. Adding the marker while editing an existing report removes any previously published intel copies; removing the marker allows the message to be captured normally again.
 
 Only `/ping` and `/alliance` are registered in the Alliance server. All roster, rank, promotion, Trailmark, activity, funds, and strongbox event handling remains restricted to `DISCORD_GUILD_ID`.
 

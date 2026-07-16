@@ -27,6 +27,7 @@ import { isRankRoleSyncExempt } from "../services/discordRoleService.js";
 import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
+import { listActiveDutyAssignments } from "../services/dutyService.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -162,7 +163,10 @@ export const rangerCommand: BotCommand = {
         return;
       }
 
-      await interaction.reply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger)], ephemeral: true });
+      const duties = (await listActiveDutyAssignments())
+        .filter((entry) => entry.ranger.id === ranger.id)
+        .map((entry) => `${entry.duty.name}${entry.assignment.assignment_detail ? ` (${entry.assignment.assignment_detail})` : ""}`);
+      await interaction.reply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties)], ephemeral: true });
       return;
     }
 
@@ -385,7 +389,11 @@ function requireMarshal(member: GuildMember): void {
   }
 }
 
-function rangerEmbed(discordUserId: string, ranger: Awaited<ReturnType<typeof getRangerByDiscordId>>): EmbedBuilder {
+function rangerEmbed(
+  discordUserId: string,
+  ranger: Awaited<ReturnType<typeof getRangerByDiscordId>>,
+  duties: string[] = []
+): EmbedBuilder {
   if (!ranger) {
     throw new UserFacingError("No roster entry found.");
   }
@@ -399,6 +407,7 @@ function rangerEmbed(discordUserId: string, ranger: Awaited<ReturnType<typeof ge
       { name: "Join Date", value: `${ranger.join_date} (${daysBetween(ranger.join_date)} days)`, inline: true },
       { name: "Assigned Hold", value: ranger.assigned_hold ?? "Unassigned", inline: true },
       { name: "In-Game Name", value: ranger.in_game_name ?? "Unknown", inline: true },
+      { name: "Corps Duties", value: duties.join("\n") || "None", inline: false },
       { name: "Notes", value: ranger.notes?.slice(0, 1024) || "None" }
     )
     .setColor(0x587c4a);

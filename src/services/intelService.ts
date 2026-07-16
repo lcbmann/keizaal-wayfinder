@@ -32,6 +32,7 @@ import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from ".
 import {
   deliverCarriedReportsToAllianceHeadquarters,
   deliverReportsOriginatingAtAllianceHeadquarters,
+  isCorpsOnlyReport,
   publishDeliveredAllianceReportsToCorps,
   removeCorpsIntelReportFromAlliance
 } from "./allianceIntelService.js";
@@ -194,6 +195,14 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
     return 0;
   }
 
+  if (isCorpsOnlyReport(content)) {
+    return removeIntelReportsForDiscordMessage({
+      guild: message.guild,
+      channelId: message.channelId,
+      messageId: message.id
+    });
+  }
+
   const settings = await getIntelSettings();
   const topics = await listIntelTopics();
   const catchallTopic = catchallTopicFromSettings(settings, topics);
@@ -271,6 +280,35 @@ export async function removeIntelReportsForDiscordMessage(params: {
   return reports.length;
 }
 
+export async function removeCorpsOnlyIntelReports(guild: Guild): Promise<number> {
+  const { data: reports, error } = await supabase
+    .from("intel_reports")
+    .select("discord_channel_id, discord_message_id, content")
+    .order("created_at", { ascending: true });
+  assertNoDbError(error, "list Corps-only intel reports");
+
+  const messages = new Map<string, { channelId: string; messageId: string }>();
+  for (const report of reports ?? []) {
+    if (!isCorpsOnlyReport(report.content)) {
+      continue;
+    }
+    messages.set(`${report.discord_channel_id}:${report.discord_message_id}`, {
+      channelId: report.discord_channel_id,
+      messageId: report.discord_message_id
+    });
+  }
+
+  let removed = 0;
+  for (const message of messages.values()) {
+    removed += await removeIntelReportsForDiscordMessage({
+      guild,
+      channelId: message.channelId,
+      messageId: message.messageId
+    });
+  }
+  return removed;
+}
+
 export async function captureRecentTrailmarkMessagesForIntel(params: {
   guild: Guild;
   trailmark: TrailmarkRow;
@@ -299,6 +337,15 @@ export async function captureRecentTrailmarkMessagesForIntel(params: {
 
   for (const message of [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp)) {
     if (message.author.bot || !message.content.trim()) {
+      continue;
+    }
+
+    if (isCorpsOnlyReport(message.content)) {
+      await removeIntelReportsForDiscordMessage({
+        guild: params.guild,
+        channelId: message.channelId,
+        messageId: message.id
+      });
       continue;
     }
 
@@ -600,6 +647,15 @@ async function backfillTrailmarkChannel(params: {
         continue;
       }
 
+      if (isCorpsOnlyReport(message.content)) {
+        await removeIntelReportsForDiscordMessage({
+          guild: params.channel.guild,
+          channelId: message.channelId,
+          messageId: message.id
+        });
+        continue;
+      }
+
       const routed = routeIntelContent({
         content: message.content,
         topics: params.topics,
@@ -687,6 +743,17 @@ async function backfillTrailmarkThread(params: {
       }
 
       if (message.author.bot || !message.content.trim()) {
+        continue;
+      }
+
+      if (isCorpsOnlyReport(message.content)) {
+        if (message.guild) {
+          await removeIntelReportsForDiscordMessage({
+            guild: message.guild,
+            channelId: message.channelId,
+            messageId: message.id
+          });
+        }
         continue;
       }
 

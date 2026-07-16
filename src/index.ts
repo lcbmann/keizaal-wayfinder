@@ -18,19 +18,28 @@ import { intelCommand } from "./commands/intel.js";
 import { strongboxCommand } from "./commands/strongbox.js";
 import { allianceCommand } from "./commands/alliance.js";
 import { supplyCommand } from "./commands/supply.js";
+import { dutyCommand } from "./commands/duty.js";
+import { apprenticeshipCommand } from "./commands/apprenticeship.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
+import { handleDutyButton } from "./components/dutyButtons.js";
+import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
-import { captureTrailmarkIntelReports, removeIntelReportsForDiscordMessage } from "./services/intelService.js";
+import {
+  captureTrailmarkIntelReports,
+  removeCorpsOnlyIntelReports,
+  removeIntelReportsForDiscordMessage
+} from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
   handleAllianceReportMessage,
+  isCorpsOnlyReport,
   isAllianceGuildId,
   removeAllianceReportForDiscordMessage,
   syncCorpsReportAlliancePrivacyForMessage
@@ -49,7 +58,9 @@ for (const command of [
   intelCommand,
   strongboxCommand,
   allianceCommand,
-  supplyCommand
+  supplyCommand,
+  dutyCommand,
+  apprenticeshipCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -59,6 +70,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent
   ],
   partials: [Partials.Channel, Partials.Message]
@@ -67,6 +79,16 @@ const client = new Client({
 client.once("ready", (readyClient) => {
   console.log(`Keizaal Wayfinder logged in as ${readyClient.user.tag}`);
   startTrailmarkSessionExpirationJob(readyClient);
+  const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
+  if (corpsGuild) {
+    void removeCorpsOnlyIntelReports(corpsGuild)
+      .then((removed) => {
+        if (removed > 0) {
+          console.log(`Removed ${removed} Corps-only intel report record${removed === 1 ? "" : "s"}.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to clean up Corps-only intel reports:", error));
+  }
 });
 
 client.on("interactionCreate", (interaction) => {
@@ -180,7 +202,16 @@ client.on("messageUpdate", (_oldMessage, newMessage) => {
       return;
     }
     if (message.guildId === env.DISCORD_GUILD_ID) {
-      await syncCorpsReportAlliancePrivacyForMessage(message);
+      if (isCorpsOnlyReport(message.content)) {
+        await removeIntelReportsForDiscordMessage({
+          guild: message.guild!,
+          channelId: message.channelId,
+          messageId: message.id
+        });
+      } else {
+        await captureTrailmarkIntelReports(message);
+        await syncCorpsReportAlliancePrivacyForMessage(message);
+      }
     }
   })().catch((error) => {
     console.warn(`Failed to synchronize edited intel report ${newMessage.id}:`, error);
@@ -225,6 +256,23 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handlePromotionButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith("duty:review:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Duty applications are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleDutyButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith("apprenticeship:")) {
+    if (interaction.guildId === env.DISCORD_GUILD_ID) {
+      await safelyRecordInteraction(interaction.user.id);
+    }
+    await handleApprenticeshipButton(interaction);
     return;
   }
 

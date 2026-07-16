@@ -7,6 +7,10 @@ export type PromotionVoteStatus = "Open" | "Closed" | "Approved" | "Denied";
 export type BallotVote = "promote" | "hold" | "abstain";
 export type CorpsFundTransactionType = "Donation" | "Expense" | "Adjustment";
 export type SupplyAssignmentStatus = "Active" | "Completed" | "Cancelled";
+export type DutyApplicationStatus = "Pending" | "Approved" | "Denied" | "Withdrawn";
+export type DutyAssignmentStatus = "Active" | "Ended";
+export type ApprenticeshipSeekingType = "Mentor" | "Apprentice";
+export type ApprenticeshipStatus = "Proposed" | "Pending Marshal" | "Active" | "Declined" | "Ended";
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface RangerRow {
@@ -148,6 +152,81 @@ export interface IntelTrailmarkVisitRow {
   discord_user_id: string;
   trailmark_id: string;
   visited_at: string;
+}
+
+export interface CorpsDutyRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  discord_role_id: string | null;
+  max_active_holders: number | null;
+  requires_detail: boolean;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DutyApplicationRow {
+  id: string;
+  duty_id: string;
+  applicant_ranger_id: string;
+  status: DutyApplicationStatus;
+  reason: string;
+  assignment_detail: string | null;
+  reviewed_by_discord_user_id: string | null;
+  reviewed_at: string | null;
+  strongbox_channel_id: string | null;
+  strongbox_message_id: string | null;
+  strongbox_thread_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RangerDutyAssignmentRow {
+  id: string;
+  duty_id: string;
+  ranger_id: string;
+  application_id: string | null;
+  status: DutyAssignmentStatus;
+  assignment_detail: string | null;
+  assigned_by_discord_user_id: string;
+  started_at: string;
+  ended_at: string | null;
+  end_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprenticeshipPreferenceRow {
+  discord_user_id: string;
+  seeking: ApprenticeshipSeekingType;
+  note: string | null;
+  strongbox_channel_id: string | null;
+  strongbox_message_id: string | null;
+  strongbox_thread_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApprenticeshipRow {
+  id: string;
+  mentor_discord_user_id: string;
+  apprentice_discord_user_id: string;
+  status: ApprenticeshipStatus;
+  proposed_by_discord_user_id: string;
+  sponsor_reason: string | null;
+  reviewed_by_discord_user_id: string | null;
+  reviewed_at: string | null;
+  accepted_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  end_reason: string | null;
+  strongbox_channel_id: string | null;
+  strongbox_message_id: string | null;
+  strongbox_thread_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface SupplyAssignmentRow {
@@ -327,6 +406,50 @@ export interface Database {
         Row: PromotionBallotRow;
         Insert: Omit<PromotionBallotRow, "id" | "created_at" | "updated_at">;
         Update: Partial<PromotionBallotRow>;
+      };
+      corps_duties: {
+        Row: CorpsDutyRow;
+        Insert: Omit<CorpsDutyRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<CorpsDutyRow>;
+      };
+      duty_applications: {
+        Row: DutyApplicationRow;
+        Insert: Omit<DutyApplicationRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<DutyApplicationRow>;
+      };
+      ranger_duty_assignments: {
+        Row: RangerDutyAssignmentRow;
+        Insert: Omit<RangerDutyAssignmentRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<RangerDutyAssignmentRow>;
+      };
+      apprenticeship_preferences: {
+        Row: ApprenticeshipPreferenceRow;
+        Insert: Omit<ApprenticeshipPreferenceRow, "created_at" | "updated_at"> & {
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<ApprenticeshipPreferenceRow>;
+      };
+      apprenticeships: {
+        Row: ApprenticeshipRow;
+        Insert: Omit<ApprenticeshipRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<ApprenticeshipRow>;
       };
       member_activity_events: {
         Row: {

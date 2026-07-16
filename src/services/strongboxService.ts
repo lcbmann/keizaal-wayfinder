@@ -1,11 +1,15 @@
 import {
+  type ActionRowBuilder,
+  type ButtonBuilder,
   ChannelType,
   EmbedBuilder,
   PermissionFlagsBits,
+  ThreadAutoArchiveDuration,
   type Attachment,
   type Guild,
   type GuildMember,
   type Message,
+  type ThreadChannel,
   type TextChannel
 } from "discord.js";
 import { env } from "../config/env.js";
@@ -52,7 +56,7 @@ async function setupPrivateStrongboxChannel(guild: Guild): Promise<TextChannel> 
     embeds: [
       new EmbedBuilder()
         .setTitle("HQ Strongbox")
-        .setDescription("Private reports left in the Strongbox Drop channel appear here. Only Ranger Marshal or higher can read this channel.")
+        .setDescription("Private reports and applications appear here. Each entry has its own Marshal discussion thread. Only Ranger Marshal or higher can read this channel.")
         .setColor(0x587c4a)
         .setTimestamp(new Date())
     ]
@@ -81,8 +85,8 @@ async function setupStrongboxDropChannel(guild: Guild): Promise<TextChannel> {
       new EmbedBuilder()
         .setTitle("Strongbox Drop")
         .setDescription([
-          "Leave private messages for Ranger Marshal or higher in this channel.",
-          "Wayfinder forwards each message to the HQ Strongbox and removes the public copy."
+          "Leave private messages for Ranger Marshal or higher in this channel, or use the duty and apprenticeship submission commands.",
+          "Wayfinder forwards each entry to the HQ Strongbox, creates a private discussion thread, and removes any public copy."
         ].join("\n"))
         .setColor(0x587c4a)
         .setTimestamp(new Date())
@@ -96,12 +100,7 @@ export async function dropStrongboxMessage(params: {
   member: GuildMember;
   message: string;
   attachments?: Attachment[];
-}): Promise<TextChannel> {
-  const channel = await getStrongboxChannel(params.guild);
-  if (!channel) {
-    throw new UserFacingError("The HQ Strongbox has not been set up yet. Ask a Ranger Marshal to run `/strongbox setup`.");
-  }
-
+}): Promise<StrongboxThreadResult> {
   const embed = new EmbedBuilder()
     .setTitle("Strongbox Drop")
     .setDescription(params.message.slice(0, 4096))
@@ -125,8 +124,47 @@ export async function dropStrongboxMessage(params: {
     }
   }
 
-  await channel.send({ embeds: [embed] });
-  return channel;
+  return postStrongboxThread({
+    guild: params.guild,
+    threadName: `Strongbox - ${params.member.displayName}`,
+    embed,
+    reason: `Strongbox drop from ${params.member.user.tag}`
+  });
+}
+
+export interface StrongboxThreadResult {
+  channel: TextChannel;
+  message: Message;
+  thread: ThreadChannel;
+}
+
+export async function postStrongboxThread(params: {
+  guild: Guild;
+  threadName: string;
+  embed: EmbedBuilder;
+  components?: ActionRowBuilder<ButtonBuilder>[];
+  reason: string;
+}): Promise<StrongboxThreadResult> {
+  const channel = await getStrongboxChannel(params.guild);
+  if (!channel) {
+    throw new UserFacingError("The HQ Strongbox has not been set up yet. Ask a Ranger Marshal to run `/strongbox setup`.");
+  }
+
+  const message = await channel.send({
+    embeds: [params.embed],
+    components: params.components ?? []
+  });
+  const thread = await message.startThread({
+    name: normalizedThreadName(params.threadName),
+    autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
+    reason: params.reason
+  });
+  return { channel, message, thread };
+}
+
+function normalizedThreadName(value: string): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  return (normalized || "Strongbox Entry").slice(0, 100);
 }
 
 export async function handleStrongboxDropMessage(message: Message): Promise<boolean> {
@@ -186,12 +224,19 @@ function strongboxPermissionOverwrites(guild: Guild) {
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.EmbedLinks,
         PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.CreatePublicThreads,
+        PermissionFlagsBits.SendMessagesInThreads,
+        PermissionFlagsBits.ManageThreads,
         PermissionFlagsBits.ManageChannels
       ]
     },
     ...(["Ranger Commander", "Ranger Captain", "Ranger Marshal"] as const).map((rank) => ({
       id: roleIdForRank(rank),
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory]
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.SendMessagesInThreads
+      ]
     }))
   ];
 }

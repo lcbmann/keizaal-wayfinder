@@ -71,7 +71,7 @@ export function isAllianceLeader(member: GuildMember): boolean {
   return Boolean(env.RANGER_ALLIANCE_ROLE_LEADERS_ID && member.roles.cache.has(env.RANGER_ALLIANCE_ROLE_LEADERS_ID));
 }
 
-export function isCorpsOnlyAllianceReport(content: string): boolean {
+export function isCorpsOnlyReport(content: string): boolean {
   return content.toLocaleLowerCase().includes(env.RANGER_ALLIANCE_PRIVATE_MARKER.toLocaleLowerCase());
 }
 
@@ -480,7 +480,7 @@ async function deliverReportsToHeadquarters(params: {
   deliveredByDiscordUserId: string;
   deliveredAt: string;
 }): Promise<number> {
-  const eligible = params.reports.filter((report) => !isCorpsOnlyAllianceReport(report.content));
+  const eligible = params.reports.filter((report) => !isCorpsOnlyReport(report.content));
   if (eligible.length === 0) {
     return 0;
   }
@@ -518,7 +518,7 @@ async function publishHeadquartersReport(
     .maybeSingle();
   assertNoDbError(error, "get allied headquarters publication");
 
-  if (isCorpsOnlyAllianceReport(report.content)) {
+  if (isCorpsOnlyReport(report.content)) {
     if (existing) {
       await deleteHeadquartersPublication(corpsGuild.client, existing);
     }

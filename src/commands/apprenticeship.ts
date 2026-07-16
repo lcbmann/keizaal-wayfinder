@@ -21,7 +21,7 @@ export const apprenticeshipCommand: BotCommand = {
     .setDescription("Find, establish, and manage Ranger apprenticeships.")
     .addSubcommand((subcommand) => subcommand
       .setName("looking-for")
-      .setDescription("Privately tell the Marshals that you are looking for a pairing.")
+      .setDescription("Post a notice that you are looking for a mentor or Apprentice.")
       .addStringOption((option) => option
         .setName("type")
         .setDescription("What you are looking for.")
@@ -76,7 +76,7 @@ export const apprenticeshipCommand: BotCommand = {
         note: interaction.options.getString("note")?.trim() || null
       });
       await interaction.editReply({
-        content: `Your request to find ${seeking === "Mentor" ? "a mentor" : "an apprentice"} was placed in the Strongbox.`
+        content: `Your request to find ${seeking === "Mentor" ? "a mentor" : "an apprentice"} was posted on the notice board.`
       });
       return;
     }
@@ -180,7 +180,11 @@ export const apprenticeshipCommand: BotCommand = {
         listCurrentApprenticeships()
       ]);
       const preferenceLines = preferences.map((preference) =>
-        `<@${preference.discord_user_id}> - looking for **${preference.seeking.toLocaleLowerCase()}**${preference.strongbox_thread_id ? ` - <#${preference.strongbox_thread_id}>` : ""}`
+        `<@${preference.discord_user_id}> - looking for **${preference.seeking.toLocaleLowerCase()}**${
+          preference.notice_channel_id && preference.notice_message_id
+            ? ` - [notice](https://discord.com/channels/${interaction.guild.id}/${preference.notice_channel_id}/${preference.notice_message_id})`
+            : ""
+        }`
       );
       const pairingLines = pairings.map(({ apprenticeship }) =>
         `<@${apprenticeship.apprentice_discord_user_id}> with <@${apprenticeship.mentor_discord_user_id}> - **${apprenticeship.status}**${apprenticeship.strongbox_thread_id ? ` - <#${apprenticeship.strongbox_thread_id}>` : ""}`

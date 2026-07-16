@@ -36,6 +36,7 @@ import {
   removeIntelReportsForDiscordMessage
 } from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
+import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
   handleAllianceReportMessage,
@@ -88,6 +89,13 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to clean up Corps-only intel reports:", error));
+    void syncApprenticeshipPreferenceNotices(corpsGuild)
+      .then((synchronized) => {
+        if (synchronized > 0) {
+          console.log(`Synchronized ${synchronized} apprenticeship matching notice${synchronized === 1 ? "" : "s"}.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
   }
 });
 

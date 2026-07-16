@@ -15,6 +15,7 @@ import {
 import { env } from "../config/env.js";
 import { roleIdForRank } from "../config/roles.js";
 import { UserFacingError } from "../utils/errors.js";
+import { canCreateTrailmarks } from "../utils/permissions.js";
 import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
 const STRONGBOX_STATE_KEY = "hq-strongbox-channel";
@@ -116,7 +117,7 @@ async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Me
 
 function strongboxDropTopic(): string {
   return [
-    "Private submissions to Ranger Marshal+. Ordinary messages are forwarded and removed.",
+    "Private submissions to Ranger Marshal+. Member messages are forwarded and removed; Marshal+ messages remain as notices.",
     "Duties: /duty volunteer, /duty withdraw.",
     "Apprenticeships: /apprenticeship looking-for, /apprenticeship withdraw-looking, /apprenticeship propose, /apprenticeship sponsor, /apprenticeship info, /apprenticeship end."
   ].join(" ");
@@ -132,7 +133,10 @@ function strongboxDropInstructionsEmbed(): EmbedBuilder {
     .addFields(
       {
         name: "Private Message",
-        value: "Type an ordinary message here, or use `/strongbox drop` with an optional attachment."
+        value: [
+          "Type an ordinary message here, or use `/strongbox drop` with an optional attachment.",
+          "Messages from Ranger Marshal or higher remain here as notices; other messages are forwarded privately and removed."
+        ].join("\n")
       },
       {
         name: "Corps Duties",
@@ -144,7 +148,7 @@ function strongboxDropInstructionsEmbed(): EmbedBuilder {
       {
         name: "Finding a Mentor or Apprentice",
         value: [
-          "`/apprenticeship looking-for` - Tell the Marshals you are looking for a mentor or Apprentice.",
+          "`/apprenticeship looking-for` - Post on the notice board that you are looking for a mentor or Apprentice.",
           "`/apprenticeship withdraw-looking` - Remove your matching request.",
           "`/apprenticeship propose` - Propose a pairing with an existing Corps member."
         ].join("\n")
@@ -252,6 +256,10 @@ export async function handleStrongboxDropMessage(message: Message): Promise<bool
   }
 
   const member = message.member ?? await message.guild.members.fetch(message.author.id);
+  if (canCreateTrailmarks(member)) {
+    return true;
+  }
+
   await dropStrongboxMessage({
     guild: message.guild,
     member,

@@ -49,6 +49,7 @@ Optional:
 - `PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER`, default `7`
 - `INVITE_CHANNEL_ID`, required only for `/recruit invite`
 - `CORPS_FUNDS_CHANNEL_ID`, required only for `/funds`
+- `NOTICE_BOARD_CHANNEL_ID`, optional explicit channel for apprenticeship matching notices; otherwise Wayfinder finds a text channel ending in `notice-board`
 - `CORPS_INTEL_CATEGORY_ID`, required for automatic Corps intel channel creation and the Ranger Alliance bridge
 - `RANGER_ALLIANCE_GUILD_ID`
 - `RANGER_ALLIANCE_REPORTS_CATEGORY_ID`
@@ -277,7 +278,7 @@ Marshal+ can use `/duty assign` and `/duty remove` for direct administration, `/
 
 Apprenticeships are voluntary and do not replace the promotion vote system. Apprentice or higher uses the submission commands in `strongbox-drop`.
 
-`/apprenticeship looking-for` records either an Apprentice seeking a mentor or a Ranger+ seeking an Apprentice, then creates a matching-request thread in the Marshal Strongbox. `/apprenticeship withdraw-looking` removes that request. Marshal+ can see all current requests and pairings with `/apprenticeship requests`.
+`/apprenticeship looking-for` is submitted from `strongbox-drop`, then posts a public notice in the configured notice board: an Apprentice may seek a mentor and a Ranger+ may seek an Apprentice. Running the command again edits the same notice. `/apprenticeship withdraw-looking` removes it. The notice is also removed automatically when the member enters an apprenticeship. Marshal+ can see all current requests and pairings with `/apprenticeship requests`.
 
 `/apprenticeship propose` pairs an existing Apprentice with an existing Ranger or higher. Wayfinder DMs the other participant with Accept and Decline buttons. An accepted proposal becomes active immediately and creates an informational Strongbox thread; it does not require Marshal approval.
 

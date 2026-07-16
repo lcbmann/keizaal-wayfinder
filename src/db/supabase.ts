@@ -202,6 +202,8 @@ export interface ApprenticeshipPreferenceRow {
   discord_user_id: string;
   seeking: ApprenticeshipSeekingType;
   note: string | null;
+  notice_channel_id: string | null;
+  notice_message_id: string | null;
   strongbox_channel_id: string | null;
   strongbox_message_id: string | null;
   strongbox_thread_id: string | null;

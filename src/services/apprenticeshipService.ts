@@ -2,8 +2,10 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   EmbedBuilder,
   type Guild,
+  type TextChannel,
   type User
 } from "discord.js";
 import { env } from "../config/env.js";
@@ -36,45 +38,48 @@ export async function setApprenticeshipPreference(params: {
   const ranger = await requireRangerByDiscordId(params.discordUserId);
   assertPreferenceAllowed(ranger, params.seeking);
 
+  const { data: existing, error: existingError } = await supabase
+    .from("apprenticeship_preferences")
+    .select("*")
+    .eq("discord_user_id", params.discordUserId)
+    .maybeSingle();
+  assertNoDbError(existingError, "get existing apprenticeship preference");
+
   const { data: preference, error } = await supabase
     .from("apprenticeship_preferences")
     .upsert({
       discord_user_id: params.discordUserId,
       seeking: params.seeking,
       note: params.note,
-      strongbox_channel_id: null,
-      strongbox_message_id: null,
-      strongbox_thread_id: null
+      notice_channel_id: existing?.notice_channel_id ?? null,
+      notice_message_id: existing?.notice_message_id ?? null,
+      strongbox_channel_id: existing?.strongbox_channel_id ?? null,
+      strongbox_message_id: existing?.strongbox_message_id ?? null,
+      strongbox_thread_id: existing?.strongbox_thread_id ?? null
     }, { onConflict: "discord_user_id" })
     .select("*")
     .single();
   assertNoDbError(error, "set apprenticeship preference");
 
-  const entry = await postStrongboxThread({
-    guild: params.guild,
-    threadName: `Apprenticeship Match - ${displayName(ranger)}`,
-    embed: new EmbedBuilder()
-      .setTitle(params.seeking === "Mentor" ? "Looking for a Mentor" : "Looking for an Apprentice")
-      .setDescription(params.note ?? "No additional note provided.")
-      .addFields(
-        { name: "Ranger", value: `<@${ranger.discord_user_id}>`, inline: true },
-        { name: "Current rank", value: ranger.current_rank, inline: true }
-      )
-      .setColor(0x587c4a)
-      .setTimestamp(new Date()),
-    reason: `Apprenticeship matching request from ${displayName(ranger)}`
-  });
+  const notice = await publishApprenticeshipPreference(params.guild, preference, ranger);
   const { data: attached, error: attachError } = await supabase
     .from("apprenticeship_preferences")
     .update({
-      strongbox_channel_id: entry.channel.id,
-      strongbox_message_id: entry.message.id,
-      strongbox_thread_id: entry.thread.id
+      notice_channel_id: notice.channel.id,
+      notice_message_id: notice.messageId
     })
     .eq("discord_user_id", params.discordUserId)
     .select("*")
     .single();
-  assertNoDbError(attachError, "attach apprenticeship preference Strongbox thread");
+  assertNoDbError(attachError, "attach apprenticeship notice-board message");
+
+  if (!existing?.notice_message_id && existing?.strongbox_thread_id) {
+    await updatePreferenceThread(
+      params.guild,
+      existing,
+      `This matching request is now posted publicly in <#${notice.channel.id}>.`
+    );
+  }
   return attached;
 }
 
@@ -93,6 +98,7 @@ export async function clearApprenticeshipPreference(discordUserId: string, guild
     .delete()
     .eq("discord_user_id", discordUserId);
   assertNoDbError(error, "clear apprenticeship preference");
+  await deletePreferenceNotice(guild, existing);
   await updatePreferenceThread(guild, existing, `<@${discordUserId}> withdrew this matching request.`);
   return true;
 }
@@ -104,6 +110,30 @@ export async function listApprenticeshipPreferences(): Promise<ApprenticeshipPre
     .order("updated_at", { ascending: true });
   assertNoDbError(error, "list apprenticeship preferences");
   return data ?? [];
+}
+
+export async function syncApprenticeshipPreferenceNotices(guild: Guild): Promise<number> {
+  const preferences = await listApprenticeshipPreferences();
+  let synchronized = 0;
+  for (const preference of preferences) {
+    const ranger = await getRanger(preference.discord_user_id);
+    if (!ranger) {
+      continue;
+    }
+    const notice = await publishApprenticeshipPreference(guild, preference, ranger);
+    if (preference.notice_channel_id !== notice.channel.id || preference.notice_message_id !== notice.messageId) {
+      const { error } = await supabase
+        .from("apprenticeship_preferences")
+        .update({
+          notice_channel_id: notice.channel.id,
+          notice_message_id: notice.messageId
+        })
+        .eq("discord_user_id", preference.discord_user_id);
+      assertNoDbError(error, "synchronize apprenticeship notice-board message");
+    }
+    synchronized += 1;
+  }
+  return synchronized;
 }
 
 export async function proposeApprenticeship(params: {
@@ -603,8 +633,69 @@ async function clearPairPreferences(
     .in("discord_user_id", ids);
   assertNoDbError(error, "clear paired apprenticeship preferences");
   for (const preference of preferences ?? []) {
+    await deletePreferenceNotice(guild, preference);
     await updatePreferenceThread(guild, preference, "This matching request was closed because the member entered an apprenticeship.");
   }
+}
+
+async function publishApprenticeshipPreference(
+  guild: Guild,
+  preference: ApprenticeshipPreferenceRow,
+  ranger: RangerRow
+): Promise<{ channel: TextChannel; messageId: string }> {
+  const channel = await requireNoticeBoardChannel(guild);
+  if (preference.notice_channel_id && preference.notice_channel_id !== channel.id) {
+    await deletePreferenceNotice(guild, preference);
+  }
+  const payload = {
+    embeds: [new EmbedBuilder()
+      .setTitle(preference.seeking === "Mentor" ? "Looking for a Mentor" : "Looking for an Apprentice")
+      .setDescription(preference.note ?? "No additional note provided.")
+      .addFields(
+        { name: "Member", value: `<@${ranger.discord_user_id}>`, inline: true },
+        { name: "Current rank", value: ranger.current_rank, inline: true }
+      )
+      .setColor(0x587c4a)
+      .setFooter({ text: "Contact this member if interested. The notice is removed when withdrawn or paired." })
+      .setTimestamp(new Date(preference.updated_at))]
+  };
+
+  let message = preference.notice_channel_id === channel.id && preference.notice_message_id
+    ? await channel.messages.fetch(preference.notice_message_id).catch(() => null)
+    : null;
+  message = message ? await message.edit(payload) : await channel.send(payload);
+  return { channel, messageId: message.id };
+}
+
+async function deletePreferenceNotice(guild: Guild | undefined, preference: ApprenticeshipPreferenceRow): Promise<void> {
+  if (!guild || !preference.notice_channel_id || !preference.notice_message_id) {
+    return;
+  }
+  const channel = await guild.channels.fetch(preference.notice_channel_id).catch(() => null);
+  if (channel?.type !== ChannelType.GuildText) {
+    return;
+  }
+  const message = await channel.messages.fetch(preference.notice_message_id).catch(() => null);
+  await message?.delete().catch(() => undefined);
+}
+
+async function requireNoticeBoardChannel(guild: Guild): Promise<TextChannel> {
+  if (env.NOTICE_BOARD_CHANNEL_ID) {
+    const configured = await guild.channels.fetch(env.NOTICE_BOARD_CHANNEL_ID).catch(() => null);
+    if (configured?.type === ChannelType.GuildText) {
+      return configured;
+    }
+    throw new UserFacingError("NOTICE_BOARD_CHANNEL_ID does not point to a text channel.");
+  }
+
+  await guild.channels.fetch();
+  const channel = guild.channels.cache.find((candidate) =>
+    candidate.type === ChannelType.GuildText && candidate.name.toLocaleLowerCase().endsWith("notice-board")
+  );
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    throw new UserFacingError("No notice-board channel was found. Configure NOTICE_BOARD_CHANNEL_ID.");
+  }
+  return channel;
 }
 
 async function updatePreferenceThread(

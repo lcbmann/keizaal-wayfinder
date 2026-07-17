@@ -338,7 +338,7 @@ Approving a vote promotes the candidate through the same service used by `/range
 
 ## Assignment Board
 
-`/ranger assignments` posts the persistent Ranger Corps assignments board in the current channel. Wayfinder remembers that board and refreshes it after rank, status, or hold changes.
+`/ranger assignments` posts the persistent Ranger Corps assignments board in the current channel. It shows senior command, each hold beneath the Warden section, other assigned Warden Ranges, and Detectives. Wayfinder remembers that board and refreshes it after rank, status, hold, Warden, or Detective changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
 
 ## Deployment
 

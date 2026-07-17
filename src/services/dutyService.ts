@@ -315,6 +315,81 @@ export async function assignDuty(params: {
   return { assignment, duty, ranger };
 }
 
+export async function ensureWardenDutyForHold(params: {
+  guild: Guild;
+  rangerDiscordUserId: string;
+  hold: string;
+  assignedByDiscordUserId: string;
+}): Promise<DutyAssignmentDetails> {
+  const duty = await requireDuty("Warden");
+  if (!duty.discord_role_id) {
+    throw new UserFacingError("Duty roles have not been set up. Ask a Marshal to run `/duty setup`.");
+  }
+  const ranger = await requireRangerByDiscordId(params.rangerDiscordUserId);
+  const { data: existing, error: existingError } = await supabase
+    .from("ranger_duty_assignments")
+    .select("*")
+    .eq("duty_id", duty.id)
+    .eq("ranger_id", ranger.id)
+    .eq("status", "Active")
+    .maybeSingle();
+  assertNoDbError(existingError, "get existing Warden assignment");
+
+  if (!existing) {
+    return assignDuty({
+      guild: params.guild,
+      rangerDiscordUserId: params.rangerDiscordUserId,
+      dutyName: duty.name,
+      assignmentDetail: params.hold,
+      assignedByDiscordUserId: params.assignedByDiscordUserId
+    });
+  }
+
+  const { data: assignment, error } = await supabase
+    .from("ranger_duty_assignments")
+    .update({ assignment_detail: params.hold })
+    .eq("id", existing.id)
+    .select("*")
+    .single();
+  assertNoDbError(error, "update Warden hold assignment");
+
+  const member = await params.guild.members.fetch(ranger.discord_user_id).catch(() => null);
+  if (!member) {
+    throw new UserFacingError("That Ranger is no longer in the Discord server.");
+  }
+  if (!member.roles.cache.has(duty.discord_role_id)) {
+    await member.roles.add(duty.discord_role_id, `Assigned Warden through hold assignment by ${params.assignedByDiscordUserId}`);
+  }
+  return { assignment, duty, ranger };
+}
+
+export async function syncHoldWardenAssignments(params: {
+  guild: Guild;
+  rangers: RangerRow[];
+  assignedByDiscordUserId: string;
+}): Promise<{ synced: number; skipped: number }> {
+  let synced = 0;
+  let skipped = 0;
+  for (const ranger of params.rangers) {
+    if (!ranger.assigned_hold) {
+      continue;
+    }
+    try {
+      await ensureWardenDutyForHold({
+        guild: params.guild,
+        rangerDiscordUserId: ranger.discord_user_id,
+        hold: ranger.assigned_hold,
+        assignedByDiscordUserId: params.assignedByDiscordUserId
+      });
+      synced += 1;
+    } catch (error) {
+      skipped += 1;
+      console.warn(`Could not sync Warden duty for ${ranger.discord_user_id}:`, error);
+    }
+  }
+  return { synced, skipped };
+}
+
 export async function removeDuty(params: {
   guild: Guild;
   rangerDiscordUserId: string;
@@ -324,6 +399,9 @@ export async function removeDuty(params: {
 }): Promise<DutyAssignmentDetails | null> {
   const duty = await requireDuty(params.dutyName);
   const ranger = await requireRangerByDiscordId(params.rangerDiscordUserId);
+  if (duty.name === "Warden" && ranger.assigned_hold) {
+    throw new UserFacingError(`Clear ${ranger.assigned_hold} as this Ranger's assigned hold before removing the Warden duty.`);
+  }
   const { data: assignment, error: assignmentError } = await supabase
     .from("ranger_duty_assignments")
     .select("*")

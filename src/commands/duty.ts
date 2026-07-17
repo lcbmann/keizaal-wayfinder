@@ -10,6 +10,7 @@ import {
   withdrawDutyApplication
 } from "../services/dutyService.js";
 import { getStrongboxDropChannel } from "../services/strongboxService.js";
+import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
@@ -135,6 +136,9 @@ export const dutyCommand: BotCommand = {
         assignedByDiscordUserId: interaction.user.id
       });
       await interaction.editReply({ content: `Assigned ${result.duty.name} to ${member}.` });
+      await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
+        console.error("Failed to refresh assignments board after duty assignment:", error);
+      });
       return;
     }
 
@@ -148,6 +152,9 @@ export const dutyCommand: BotCommand = {
         reason: interaction.options.getString("reason")
       });
       await interaction.editReply({ content: result ? `Removed ${result.duty.name} from ${member}.` : `${member} does not hold ${dutyName}.` });
+      await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
+        console.error("Failed to refresh assignments board after duty removal:", error);
+      });
     }
   }
 };

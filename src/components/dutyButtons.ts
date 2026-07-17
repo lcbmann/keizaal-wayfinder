@@ -6,6 +6,7 @@ import {
 } from "../services/dutyService.js";
 import { canOpenPromotionVotes } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
+import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 
 export async function handleDutyButton(interaction: ButtonInteraction): Promise<void> {
   if (!interaction.inCachedGuild()) {
@@ -40,4 +41,9 @@ export async function handleDutyButton(interaction: ButtonInteraction): Promise<
     }
   }
   await interaction.editReply({ content: `${details.duty.name} application ${decision === "approve" ? "approved" : "denied"}.` });
+  if (decision === "approve") {
+    await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
+      console.error("Failed to refresh assignments board after duty approval:", error);
+    });
+  }
 }

@@ -27,7 +27,11 @@ import { isRankRoleSyncExempt } from "../services/discordRoleService.js";
 import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
-import { listActiveDutyAssignments } from "../services/dutyService.js";
+import {
+  ensureWardenDutyForHold,
+  listActiveDutyAssignments,
+  syncHoldWardenAssignments
+} from "../services/dutyService.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -315,10 +319,17 @@ export const rangerCommand: BotCommand = {
         if (!user || !member) {
           throw new UserFacingError("Could not resolve every selected member.");
         }
-        await setRangerHold(user.id, hold);
         if (hold) {
+          await ensureWardenDutyForHold({
+            guild: interaction.guild,
+            rangerDiscordUserId: user.id,
+            hold,
+            assignedByDiscordUserId: interaction.user.id
+          });
+          await setRangerHold(user.id, hold);
           await setMemberHoldRole(member, hold);
         } else {
+          await setRangerHold(user.id, null);
           await clearMemberHoldRole(member);
         }
       }
@@ -339,9 +350,17 @@ export const rangerCommand: BotCommand = {
 
       await interaction.deferReply({ ephemeral: true });
       const rangers = await listRangersWithAssignedHolds();
-      const result = await syncAssignedHoldRoles(interaction.guild, rangers);
+      const [holdRoles, wardens] = await Promise.all([
+        syncAssignedHoldRoles(interaction.guild, rangers),
+        syncHoldWardenAssignments({
+          guild: interaction.guild,
+          rangers,
+          assignedByDiscordUserId: interaction.user.id
+        })
+      ]);
       await interaction.editReply({
-        content: `Synced ${result.synced} assigned hold roles. Skipped ${result.skipped}.`
+        content: `Synced ${holdRoles.synced} assigned hold roles and ${wardens.synced} Warden assignments. ` +
+          `Skipped ${holdRoles.skipped} hold roles and ${wardens.skipped} Warden assignments.`
       });
       await refreshStoredAssignmentsBoard(interaction.guild);
       return;

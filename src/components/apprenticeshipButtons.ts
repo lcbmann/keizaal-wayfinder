@@ -1,6 +1,7 @@
 import { ChannelType, type ButtonInteraction } from "discord.js";
 import { env } from "../config/env.js";
 import {
+  APPRENTICESHIP_INFO_HINT,
   apprenticeshipConsentActionRow,
   apprenticeshipReviewActionRow,
   apprenticeshipReviewEmbed,
@@ -39,7 +40,9 @@ async function handleConsent(interaction: ButtonInteraction, apprenticeshipId: s
     await interaction.message.edit({
       components: [apprenticeshipConsentActionRow(apprenticeshipId, true)]
     });
-    await interaction.followUp({ content: accept ? "Apprenticeship accepted." : "Apprenticeship declined." });
+    await interaction.followUp({
+      content: accept ? `Apprenticeship accepted. ${APPRENTICESHIP_INFO_HINT}` : "Apprenticeship declined."
+    });
   } catch (error) {
     await interaction.followUp({
       content: error instanceof UserFacingError ? error.message : `Something went wrong: ${errorMessage(error)}`

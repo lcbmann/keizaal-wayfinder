@@ -29,6 +29,8 @@ export interface ApprenticeshipDetails {
   apprentice: RangerRow | null;
 }
 
+export const APPRENTICESHIP_INFO_HINT = "Use `/apprenticeship info` at any time to view the current pairing.";
+
 export async function setApprenticeshipPreference(params: {
   guild: Guild;
   discordUserId: string;
@@ -257,7 +259,7 @@ export async function respondToApprenticeshipProposal(params: {
   const proposer = await params.guild.client.users.fetch(row.proposed_by_discord_user_id).catch(() => null);
   await proposer?.send(
     params.accept
-      ? "Your apprenticeship proposal was accepted."
+      ? `Your apprenticeship proposal was accepted. ${APPRENTICESHIP_INFO_HINT}`
       : "Your apprenticeship proposal was declined."
   ).catch(() => undefined);
   return { ...details, apprenticeship: details.apprenticeship };
@@ -383,6 +385,7 @@ export async function reviewApprenticeSponsorship(params: {
   assertNoDbError(error, "review apprentice sponsorship");
   if (params.approve) {
     await clearPairPreferences(updated, params.guild);
+    await notifyActiveApprenticeshipParticipants(params.guild, updated);
   }
   return { apprenticeship: updated, mentor: details.mentor, apprentice };
 }
@@ -435,6 +438,7 @@ export async function assignApprenticeship(params: {
     .select("*")
     .single();
   assertNoDbError(attachError, "attach assigned apprenticeship Strongbox thread");
+  await notifyActiveApprenticeshipParticipants(params.guild, attached);
   return { apprenticeship: attached, mentor, apprentice };
 }
 
@@ -733,6 +737,16 @@ async function postApprenticeshipRecord(
       .setTimestamp(new Date()),
     reason: title
   });
+}
+
+async function notifyActiveApprenticeshipParticipants(guild: Guild, apprenticeship: ApprenticeshipRow): Promise<void> {
+  await Promise.all([
+    apprenticeship.mentor_discord_user_id,
+    apprenticeship.apprentice_discord_user_id
+  ].map(async (discordUserId) => {
+    const user = await guild.client.users.fetch(discordUserId).catch(() => null);
+    await user?.send(`Your apprenticeship is now active. ${APPRENTICESHIP_INFO_HINT}`).catch(() => undefined);
+  }));
 }
 
 function displayName(ranger: RangerRow): string {

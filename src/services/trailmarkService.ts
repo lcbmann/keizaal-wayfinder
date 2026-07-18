@@ -387,7 +387,7 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
   const embed = new EmbedBuilder()
     .setTitle("Ranger Trailmarks")
     .setDescription(
-      "Apprentice or higher required. Select the Trailmark your character is physically visiting. Access lasts for a short time and replaces any previous Trailmark access."
+      "Choose the cache your character has reached. You may read or leave notes there for a short time; opening another cache closes the one you currently have open. Apprentice or higher required."
     )
     .setColor(0x3f6f4e);
 
@@ -406,7 +406,7 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
           .setPlaceholder(`Choose a Trailmark ${rangeLabel(start + menuIndex * TRAILMARKS_PER_MENU, menuTrailmarks.length)}`)
           .addOptions({
             label: "No Trailmark",
-            description: "Leave your current Trailmark and remove temporary access.",
+            description: "Close the current cache and leave it as you found it.",
             value: NO_TRAILMARK_SELECT_VALUE
           })
           .addOptions(

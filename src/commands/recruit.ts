@@ -61,13 +61,13 @@ function recruitWelcomeMessage(): string {
   return [
     "Welcome to the Ranger Corps.",
     "",
-    "Before your first patrol:",
+    "Before you set out with the Corps:",
     "- Set your server nickname to your in-game character name.",
     "- Read the Corps rules and Trailmark guidance.",
     "- Ask a Ranger Marshal or Captain if you need an assigned hold.",
     "- Use Trailmarks only when your character has physically visited the cache in-game.",
     "- Keep reports short, useful, and in-character.",
     "",
-    "If you need help, ask a Marshal or Captain."
+    "Once these are in order, speak with a Marshal or Captain if you need help finding your place in the Corps."
   ].join("\n");
 }

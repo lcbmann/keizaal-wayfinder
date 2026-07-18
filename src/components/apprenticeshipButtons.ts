@@ -42,7 +42,7 @@ async function handleConsent(interaction: ButtonInteraction, apprenticeshipId: s
       components: [apprenticeshipConsentActionRow(apprenticeshipId, true)]
     });
     await interaction.followUp({
-      content: accept ? `Apprenticeship accepted. ${APPRENTICESHIP_INFO_HINT}` : "Apprenticeship declined."
+      content: accept ? `You accept the apprenticeship. ${APPRENTICESHIP_INFO_HINT}` : "You decline the apprenticeship proposal."
     });
     if (accept) {
       await refreshApprenticeshipBoard(guild);

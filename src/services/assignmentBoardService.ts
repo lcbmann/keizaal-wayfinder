@@ -60,7 +60,7 @@ function assignmentsEmbeds(
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const leadershipEmbed = new EmbedBuilder()
     .setTitle("Ranger Corps Leadership")
-    .setDescription("Current senior command of the Ranger Corps.")
+    .setDescription("The Rangers presently entrusted with command of the Corps.")
     .setColor(0xb08d32)
     .setTimestamp(new Date());
 
@@ -74,7 +74,7 @@ function assignmentsEmbeds(
 
   const wardensEmbed = new EmbedBuilder()
     .setTitle("Ranger Corps Wardens")
-    .setDescription("Rangers assigned to protect a hold or another designated Range.")
+    .setDescription("Rangers entrusted with the safety and oversight of a Hold or another designated Range.")
     .setColor(0x587c4a)
     .setTimestamp(new Date());
 
@@ -101,7 +101,7 @@ function assignmentsEmbeds(
 
   const detectivesEmbed = new EmbedBuilder()
     .setTitle("Ranger Corps Detectives")
-    .setDescription("Rangers assigned to investigations and evidence gathering.")
+    .setDescription("Rangers tasked with investigations, gathering testimony, and preserving evidence.")
     .setColor(0x4f6d8a)
     .addFields({
       name: "Active Detectives",

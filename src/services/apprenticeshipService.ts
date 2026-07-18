@@ -185,7 +185,7 @@ export async function proposeApprenticeship(params: {
     await recipient.send({
       embeds: [new EmbedBuilder()
         .setTitle("Apprenticeship Proposal")
-        .setDescription(`<@${params.proposerDiscordUserId}> has proposed an apprenticeship pairing.`)
+        .setDescription(`<@${params.proposerDiscordUserId}> has offered to form an apprenticeship with you.`)
         .addFields(
           { name: "Mentor", value: `<@${mentor.discord_user_id}>`, inline: true },
           { name: "Apprentice", value: `<@${apprentice.discord_user_id}>`, inline: true }
@@ -259,8 +259,8 @@ export async function respondToApprenticeshipProposal(params: {
   const proposer = await params.guild.client.users.fetch(row.proposed_by_discord_user_id).catch(() => null);
   await proposer?.send(
     params.accept
-      ? `Your apprenticeship proposal was accepted. ${APPRENTICESHIP_INFO_HINT}`
-      : "Your apprenticeship proposal was declined."
+      ? `Your offer was accepted. The apprenticeship is now active. ${APPRENTICESHIP_INFO_HINT}`
+      : "Your apprenticeship offer was declined."
   ).catch(() => undefined);
   return { ...details, apprenticeship: details.apprenticeship };
 }

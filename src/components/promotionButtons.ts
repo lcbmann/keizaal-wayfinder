@@ -11,7 +11,7 @@ export async function handlePromotionButton(interaction: ButtonInteraction): Pro
 
   await recordPromotionBallot(voteId, interaction.user.id, vote);
   await interaction.update(await refreshPromotionVoteMessage(voteId));
-  await interaction.followUp({ content: `Recorded your ${voteLabel(vote)} vote.`, ephemeral: true });
+  await interaction.followUp({ content: `You cast your **${voteLabel(vote)}** vote.`, ephemeral: true });
 }
 
 function isBallotVote(value: string | undefined): value is BallotVote {

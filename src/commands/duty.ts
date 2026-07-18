@@ -69,7 +69,7 @@ export const dutyCommand: BotCommand = {
         assignmentDetail: interaction.options.getString("range_or_specialty")
       });
       await interaction.editReply({
-        content: `Your ${details.duty.name} application was placed in the Strongbox for Marshal review.`
+        content: `You place your application to serve as ${details.duty.name} in the HQ Strongbox. A Marshal will review it.`
       });
       return;
     }
@@ -84,7 +84,7 @@ export const dutyCommand: BotCommand = {
         dutyName
       });
       await interaction.reply({
-        content: withdrawn ? `Withdrew your pending ${dutyName} application.` : `No pending ${dutyName} application was found.`,
+        content: withdrawn ? `You withdraw your application to serve as ${dutyName}.` : `No pending ${dutyName} application was found.`,
         ephemeral: true
       });
       return;

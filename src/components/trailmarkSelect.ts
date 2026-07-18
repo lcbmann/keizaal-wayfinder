@@ -20,7 +20,7 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
   if (interaction.values[0] === NO_TRAILMARK_SELECT_VALUE) {
     const revoked = await leaveTrailmark(interaction.guild, interaction.user.id);
     await interaction.editReply({
-      content: revoked > 0 ? "Trailmark access revoked." : "You do not have an active Trailmark session."
+      content: revoked > 0 ? "You close the cache and leave it as you found it." : "You do not have an open Trailmark cache."
     });
     return;
   }
@@ -37,7 +37,7 @@ export async function handleTrailmarkSelect(interaction: StringSelectMenuInterac
     minutes: env.DEFAULT_TRAILMARK_ACCESS_MINUTES
   });
   await interaction.editReply({
-    content: `Opened <#${trailmark.discord_channel_id}>. Access expires in ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`
+    content: `You open the cache at <#${trailmark.discord_channel_id}>. You may read or leave notes there for the next ${env.DEFAULT_TRAILMARK_ACCESS_MINUTES} minutes.`
   });
 
   void processTrailmarkIntel(interaction, trailmark).catch(async (error: unknown) => {
@@ -64,7 +64,7 @@ async function processTrailmarkIntel(
   });
   if (deliveredReports > 0) {
     await interaction.followUp({
-      content: `Delivered ${deliveredReports} report${deliveredReports === 1 ? "" : "s"} to HQ.`,
+      content: `You deliver ${deliveredReports} report${deliveredReports === 1 ? "" : "s"} gathered from other Trailmarks to Headquarters. ${deliveredReports === 1 ? "It has" : "They have"} been added to the relevant report channels.`,
       ephemeral: true
     }).catch(() => undefined);
   }

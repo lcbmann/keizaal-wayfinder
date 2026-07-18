@@ -157,8 +157,11 @@ export const supplyCommand: BotCommand = {
       const summary = result.items.map(({ item, quantity }) =>
         `${quantity.toLocaleString("en-US")} ${item.item_name}`
       ).join(", ");
+      const contributionText = target.id === interaction.user.id
+        ? `You add ${summary} to the assignment stockpile. Your contribution has been recorded.`
+        : `${target} adds ${summary} to the assignment stockpile. Their contribution has been recorded.`;
       await interaction.editReply({
-        content: `Logged ${summary} for ${target}. ${result.assignment.status === "Completed" ? "The assignment is now complete." : ""}`.trim()
+        content: `${contributionText} ${result.assignment.status === "Completed" ? "The assignment quota is now complete." : ""}`.trim()
       });
       return;
     }
@@ -176,7 +179,9 @@ export const supplyCommand: BotCommand = {
       });
       await interaction.editReply({
         content: undone
-          ? `Removed ${undone.contribution.quantity.toLocaleString("en-US")} ${undone.item.item_name} from ${target}'s contributions.`
+          ? target.id === interaction.user.id
+            ? `You remove your latest delivery of ${undone.contribution.quantity.toLocaleString("en-US")} ${undone.item.item_name} from the assignment record.`
+            : `Removed ${undone.contribution.quantity.toLocaleString("en-US")} ${undone.item.item_name} from ${target}'s contribution record.`
           : `No contribution from ${target} was found for that assignment.`
       });
       return;

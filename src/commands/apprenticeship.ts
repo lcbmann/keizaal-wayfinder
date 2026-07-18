@@ -78,7 +78,7 @@ export const apprenticeshipCommand: BotCommand = {
         note: interaction.options.getString("note")?.trim() || null
       });
       await interaction.editReply({
-        content: `Your request to find ${seeking === "Mentor" ? "a mentor" : "an apprentice"} was posted on the notice board.`
+        content: `You pin a notice stating that you are looking for ${seeking === "Mentor" ? "a mentor" : "an Apprentice"}. It can now be found on the Corps notice board.`
       });
       await refreshApprenticeshipBoard(interaction.guild);
       return;
@@ -88,7 +88,7 @@ export const apprenticeshipCommand: BotCommand = {
       requireCorpsMember(actor);
       await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const removed = await clearApprenticeshipPreference(interaction.user.id, interaction.guild);
-      await interaction.reply({ content: removed ? "Removed your apprenticeship matching request." : "You do not have an active matching request.", ephemeral: true });
+      await interaction.reply({ content: removed ? "You remove your apprenticeship notice from the Corps notice board." : "You do not have an active matching request.", ephemeral: true });
       if (removed) {
         await refreshApprenticeshipBoard(interaction.guild);
       }
@@ -105,7 +105,7 @@ export const apprenticeshipCommand: BotCommand = {
         proposerDiscordUserId: interaction.user.id,
         otherDiscordUserId: other.id
       });
-      await interaction.editReply({ content: `Sent an apprenticeship proposal to ${result.recipient}.` });
+      await interaction.editReply({ content: `You offer to form an apprenticeship with ${result.recipient}. They may accept or decline by DM.` });
       return;
     }
 
@@ -120,7 +120,7 @@ export const apprenticeshipCommand: BotCommand = {
         recruitDiscordUserId: recruit.id,
         reason: interaction.options.getString("reason", true).trim()
       });
-      await interaction.editReply({ content: `Your sponsorship of ${recruit} was placed in the Strongbox for Marshal review.` });
+      await interaction.editReply({ content: `You place your sponsorship of ${recruit} in the HQ Strongbox. A Marshal will review it.` });
       return;
     }
 
@@ -159,7 +159,7 @@ export const apprenticeshipCommand: BotCommand = {
         endedByDiscordUserId: interaction.user.id,
         reason: interaction.options.getString("reason")?.trim() || null
       });
-      await interaction.editReply({ content: "The apprenticeship has ended." });
+      await interaction.editReply({ content: "The apprenticeship has been brought to an end and removed from the active Corps records." });
       await refreshApprenticeshipBoard(interaction.guild);
       return;
     }

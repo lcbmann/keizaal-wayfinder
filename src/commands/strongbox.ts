@@ -56,7 +56,7 @@ export const strongboxCommand: BotCommand = {
         message,
         attachments: attachment ? [attachment] : []
       });
-      await interaction.editReply({ content: "Your message was left in the HQ Strongbox for Ranger Marshal or higher." });
+      await interaction.editReply({ content: "You place a sealed message in the HQ Strongbox for the Marshals." });
     }
   }
 };

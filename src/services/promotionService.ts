@@ -273,7 +273,13 @@ export async function promotionVoteEmbed(vote: PromotionVoteRow): Promise<EmbedB
   const tally = await getPromotionVoteTally(vote.id);
   const embed = new EmbedBuilder()
     .setTitle(`Promotion Vote: ${candidate?.discord_display_name ?? "Unknown Ranger"}`)
-    .setDescription(`Target rank: ${vote.target_rank}\nVote ID: \`${vote.id}\`\nOpened by <@${vote.opened_by_discord_user_id}>`)
+    .setDescription([
+      candidate
+        ? `The Corps is considering <@${candidate.discord_user_id}> for promotion to **${vote.target_rank}**. Cast **Yes**, **No**, or **Abstain** below.`
+        : `The Corps is considering this Ranger for promotion to **${vote.target_rank}**. Cast **Yes**, **No**, or **Abstain** below.`,
+      `Vote ID: \`${vote.id}\``,
+      `Opened by <@${vote.opened_by_discord_user_id}>`
+    ].join("\n"))
     .addFields(
       { name: "Current rank", value: candidate?.current_rank ?? "Unknown", inline: true },
       { name: "Status", value: candidate?.status ?? "Unknown", inline: true },

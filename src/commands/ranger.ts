@@ -387,6 +387,7 @@ export const rangerCommand: BotCommand = {
         throw new UserFacingError("Invalid target rank.");
       }
 
+      const previousRanger = await getRangerByDiscordId(user.id);
       const member = await interaction.guild.members.fetch(user.id);
       const reason = interaction.options.getString("reason");
       const ranger = await promoteRanger({
@@ -396,7 +397,12 @@ export const rangerCommand: BotCommand = {
         ...(reason ? { reason } : {})
       });
       await refreshStoredAssignmentsBoard(interaction.guild);
-      await interaction.reply({ content: `Promoted ${user} to ${ranger.current_rank}.`, ephemeral: false });
+      await interaction.reply({
+        content: previousRanger && previousRanger.current_rank !== ranger.current_rank
+          ? `${user} has been promoted from **${previousRanger.current_rank}** to **${ranger.current_rank}**. Their new rank has been entered on the Corps roster.`
+          : `${user} now holds the rank of **${ranger.current_rank}**. The Corps roster has been updated.`,
+        ephemeral: false
+      });
       return;
     }
   }

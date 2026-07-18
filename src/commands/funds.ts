@@ -91,7 +91,7 @@ export const fundsCommand: BotCommand = {
         memberDiscordUserId: member.id,
         recordedByDiscordUserId: interaction.user.id
       });
-      await interaction.editReply({ content: `Recorded ${amount} Septim donation from ${member}.` });
+      await interaction.editReply({ content: `${member} deposits ${amount.toLocaleString("en-US")} Septims into the Corps fund. The donation has been recorded.` });
       return;
     }
 
@@ -107,7 +107,7 @@ export const fundsCommand: BotCommand = {
         memberDiscordUserId: paidTo?.id ?? null,
         recordedByDiscordUserId: interaction.user.id
       });
-      await interaction.editReply({ content: `Recorded ${amount} Septim expense.` });
+      await interaction.editReply({ content: `${amount.toLocaleString("en-US")} Septims are taken from the Corps fund for **${note}**. The expense has been recorded.` });
       return;
     }
 

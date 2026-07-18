@@ -127,7 +127,7 @@ export const trailmarkCommand: BotCommand = {
     if (subcommand === "leave") {
       const revoked = await leaveTrailmark(interaction.guild, interaction.user.id);
       await interaction.reply({
-        content: revoked > 0 ? "Trailmark access revoked." : "You do not have an active Trailmark session.",
+        content: revoked > 0 ? "You close the cache and leave it as you found it." : "You do not have an open Trailmark cache.",
         ephemeral: true
       });
       return;

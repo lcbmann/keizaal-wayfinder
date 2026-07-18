@@ -202,7 +202,7 @@ export const promotionCommand: BotCommand = {
       }
 
       await denyPromotionVote(interaction.options.getString("vote", true), interaction.user.id);
-      await interaction.reply({ content: "Promotion vote denied." });
+      await interaction.reply({ content: "The promotion was not approved. The vote is now closed." });
       return;
     }
 
@@ -368,7 +368,7 @@ function promotionApprovalEmbed(
   const abstain = ballots.filter((entry) => entry.ballot.vote === "abstain").length;
   const embed = new EmbedBuilder()
     .setTitle("Promotion Approved")
-    .setDescription(`<@${ranger.discord_user_id}> has been promoted.`)
+    .setDescription(`<@${ranger.discord_user_id}> has been promoted from **${previousRank}** to **${ranger.current_rank}**. Their new rank has been entered on the Corps roster.`)
     .addFields(
       { name: "Previous Rank", value: previousRank, inline: true },
       { name: "New Rank", value: ranger.current_rank, inline: true },

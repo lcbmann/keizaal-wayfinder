@@ -269,7 +269,7 @@ export async function handleStrongboxDropMessage(message: Message): Promise<bool
 
   await message.delete().catch((error) => console.warn(`Could not delete strongbox drop ${message.id}:`, error));
   const confirmation = await dropChannel.send({
-    content: `${message.author}, your message was left in the HQ Strongbox.`,
+    content: `${message.author}, you place a sealed message in the HQ Strongbox for the Marshals.`,
     allowedMentions: { users: [message.author.id] }
   });
   setTimeout(() => {

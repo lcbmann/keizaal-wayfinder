@@ -338,7 +338,7 @@ Approving a vote promotes the candidate through the same service used by `/range
 
 ## Assignment Board
 
-`/ranger assignments` posts three persistent Ranger Corps assignment messages for Leadership, Wardens, and Detectives. Wayfinder remembers and replaces all three together after rank, status, hold, Warden, or Detective changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
+`/ranger assignments` posts four persistent Ranger Corps messages for Leadership, Wardens, Detectives, and Apprenticeships. The Apprenticeship message shows active pairings and members looking for a mentor or Apprentice. Wayfinder remembers and replaces the set together after relevant roster, duty, or apprenticeship changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
 
 ## Deployment
 

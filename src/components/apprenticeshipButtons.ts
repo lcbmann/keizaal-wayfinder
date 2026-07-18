@@ -10,6 +10,7 @@ import {
 } from "../services/apprenticeshipService.js";
 import { canOpenPromotionVotes } from "../utils/permissions.js";
 import { UserFacingError, errorMessage } from "../utils/errors.js";
+import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 
 export async function handleApprenticeshipButton(interaction: ButtonInteraction): Promise<void> {
   const [, action, apprenticeshipId, decision] = interaction.customId.split(":");
@@ -43,6 +44,9 @@ async function handleConsent(interaction: ButtonInteraction, apprenticeshipId: s
     await interaction.followUp({
       content: accept ? `Apprenticeship accepted. ${APPRENTICESHIP_INFO_HINT}` : "Apprenticeship declined."
     });
+    if (accept) {
+      await refreshApprenticeshipBoard(guild);
+    }
   } catch (error) {
     await interaction.followUp({
       content: error instanceof UserFacingError ? error.message : `Something went wrong: ${errorMessage(error)}`
@@ -77,4 +81,13 @@ async function handleReview(interaction: ButtonInteraction, apprenticeshipId: st
     }
   }
   await interaction.editReply({ content: approve ? "Sponsorship approved and Apprentice access granted." : "Sponsorship denied." });
+  if (approve) {
+    await refreshApprenticeshipBoard(interaction.guild);
+  }
+}
+
+async function refreshApprenticeshipBoard(guild: ButtonInteraction<"cached">["guild"]): Promise<void> {
+  await refreshStoredAssignmentsBoard(guild).catch((error) => {
+    console.error("Failed to refresh assignments board after apprenticeship change:", error);
+  });
 }

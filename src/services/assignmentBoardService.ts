@@ -1,8 +1,13 @@
 import { EmbedBuilder, type Guild, type Message, type TextChannel } from "discord.js";
 import { HOLDS } from "../config/holds.js";
 import { rankSort, type MainRank } from "../config/ranks.js";
-import type { RangerRow } from "../db/supabase.js";
+import type { ApprenticeshipPreferenceRow, RangerRow } from "../db/supabase.js";
 import { deleteStoredMessages, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
+import {
+  listApprenticeshipPreferences,
+  listCurrentApprenticeships,
+  type ApprenticeshipDetails
+} from "./apprenticeshipService.js";
 import { listActiveDutyAssignments, type DutyAssignmentDetails } from "./dutyService.js";
 import { listAllRangers } from "./rangerService.js";
 
@@ -10,11 +15,13 @@ const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
 const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
 
 export async function postAssignmentsBoard(channel: TextChannel): Promise<Message[]> {
-  const [rangers, dutyAssignments] = await Promise.all([
+  const [rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences] = await Promise.all([
     listAllRangers(),
-    listActiveDutyAssignments()
+    listActiveDutyAssignments(),
+    listCurrentApprenticeships(),
+    listApprenticeshipPreferences()
   ]);
-  const embeds = assignmentsEmbeds(rangers, dutyAssignments);
+  const embeds = assignmentsEmbeds(rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences);
   await deleteStoredMessages(channel.guild, ASSIGNMENTS_BOARD_STATE_KEY);
 
   const messages: Message[] = [];
@@ -40,7 +47,12 @@ export async function refreshStoredAssignmentsBoard(guild: Guild): Promise<boole
   return true;
 }
 
-function assignmentsEmbeds(rangers: RangerRow[], dutyAssignments: DutyAssignmentDetails[]): EmbedBuilder[] {
+function assignmentsEmbeds(
+  rangers: RangerRow[],
+  dutyAssignments: DutyAssignmentDetails[],
+  apprenticeships: ApprenticeshipDetails[],
+  apprenticeshipPreferences: ApprenticeshipPreferenceRow[]
+): EmbedBuilder[] {
   const sortedRangers = [...rangers].sort(compareRangersForDisplay);
   const wardens = dutyAssignments.filter(({ duty }) => duty.name === "Warden");
   const detectives = dutyAssignments
@@ -99,7 +111,40 @@ function assignmentsEmbeds(rangers: RangerRow[], dutyAssignments: DutyAssignment
     })
     .setTimestamp(new Date());
 
-  return [leadershipEmbed, wardensEmbed, detectivesEmbed];
+  const activeApprenticeships = apprenticeships.filter(({ apprenticeship }) => apprenticeship.status === "Active");
+  const seekingMentors = apprenticeshipPreferences.filter((preference) => preference.seeking === "Mentor");
+  const seekingApprentices = apprenticeshipPreferences.filter((preference) => preference.seeking === "Apprentice");
+  const apprenticeshipsEmbed = new EmbedBuilder()
+    .setTitle("Ranger Corps Apprenticeships")
+    .setDescription("Rangers can mentor Apprentices and help prepare them for promotion. Use `/apprenticeship looking-for` to find a match.")
+    .setColor(0x8b6f9e)
+    .addFields(
+      {
+        name: "Active Apprenticeships",
+        value: activeApprenticeships.length
+          ? truncateField(activeApprenticeships.map(formatApprenticeship).join("\n"))
+          : "None active."
+      },
+      {
+        name: "Looking for a Mentor",
+        value: seekingMentors.length
+          ? truncateField(seekingMentors.map((preference) => `<@${preference.discord_user_id}>`).join("\n"))
+          : "No Apprentices are currently looking."
+      },
+      {
+        name: "Looking for an Apprentice",
+        value: seekingApprentices.length
+          ? truncateField(seekingApprentices.map((preference) => `<@${preference.discord_user_id}>`).join("\n"))
+          : "No Rangers are currently looking."
+      }
+    )
+    .setTimestamp(new Date());
+
+  return [leadershipEmbed, wardensEmbed, detectivesEmbed, apprenticeshipsEmbed];
+}
+
+function formatApprenticeship({ apprenticeship }: ApprenticeshipDetails): string {
+  return `<@${apprenticeship.mentor_discord_user_id}> mentoring <@${apprenticeship.apprentice_discord_user_id}>`;
 }
 
 function formatDutyAssignment({ assignment, ranger }: DutyAssignmentDetails): string {

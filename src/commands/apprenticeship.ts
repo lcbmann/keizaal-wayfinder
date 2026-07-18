@@ -12,6 +12,7 @@ import {
   sponsorApprentice
 } from "../services/apprenticeshipService.js";
 import { getStrongboxDropChannel } from "../services/strongboxService.js";
+import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
@@ -79,6 +80,7 @@ export const apprenticeshipCommand: BotCommand = {
       await interaction.editReply({
         content: `Your request to find ${seeking === "Mentor" ? "a mentor" : "an apprentice"} was posted on the notice board.`
       });
+      await refreshApprenticeshipBoard(interaction.guild);
       return;
     }
 
@@ -87,6 +89,9 @@ export const apprenticeshipCommand: BotCommand = {
       await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const removed = await clearApprenticeshipPreference(interaction.user.id, interaction.guild);
       await interaction.reply({ content: removed ? "Removed your apprenticeship matching request." : "You do not have an active matching request.", ephemeral: true });
+      if (removed) {
+        await refreshApprenticeshipBoard(interaction.guild);
+      }
       return;
     }
 
@@ -155,6 +160,7 @@ export const apprenticeshipCommand: BotCommand = {
         reason: interaction.options.getString("reason")?.trim() || null
       });
       await interaction.editReply({ content: "The apprenticeship has ended." });
+      await refreshApprenticeshipBoard(interaction.guild);
       return;
     }
 
@@ -171,6 +177,7 @@ export const apprenticeshipCommand: BotCommand = {
         assignedByDiscordUserId: interaction.user.id
       });
       await interaction.editReply({ content: `Assigned ${apprentice} as ${mentor}'s Apprentice.` });
+      await refreshApprenticeshipBoard(interaction.guild);
       return;
     }
 
@@ -236,4 +243,10 @@ function formatMaybeTime(value: string | null): string {
 
 function truncate(value: string): string {
   return value.length <= 1024 ? value : `${value.slice(0, 1020).trimEnd()}...`;
+}
+
+async function refreshApprenticeshipBoard(guild: Guild): Promise<void> {
+  await refreshStoredAssignmentsBoard(guild).catch((error) => {
+    console.error("Failed to refresh assignments board after apprenticeship change:", error);
+  });
 }

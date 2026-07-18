@@ -7,6 +7,7 @@ import {
   listApprenticeshipPreferences,
   listCurrentApprenticeships,
   proposeApprenticeship,
+  requireNoticeBoardChannel,
   setApprenticeshipPreference,
   sponsorApprentice
 } from "../services/apprenticeshipService.js";
@@ -66,7 +67,7 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "looking-for") {
       requireCorpsMember(actor);
-      await requireStrongboxDrop(interaction.channelId, interaction.guild);
+      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       await interaction.deferReply({ ephemeral: true });
       const seeking = interaction.options.getString("type", true) as "Mentor" | "Apprentice";
       await setApprenticeshipPreference({
@@ -83,7 +84,7 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "withdraw-looking") {
       requireCorpsMember(actor);
-      await requireStrongboxDrop(interaction.channelId, interaction.guild);
+      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const removed = await clearApprenticeshipPreference(interaction.user.id, interaction.guild);
       await interaction.reply({ content: removed ? "Removed your apprenticeship matching request." : "You do not have an active matching request.", ephemeral: true });
       return;
@@ -91,7 +92,7 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "propose") {
       requireCorpsMember(actor);
-      await requireStrongboxDrop(interaction.channelId, interaction.guild);
+      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const other = interaction.options.getUser("member", true);
       await interaction.deferReply({ ephemeral: true });
       const result = await proposeApprenticeship({
@@ -105,7 +106,7 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "sponsor") {
       requireCorpsMember(actor);
-      await requireStrongboxDrop(interaction.channelId, interaction.guild);
+      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const recruit = interaction.options.getUser("recruit", true);
       await interaction.deferReply({ ephemeral: true });
       await sponsorApprentice({
@@ -214,14 +215,19 @@ function requireMarshal(member: GuildMember): void {
   }
 }
 
-async function requireStrongboxDrop(channelId: string, guild: Guild): Promise<void> {
+async function requireApprenticeshipRequestChannel(channelId: string, guild: Guild): Promise<void> {
   const dropChannel = await getStrongboxDropChannel(guild);
-  if (!dropChannel) {
-    throw new UserFacingError("The Strongbox has not been set up. Ask a Marshal to run `/strongbox setup`.");
+  if (dropChannel?.id === channelId) {
+    return;
   }
-  if (dropChannel.id !== channelId) {
-    throw new UserFacingError(`Submit apprenticeship requests in ${dropChannel}.`);
+
+  const noticeBoardChannel = await requireNoticeBoardChannel(guild);
+  if (noticeBoardChannel.id === channelId) {
+    return;
   }
+
+  const allowedChannels = [dropChannel, noticeBoardChannel].filter((channel) => channel !== null).join(" or ");
+  throw new UserFacingError(`Submit apprenticeship requests in ${allowedChannels}.`);
 }
 
 function formatMaybeTime(value: string | null): string {

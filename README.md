@@ -276,9 +276,9 @@ Marshal+ can use `/duty assign` and `/duty remove` for direct administration, `/
 
 ## Apprenticeships
 
-Apprenticeships are voluntary and do not replace the promotion vote system. Apprentice or higher uses the submission commands in `strongbox-drop`.
+Apprenticeships are voluntary and do not replace the promotion vote system. Apprentice or higher may use the submission commands in either `strongbox-drop` or the configured notice board.
 
-`/apprenticeship looking-for` is submitted from `strongbox-drop`, then posts a public notice in the configured notice board: an Apprentice may seek a mentor and a Ranger+ may seek an Apprentice. Running the command again edits the same notice. `/apprenticeship withdraw-looking` removes it. The notice is also removed automatically when the member enters an apprenticeship. Marshal+ can see all current requests and pairings with `/apprenticeship requests`.
+`/apprenticeship looking-for` posts a public notice in the configured notice board: an Apprentice may seek a mentor and a Ranger+ may seek an Apprentice. Running the command again edits the same notice. `/apprenticeship withdraw-looking` removes it. The notice is also removed automatically when the member enters an apprenticeship. Marshal+ can see all current requests and pairings with `/apprenticeship requests`.
 
 `/apprenticeship propose` pairs an existing Apprentice with an existing Ranger or higher. Wayfinder DMs the other participant with Accept and Decline buttons. An accepted proposal becomes active immediately and creates an informational Strongbox thread; it does not require Marshal approval.
 
@@ -338,7 +338,7 @@ Approving a vote promotes the candidate through the same service used by `/range
 
 ## Assignment Board
 
-`/ranger assignments` posts the persistent Ranger Corps assignments board in the current channel. It shows senior command, each hold beneath the Warden section, other assigned Warden Ranges, and Detectives. Wayfinder remembers that board and refreshes it after rank, status, hold, Warden, or Detective changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
+`/ranger assignments` posts three persistent Ranger Corps assignment messages for Leadership, Wardens, and Detectives. Wayfinder remembers and replaces all three together after rank, status, hold, Warden, or Detective changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
 
 ## Deployment
 

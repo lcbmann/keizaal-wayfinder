@@ -683,7 +683,7 @@ async function deletePreferenceNotice(guild: Guild | undefined, preference: Appr
   await message?.delete().catch(() => undefined);
 }
 
-async function requireNoticeBoardChannel(guild: Guild): Promise<TextChannel> {
+export async function requireNoticeBoardChannel(guild: Guild): Promise<TextChannel> {
   if (env.NOTICE_BOARD_CHANNEL_ID) {
     const configured = await guild.channels.fetch(env.NOTICE_BOARD_CHANNEL_ID).catch(() => null);
     if (configured?.type === ChannelType.GuildText) {

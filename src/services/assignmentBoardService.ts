@@ -9,15 +9,25 @@ import { listAllRangers } from "./rangerService.js";
 const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
 const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
 
-export async function postAssignmentsBoard(channel: TextChannel): Promise<Message> {
-  await deleteStoredMessages(channel.guild, ASSIGNMENTS_BOARD_STATE_KEY);
+export async function postAssignmentsBoard(channel: TextChannel): Promise<Message[]> {
   const [rangers, dutyAssignments] = await Promise.all([
     listAllRangers(),
     listActiveDutyAssignments()
   ]);
-  const message = await channel.send({ embeds: [assignmentsEmbed(rangers, dutyAssignments)] });
-  await saveBotMessageState(ASSIGNMENTS_BOARD_STATE_KEY, channel.id, [message.id]);
-  return message;
+  const embeds = assignmentsEmbeds(rangers, dutyAssignments);
+  await deleteStoredMessages(channel.guild, ASSIGNMENTS_BOARD_STATE_KEY);
+
+  const messages: Message[] = [];
+  try {
+    for (const embed of embeds) {
+      messages.push(await channel.send({ embeds: [embed] }));
+    }
+    await saveBotMessageState(ASSIGNMENTS_BOARD_STATE_KEY, channel.id, messages.map((message) => message.id));
+    return messages;
+  } catch (error) {
+    await Promise.all(messages.map((message) => message.delete().catch(() => undefined)));
+    throw error;
+  }
 }
 
 export async function refreshStoredAssignmentsBoard(guild: Guild): Promise<boolean> {
@@ -30,35 +40,36 @@ export async function refreshStoredAssignmentsBoard(guild: Guild): Promise<boole
   return true;
 }
 
-function assignmentsEmbed(rangers: RangerRow[], dutyAssignments: DutyAssignmentDetails[]): EmbedBuilder {
+function assignmentsEmbeds(rangers: RangerRow[], dutyAssignments: DutyAssignmentDetails[]): EmbedBuilder[] {
   const sortedRangers = [...rangers].sort(compareRangersForDisplay);
   const wardens = dutyAssignments.filter(({ duty }) => duty.name === "Warden");
   const detectives = dutyAssignments
     .filter(({ duty }) => duty.name === "Detective")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  const embed = new EmbedBuilder()
-    .setTitle("Ranger Corps Assignments")
-    .setDescription("Current senior command, Warden coverage, and Detectives.")
-    .setColor(0x587c4a)
+  const leadershipEmbed = new EmbedBuilder()
+    .setTitle("Ranger Corps Leadership")
+    .setDescription("Current senior command of the Ranger Corps.")
+    .setColor(0xb08d32)
     .setTimestamp(new Date());
 
   for (const rank of leadershipRanks) {
     const ranked = sortedRangers.filter((ranger) => ranger.current_rank === rank);
-    embed.addFields({
+    leadershipEmbed.addFields({
       name: rank,
       value: ranked.length ? truncateField(ranked.map(formatAssignmentRanger).join("\n")) : "None assigned."
     });
   }
 
-  embed.addFields({
-    name: "Wardens",
-    value: "Rangers assigned to protect a hold or another designated Range."
-  });
+  const wardensEmbed = new EmbedBuilder()
+    .setTitle("Ranger Corps Wardens")
+    .setDescription("Rangers assigned to protect a hold or another designated Range.")
+    .setColor(0x587c4a)
+    .setTimestamp(new Date());
 
   for (const hold of HOLDS) {
     const assigned = sortedRangers.filter((ranger) => ranger.assigned_hold === hold);
-    embed.addFields({
-      name: `Warden - ${hold}`,
+    wardensEmbed.addFields({
+      name: hold,
       value: assigned.length ? truncateField(assigned.map(formatAssignmentRanger).join("\n")) : "None assigned."
     });
   }
@@ -69,21 +80,26 @@ function assignmentsEmbed(rangers: RangerRow[], dutyAssignments: DutyAssignmentD
   const otherWardens = wardens
     .filter(({ ranger }) => !assignedHoldRangerIds.has(ranger.id))
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  embed.addFields({
-    name: "Warden - Other Ranges",
+  wardensEmbed.addFields({
+    name: "Other Ranges",
     value: otherWardens.length
       ? truncateField(otherWardens.map(formatDutyAssignment).join("\n"))
       : "None assigned."
   });
 
-  embed.addFields({
-    name: "Detectives",
-    value: detectives.length
-      ? truncateField(detectives.map(formatDutyAssignment).join("\n"))
-      : "None assigned."
-  });
+  const detectivesEmbed = new EmbedBuilder()
+    .setTitle("Ranger Corps Detectives")
+    .setDescription("Rangers assigned to investigations and evidence gathering.")
+    .setColor(0x4f6d8a)
+    .addFields({
+      name: "Active Detectives",
+      value: detectives.length
+        ? truncateField(detectives.map(formatDutyAssignment).join("\n"))
+        : "None assigned."
+    })
+    .setTimestamp(new Date());
 
-  return embed;
+  return [leadershipEmbed, wardensEmbed, detectivesEmbed];
 }
 
 function formatDutyAssignment({ assignment, ranger }: DutyAssignmentDetails): string {

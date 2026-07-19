@@ -87,33 +87,53 @@ async function setupStrongboxDropChannel(guild: Guild): Promise<TextChannel> {
   return channel;
 }
 
-async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Message> {
+async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Message[]> {
   await channel.setTopic(strongboxDropTopic(), "Update Strongbox submission instructions").catch((error) => {
     console.warn(`Could not update Strongbox Drop topic ${channel.id}:`, error);
   });
   const state = await getBotMessageState(STRONGBOX_DROP_STATE_KEY);
-  let message: Message | null = null;
+  let overviewMessage: Message | null = null;
+  let commandsMessage: Message | null = null;
 
   if (state?.discord_channel_id === channel.id && state.discord_message_ids[0]) {
-    message = await channel.messages.fetch(state.discord_message_ids[0]).catch(() => null);
+    overviewMessage = await channel.messages.fetch(state.discord_message_ids[0]).catch(() => null);
+  }
+  if (state?.discord_channel_id === channel.id && state.discord_message_ids[1]) {
+    commandsMessage = await channel.messages.fetch(state.discord_message_ids[1]).catch(() => null);
   }
 
-  if (!message) {
+  if (!overviewMessage || !commandsMessage) {
     const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-    message = recent?.find((candidate) =>
-      candidate.author.id === channel.client.user.id && candidate.embeds[0]?.title?.endsWith("Strongbox Drop")
-    ) ?? null;
+    if (!overviewMessage) {
+      overviewMessage = recent?.find((candidate) =>
+        candidate.author.id === channel.client.user.id && candidate.embeds[0]?.title?.endsWith("Strongbox Drop")
+      ) ?? null;
+    }
+    if (!commandsMessage) {
+      commandsMessage = recent?.find((candidate) =>
+        candidate.author.id === channel.client.user.id && candidate.embeds[0]?.title?.endsWith("Strongbox Commands")
+      ) ?? null;
+    }
   }
 
-  const payload = { embeds: [strongboxDropInstructionsEmbed(channel.guild)] };
-  message = message ? await message.edit(payload) : await channel.send(payload);
-  if (!message.pinned) {
-    await message.pin("Keep Strongbox submission instructions available").catch((error) => {
-      console.warn(`Could not pin Strongbox Drop instructions ${message?.id}:`, error);
-    });
+  const overviewPayload = { embeds: [strongboxDropOverviewEmbed(channel.guild)] };
+  const commandsPayload = { embeds: [strongboxCommandsEmbed(channel.guild)] };
+  overviewMessage = overviewMessage
+    ? await overviewMessage.edit(overviewPayload)
+    : await channel.send(overviewPayload);
+  commandsMessage = commandsMessage
+    ? await commandsMessage.edit(commandsPayload)
+    : await channel.send(commandsPayload);
+
+  for (const message of [overviewMessage, commandsMessage]) {
+    if (!message.pinned) {
+      await message.pin("Keep Strongbox instructions available").catch((error) => {
+        console.warn(`Could not pin Strongbox instructions ${message.id}:`, error);
+      });
+    }
   }
-  await saveBotMessageState(STRONGBOX_DROP_STATE_KEY, channel.id, [message.id]);
-  return message;
+  await saveBotMessageState(STRONGBOX_DROP_STATE_KEY, channel.id, [overviewMessage.id, commandsMessage.id]);
+  return [overviewMessage, commandsMessage];
 }
 
 function strongboxDropTopic(): string {
@@ -124,7 +144,7 @@ function strongboxDropTopic(): string {
   ].join(" ");
 }
 
-function strongboxDropInstructionsEmbed(guild: Guild): EmbedBuilder {
+function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle(emojiTitle(guild, "strongbox", "Strongbox Drop"))
     .setDescription([
@@ -138,10 +158,22 @@ function strongboxDropInstructionsEmbed(guild: Guild): EmbedBuilder {
           "Type an ordinary message here, or use `/strongbox drop` with an optional attachment.",
           "Messages from Ranger Marshal or higher remain here as notices; other messages are forwarded privately and removed."
         ].join("\n")
-      },
+      }
+    )
+    .setColor(0x587c4a)
+    .setFooter({ text: "Wayfinder replies privately to submissions." });
+}
+
+function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle(emojiTitle(guild, "corps", "Strongbox Commands"))
+    .setDescription("Application and apprenticeship commands available through the Strongbox Drop.")
+    .addFields(
       {
         name: "Corps Duties",
         value: [
+          "**Ranger+ only:** Quartermaster, Warden, and Detective.",
+          "**Apprentice+:** Craftsman and Courier.",
           "`/duty volunteer` - Apply for Quartermaster, Craftsman, Warden, Detective, or Courier.",
           "`/duty withdraw` - Withdraw a pending duty application."
         ].join("\n")
@@ -164,7 +196,7 @@ function strongboxDropInstructionsEmbed(guild: Guild): EmbedBuilder {
       }
     )
     .setColor(0x587c4a)
-    .setFooter({ text: "Submission commands must be run in this channel. Wayfinder replies privately." });
+    .setFooter({ text: "These submission commands must be run in this channel." });
 }
 
 export async function dropStrongboxMessage(params: {

@@ -15,12 +15,14 @@ import {
   type RangerDutyAssignmentRow,
   type RangerRow
 } from "../db/supabase.js";
+import { rankAtLeast } from "../config/ranks.js";
 import { UserFacingError } from "../utils/errors.js";
 import { emojiTitle } from "../utils/guildEmojis.js";
 import { requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 
 export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Detective", "Courier"] as const;
+const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Detective"]);
 
 export interface DutyApplicationDetails {
   application: DutyApplicationRow;
@@ -96,6 +98,7 @@ export async function createDutyApplication(params: {
   }
 
   const duty = await requireDuty(params.dutyName);
+  assertDutyRankEligibility(applicant, duty);
   const assignmentDetail = normalizedDetail(duty, params.assignmentDetail);
   await assertNoActiveDutyAssignment(applicant.id, duty.id);
 
@@ -280,6 +283,7 @@ export async function assignDuty(params: {
   if (ranger.status !== "Active") {
     throw new UserFacingError("Only active roster members can be assigned Corps duties.");
   }
+  assertDutyRankEligibility(ranger, duty);
   const detail = normalizedDetail(duty, params.assignmentDetail);
   await assertNoActiveDutyAssignment(ranger.id, duty.id);
   await assertDutyCapacity(duty);
@@ -327,6 +331,7 @@ export async function ensureWardenDutyForHold(params: {
     throw new UserFacingError("Duty roles have not been set up. Ask a Marshal to run `/duty setup`.");
   }
   const ranger = await requireRangerByDiscordId(params.rangerDiscordUserId);
+  assertDutyRankEligibility(ranger, duty);
   const { data: existing, error: existingError } = await supabase
     .from("ranger_duty_assignments")
     .select("*")
@@ -530,6 +535,12 @@ function normalizedDetail(duty: CorpsDutyRow, value: string | null): string | nu
     throw new UserFacingError(`${duty.name} requires an assigned Range.`);
   }
   return detail;
+}
+
+function assertDutyRankEligibility(ranger: RangerRow, duty: CorpsDutyRow): void {
+  if (RANGER_ONLY_DUTIES.has(duty.name) && !rankAtLeast(ranger.current_rank, "Ranger")) {
+    throw new UserFacingError(`${duty.name} is reserved for full Rangers and higher.`);
+  }
 }
 
 async function assertNoActiveDutyAssignment(rangerId: string, dutyId: string): Promise<void> {

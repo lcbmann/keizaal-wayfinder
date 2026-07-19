@@ -6,6 +6,7 @@ import {
   getIntelSettings,
   getIntelTopic,
   listIntelTopics,
+  repairIntelReporterNames,
   refreshIntelTopicBulletin,
   setIntelCatchallTopic,
   setIntelHqTrailmark,
@@ -96,6 +97,14 @@ export const intelCommand: BotCommand = {
         .setDescription("Rebuild a topic bulletin from delivered reports.")
         .addStringOption((option) =>
           option.setName("topic").setDescription("Intel topic to rebuild.").setRequired(true).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("repair-reporters")
+        .setDescription("Repair reporter names in existing bulletins without reposting messages.")
+        .addStringOption((option) =>
+          option.setName("topic").setDescription("Topic to repair. Omit to repair all topics.").setAutocomplete(true)
         )
     )
     .addSubcommand((subcommand) =>
@@ -264,6 +273,23 @@ export const intelCommand: BotCommand = {
       const topicId = interaction.options.getString("topic", true);
       await refreshIntelTopicBulletin(interaction.guild, topicId);
       await interaction.editReply({ content: "Intel bulletin refreshed." });
+      return;
+    }
+
+    if (subcommand === "repair-reporters") {
+      await interaction.deferReply({ ephemeral: true });
+      const topicId = interaction.options.getString("topic") ?? undefined;
+      const result = await repairIntelReporterNames(interaction.guild, topicId);
+      await interaction.editReply({
+        content: [
+          "Reporter-name repair complete. Existing messages were edited in place; nothing was reposted.",
+          `Topics checked: ${result.topicsChecked}`,
+          `Reports checked: ${result.reportsChecked}`,
+          `Names recovered: ${result.namesRecovered}`,
+          `Messages updated: ${result.messagesUpdated}`,
+          `Missing bulletin messages: ${result.messagesMissing}`
+        ].join("\n")
+      });
       return;
     }
 

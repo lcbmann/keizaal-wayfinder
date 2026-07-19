@@ -55,6 +55,14 @@ export interface IntelBackfillResult {
   topicsRefreshed: number;
 }
 
+export interface IntelReporterRepairResult {
+  topicsChecked: number;
+  reportsChecked: number;
+  namesRecovered: number;
+  messagesUpdated: number;
+  messagesMissing: number;
+}
+
 export async function getIntelSettings(): Promise<IntelSettingsRow> {
   const { data, error } = await supabase.from("intel_settings").select("*").eq("id", true).maybeSingle();
   assertNoDbError(error, "get intel settings");
@@ -178,6 +186,57 @@ export async function refreshIntelTopicBulletin(guild: Guild, topicId: string): 
   }
 
   await repostIntelTopicBulletin(guild, topic);
+}
+
+export async function repairIntelReporterNames(
+  guild: Guild,
+  topicId?: string
+): Promise<IntelReporterRepairResult> {
+  const topics = topicId ? [await requireIntelTopic(topicId)] : await listIntelTopics();
+  const result: IntelReporterRepairResult = {
+    topicsChecked: topics.length,
+    reportsChecked: 0,
+    namesRecovered: 0,
+    messagesUpdated: 0,
+    messagesMissing: 0
+  };
+  const channelCache = new Map<string, IntelReportChannel>();
+
+  for (const topic of topics) {
+    const reports = await listDeliveredReports(topic.id);
+    const postedReports = reports.filter((report) =>
+      Boolean(report.bulletin_message_id && report.bulletin_message_id !== "legacy")
+    );
+    result.reportsChecked += postedReports.length;
+
+    const missingNamesBefore = postedReports.filter((report) => !report.author_display_name?.trim()).length;
+    const trailmarks = await trailmarkMapForReports(postedReports);
+    const displayNames = await resolveReportDisplayNames(guild, postedReports);
+    const missingNamesAfter = postedReports.filter((report) => !report.author_display_name?.trim()).length;
+    result.namesRecovered += missingNamesBefore - missingNamesAfter;
+
+    for (const report of postedReports) {
+      const channelId = report.bulletin_channel_id ?? topic.discord_channel_id;
+      let channel = channelCache.get(channelId);
+      if (!channel) {
+        channel = await requireIntelTextChannel(guild, channelId);
+        channelCache.set(channelId, channel);
+      }
+
+      const message = await channel.messages.fetch(report.bulletin_message_id!).catch(() => null);
+      if (!message) {
+        result.messagesMissing += 1;
+        continue;
+      }
+
+      await message.edit({
+        embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
+      });
+      result.messagesUpdated += 1;
+    }
+  }
+
+  return result;
 }
 
 export async function captureTrailmarkIntelReports(message: Message): Promise<number> {

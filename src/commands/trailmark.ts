@@ -15,7 +15,7 @@ import {
 } from "../services/trailmarkService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiText, emojiTitle } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 
 export const trailmarkCommand: BotCommand = {
@@ -121,14 +121,21 @@ export const trailmarkCommand: BotCommand = {
 
       assertBotCanPostPanel(channel, await interaction.guild.members.fetchMe());
       await postTrailmarkPanel(channel);
-      await interaction.reply({ content: "Trailmark panel posted.", ephemeral: true });
+      await interaction.reply({
+        content: emojiText(interaction.guild, "trailmark", "Trailmark panel posted."),
+        ephemeral: true
+      });
       return;
     }
 
     if (subcommand === "leave") {
       const revoked = await leaveTrailmark(interaction.guild, interaction.user.id);
       await interaction.reply({
-        content: revoked > 0 ? "You close the cache and leave it as you found it." : "You do not have an open Trailmark cache.",
+        content: emojiText(
+          interaction.guild,
+          "trailmark",
+          revoked > 0 ? "You close the cache and leave it as you found it." : "You do not have an open Trailmark cache."
+        ),
         ephemeral: true
       });
       return;

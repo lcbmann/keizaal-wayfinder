@@ -1515,7 +1515,7 @@ function reportEmbed(
 
   if (atlasField) {
     const atlasEmoji = guildEmoji(guild, "atlas");
-    embed.addFields({ name: atlasEmoji ? `${atlasEmoji} Atlas Share` : "Atlas Share", value: atlasField, inline: false });
+    embed.addFields({ name: atlasEmoji ? `${atlasEmoji} - Atlas Share` : "Atlas Share", value: atlasField, inline: false });
   }
 
   return embed;

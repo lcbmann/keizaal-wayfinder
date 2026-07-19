@@ -370,7 +370,7 @@ function promotionApprovalEmbed(
   const no = ballots.filter((entry) => entry.ballot.vote === "hold").length;
   const abstain = ballots.filter((entry) => entry.ballot.vote === "abstain").length;
   const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "cape", "Promotion Approved"))
+    .setTitle(emojiTitle(guild, "cape", "Promotion Approved", "symmetric"))
     .setDescription(`<@${ranger.discord_user_id}> has been promoted from **${previousRank}** to **${ranger.current_rank}**. Their new rank has been entered on the Corps roster.`)
     .addFields(
       { name: "Previous Rank", value: previousRank, inline: true },

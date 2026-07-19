@@ -813,6 +813,7 @@ async function upsertIntelReport(params: {
   isHqReport: boolean;
 }): Promise<boolean> {
   const atlasPreview = await resolveAtlasSharePreviewFromContent(params.message.content);
+  const authorDisplayName = reportAuthorDisplayName(params.message);
   const basePayload = {
     topic_id: params.topic.id,
     trailmark_id: params.trailmark.id,
@@ -827,6 +828,7 @@ async function upsertIntelReport(params: {
   };
   const payload = {
     ...basePayload,
+    author_display_name: authorDisplayName,
     atlas_share_code: atlasPreview?.code ?? null,
     atlas_summary: atlasPreviewToJson(atlasPreview)
   };
@@ -844,7 +846,25 @@ async function upsertIntelReport(params: {
   }
 
   assertNoDbError(error, "upsert Trailmark intel report");
+
+  // Non-HQ backfills preserve existing delivery fields, so update the author
+  // name separately when an existing report is ignored by the upsert.
+  if (!params.isHqReport) {
+    const { error: authorError } = await supabase
+      .from("intel_reports")
+      .update({ author_display_name: authorDisplayName })
+      .eq("topic_id", params.topic.id)
+      .eq("discord_message_id", params.message.id);
+    assertNoDbError(authorError, "update Trailmark intel report author name");
+  }
+
   return true;
+}
+
+function reportAuthorDisplayName(message: Message): string {
+  return message.member?.displayName
+    ?? message.author.globalName
+    ?? message.author.username;
 }
 
 async function deliverCarriedReportsToHq(params: {
@@ -1081,6 +1101,7 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
   const reports = await listDeliveredReports(topic.id);
   const validReports = await filterReportsWithExistingOriginals(guild, reports);
   const trailmarks = await trailmarkMapForReports(validReports);
+  const displayNames = await resolveReportDisplayNames(guild, validReports);
   const sentMessages: Message[] = [];
 
   const header = new EmbedBuilder()
@@ -1096,7 +1117,7 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
 
   for (const report of validReports) {
     const message = await channel.send({
-      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
     });
     await markReportPosted(report.id, channel.id, message.id);
     sentMessages.push(message);
@@ -1123,11 +1144,12 @@ async function publishUnpostedDeliveredReports(guild: Guild, topicId: string): P
   }
 
   const trailmarks = await trailmarkMapForReports(validReports);
+  const displayNames = await resolveReportDisplayNames(guild, validReports);
   const sentMessageIds: string[] = [];
 
   for (const report of validReports) {
     const message = await channel.send({
-      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id))]
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
     });
     await markReportPosted(report.id, channel.id, message.id);
     sentMessageIds.push(message.id);
@@ -1393,8 +1415,18 @@ function normalizeLegacyTrailmarkName(name: string): string {
     .replace(/^trailmark-/u, "");
 }
 
-function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkRow | undefined): EmbedBuilder {
-  const deliveredBy = report.delivered_by_discord_user_id ? `<@${report.delivered_by_discord_user_id}>` : "Unknown";
+function reportEmbed(
+  guild: Guild,
+  report: IntelReportRow,
+  trailmark: TrailmarkRow | undefined,
+  displayNames: ReadonlyMap<string, string>
+): EmbedBuilder {
+  const reporter = report.author_display_name
+    ?? displayNames.get(report.author_discord_user_id)
+    ?? "Unknown reporter";
+  const deliveredBy = report.delivered_by_discord_user_id
+    ? displayNames.get(report.delivered_by_discord_user_id) ?? "Unknown Ranger"
+    : "Unknown";
   const deliveredAt = report.delivered_at
     ? `${formatDiscordTime(report.delivered_at)} (${formatDiscordTime(report.delivered_at, "R")})`
     : "Unknown";
@@ -1408,7 +1440,7 @@ function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkR
     .addFields(
       {
         name: "Reported by",
-        value: report.author_display_name ?? `<@${report.author_discord_user_id}>`,
+        value: reporter,
         inline: true
       },
       { name: "Order", value: report.source_order ?? "Ranger Corps of Skyrim", inline: true },
@@ -1426,6 +1458,71 @@ function reportEmbed(guild: Guild, report: IntelReportRow, trailmark: TrailmarkR
   }
 
   return embed;
+}
+
+async function resolveReportDisplayNames(
+  guild: Guild,
+  reports: IntelReportRow[]
+): Promise<Map<string, string>> {
+  const displayNames = new Map<string, string>();
+
+  for (const report of reports) {
+    const storedName = report.author_display_name?.trim();
+    if (storedName) {
+      displayNames.set(report.author_discord_user_id, storedName);
+    }
+  }
+
+  const userIds = new Set<string>();
+  for (const report of reports) {
+    userIds.add(report.author_discord_user_id);
+    if (report.delivered_by_discord_user_id) {
+      userIds.add(report.delivered_by_discord_user_id);
+    }
+  }
+
+  for (const userId of userIds) {
+    if (displayNames.has(userId)) {
+      continue;
+    }
+
+    const member = guild.members.cache.get(userId)
+      ?? await guild.members.fetch(userId).catch(() => null);
+    if (member) {
+      displayNames.set(userId, member.displayName);
+      continue;
+    }
+
+    const user = guild.client.users.cache.get(userId)
+      ?? await guild.client.users.fetch(userId).catch(() => null);
+    if (user) {
+      displayNames.set(userId, user.globalName ?? user.username);
+    }
+  }
+
+  const recoveredAuthors = new Map<string, string>();
+  for (const report of reports) {
+    if (report.author_display_name?.trim()) {
+      continue;
+    }
+
+    const recoveredName = displayNames.get(report.author_discord_user_id);
+    if (recoveredName) {
+      report.author_display_name = recoveredName;
+      recoveredAuthors.set(report.author_discord_user_id, recoveredName);
+    }
+  }
+
+  await Promise.all([...recoveredAuthors].map(async ([userId, displayName]) => {
+    const { error } = await supabase
+      .from("intel_reports")
+      .update({ author_display_name: displayName })
+      .eq("author_discord_user_id", userId)
+      .is("author_display_name", null);
+    assertNoDbError(error, `recover intel report author name for ${userId}`);
+  }));
+
+  return displayNames;
 }
 
 function formatDiscordTime(value: string, style = "f"): string {

@@ -16,6 +16,7 @@ import {
   type RangerRow
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 import { requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 
@@ -132,7 +133,7 @@ export async function createDutyApplication(params: {
     const entry = await postStrongboxThread({
       guild: params.guild,
       threadName: `Duty - ${duty.name} - ${displayName(applicant)}`,
-      embed: dutyApplicationEmbed({ application, duty, applicant }),
+      embed: dutyApplicationEmbed(params.guild, { application, duty, applicant }),
       components: [dutyApplicationActionRow(application.id)],
       reason: `${duty.name} application from ${displayName(applicant)}`
     });
@@ -249,7 +250,7 @@ export async function withdrawDutyApplication(params: {
     if (channel?.type === ChannelType.GuildText) {
       const message = await channel.messages.fetch(data.strongbox_message_id).catch(() => null);
       await message?.edit({
-        embeds: [dutyApplicationEmbed(details)],
+        embeds: [dutyApplicationEmbed(params.guild, details)],
         components: [dutyApplicationActionRow(data.id, true)]
       });
     }
@@ -494,10 +495,10 @@ export function dutyApplicationActionRow(applicationId: string, disabled = false
   );
 }
 
-export function dutyApplicationEmbed(details: DutyApplicationDetails): EmbedBuilder {
+export function dutyApplicationEmbed(guild: Guild, details: DutyApplicationDetails): EmbedBuilder {
   const { application, duty, applicant } = details;
   const embed = new EmbedBuilder()
-    .setTitle(`Duty Application: ${duty.name}`)
+    .setTitle(emojiTitle(guild, "duty", `Duty Application: ${duty.name}`))
     .setDescription(application.reason)
     .addFields(
       { name: "Applicant", value: `<@${applicant.discord_user_id}>`, inline: true },

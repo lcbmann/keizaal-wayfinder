@@ -19,6 +19,7 @@ import { slugify } from "../utils/slugs.js";
 import type { BotCommand } from "./types.js";
 import { env } from "../config/env.js";
 import { syncAllianceTopicMirrors } from "../services/allianceIntelService.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 
 
 export const intelCommand: BotCommand = {
@@ -210,7 +211,7 @@ export const intelCommand: BotCommand = {
       const catchallTopic = settings.catchall_topic_id ? await getIntelTopic(settings.catchall_topic_id) : null;
       const topics = await listIntelTopics(true);
       const embed = new EmbedBuilder()
-        .setTitle("Trailmark Intel")
+        .setTitle(emojiTitle(interaction.guild, "intel", "Trailmark Intel"))
         .setDescription([
           `HQ delivery Trailmark: ${hqTrailmark ? hqTrailmark.name : "Not set"}`,
           `Catchall topic: ${catchallTopic ? `${catchallTopic.name} - <#${catchallTopic.discord_channel_id}>` : "Not set"}`

@@ -71,7 +71,7 @@ async function handleReview(interaction: ButtonInteraction, apprenticeshipId: st
     approve
   });
   await interaction.message.edit({
-    embeds: [apprenticeshipReviewEmbed(details)],
+    embeds: [apprenticeshipReviewEmbed(interaction.guild, details)],
     components: [apprenticeshipReviewActionRow(apprenticeshipId, true)]
   });
   if (details.apprenticeship.strongbox_thread_id) {

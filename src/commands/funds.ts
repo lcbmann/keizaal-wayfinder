@@ -135,13 +135,13 @@ export const fundsCommand: BotCommand = {
     }
 
     if (subcommand === "balance") {
-      await interaction.editReply({ embeds: [await fundBalanceEmbed()] });
+      await interaction.editReply({ embeds: [await fundBalanceEmbed(interaction.guild)] });
       return;
     }
 
     if (subcommand === "history") {
       const member = interaction.options.getUser("member");
-      await interaction.editReply({ embeds: [await fundHistoryEmbed(member?.id ?? null)] });
+      await interaction.editReply({ embeds: [await fundHistoryEmbed(interaction.guild, member?.id ?? null)] });
       return;
     }
 
@@ -157,6 +157,7 @@ export const fundsCommand: BotCommand = {
       await interaction.editReply({
         embeds: [
           await monthlyFundSummaryEmbed(
+            interaction.guild,
             interaction.options.getInteger("year", true),
             interaction.options.getInteger("month", true)
           )

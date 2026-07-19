@@ -4,13 +4,16 @@ import { recordPromotionBallot, refreshPromotionVoteMessage } from "../services/
 import { UserFacingError } from "../utils/errors.js";
 
 export async function handlePromotionButton(interaction: ButtonInteraction): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    throw new UserFacingError("Promotion votes can only be used in the Ranger Corps server.");
+  }
   const [, , voteId, vote] = interaction.customId.split(":");
   if (!voteId || !isBallotVote(vote)) {
     throw new UserFacingError("Invalid promotion vote button.");
   }
 
   await recordPromotionBallot(voteId, interaction.user.id, vote);
-  await interaction.update(await refreshPromotionVoteMessage(voteId));
+  await interaction.update(await refreshPromotionVoteMessage(interaction.guild, voteId));
   await interaction.followUp({ content: `You cast your **${voteLabel(vote)}** vote.`, ephemeral: true });
 }
 

@@ -30,7 +30,7 @@ export async function handleDutyButton(interaction: ButtonInteraction): Promise<
     approve: decision === "approve"
   });
   await interaction.message.edit({
-    embeds: [dutyApplicationEmbed(details)],
+    embeds: [dutyApplicationEmbed(interaction.guild, details)],
     components: [dutyApplicationActionRow(applicationId, true)]
   });
 

@@ -21,6 +21,7 @@ import { getRangerByDiscordId, getRangerById } from "../services/rangerService.j
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canApprovePromotions, canOpenPromotionVotes } from "../utils/permissions.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 
 export const promotionCommand: BotCommand = {
@@ -110,7 +111,7 @@ export const promotionCommand: BotCommand = {
       }
 
       const candidates = await listApprenticePromotionEligibility();
-      const embed = promotionEligibilityEmbed(candidates);
+      const embed = promotionEligibilityEmbed(interaction.guild, candidates);
 
       await interaction.reply({ embeds: [embed], ephemeral: true });
       return;
@@ -149,7 +150,7 @@ export const promotionCommand: BotCommand = {
               allowedMentions: { roles: uniqueMentionRoleIds }
             }
           : {}),
-        embeds: [await promotionVoteEmbed(vote)],
+        embeds: [await promotionVoteEmbed(interaction.guild, vote)],
         components: [promotionVoteActionRow(vote.id)],
         fetchReply: true
       });
@@ -180,7 +181,7 @@ export const promotionCommand: BotCommand = {
       const ballots = await listPromotionBallotsWithVoters(result.vote.id);
       await interaction.editReply({
         content: `<@${result.promoted.discord_user_id}>`,
-        embeds: [promotionApprovalEmbed(result.promoted, result.previousRank, result.vote, ballots)],
+        embeds: [promotionApprovalEmbed(interaction.guild, result.promoted, result.previousRank, result.vote, ballots)],
         allowedMentions: { users: [result.promoted.discord_user_id] }
       });
       void Promise.allSettled([
@@ -218,21 +219,21 @@ export const promotionCommand: BotCommand = {
       }
 
       const ballots = await listPromotionBallotsWithVoters(voteId);
-      await interaction.reply({ embeds: [promotionBallotsEmbed(vote, ballots)], ephemeral: true });
+      await interaction.reply({ embeds: [promotionBallotsEmbed(interaction.guild, vote, ballots)], ephemeral: true });
     }
   }
 };
 
 const mentionRoleOptionNames = ["mentions", "mentions_2", "mentions_3", "mentions_4", "mentions_5"] as const;
 
-function promotionEligibilityEmbed(candidates: EligibleRanger[]): EmbedBuilder {
+function promotionEligibilityEmbed(guild: Guild, candidates: EligibleRanger[]): EmbedBuilder {
   const sortedCandidates = [...candidates].sort(compareEligibilityDisplayOrder);
   const visibleCandidates = sortedCandidates.slice(0, 20);
   const eligible = candidates.filter((candidate) => candidate.eligible).length;
   const blocked = candidates.length - eligible;
 
   const embed = new EmbedBuilder()
-    .setTitle("Apprentice Promotion Eligibility")
+    .setTitle(emojiTitle(guild, "promotion", "Apprentice Promotion Eligibility"))
     .setDescription(
       candidates.length
         ? `${eligible} eligible / ${blocked} not eligible. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
@@ -280,7 +281,7 @@ async function editPromotionVoteMessage(guild: Guild, voteId: string): Promise<v
   }
 
   const message = await channel.messages.fetch(vote.message_id);
-  await message.edit(await refreshPromotionVoteMessage(voteId));
+  await message.edit(await refreshPromotionVoteMessage(guild, voteId));
 }
 
 function formatEligibilityLine(candidate: EligibleRanger): string {
@@ -321,6 +322,7 @@ function truncateField(value: string): string {
 }
 
 function promotionBallotsEmbed(
+  guild: Guild,
   vote: NonNullable<Awaited<ReturnType<typeof getPromotionVote>>>,
   ballots: PromotionBallotWithVoter[]
 ): EmbedBuilder {
@@ -331,7 +333,7 @@ function promotionBallotsEmbed(
   };
 
   return new EmbedBuilder()
-    .setTitle(`Promotion Ballots: ${vote.target_rank}`)
+    .setTitle(emojiTitle(guild, "promotion", `Promotion Ballots: ${vote.target_rank}`))
     .setDescription(`Vote ID: ${vote.id}`)
     .addFields(
       { name: `Yes (${grouped.promote.length})`, value: formatBallotGroup(grouped.promote), inline: false },
@@ -358,6 +360,7 @@ function formatBallotGroup(ballots: PromotionBallotWithVoter[]): string {
 }
 
 function promotionApprovalEmbed(
+  guild: Guild,
   ranger: NonNullable<Awaited<ReturnType<typeof approvePromotionVote>>>["promoted"],
   previousRank: NonNullable<Awaited<ReturnType<typeof approvePromotionVote>>>["previousRank"],
   vote: NonNullable<Awaited<ReturnType<typeof getPromotionVote>>>,
@@ -367,7 +370,7 @@ function promotionApprovalEmbed(
   const no = ballots.filter((entry) => entry.ballot.vote === "hold").length;
   const abstain = ballots.filter((entry) => entry.ballot.vote === "abstain").length;
   const embed = new EmbedBuilder()
-    .setTitle("Promotion Approved")
+    .setTitle(emojiTitle(guild, "cape", "Promotion Approved"))
     .setDescription(`<@${ranger.discord_user_id}> has been promoted from **${previousRank}** to **${ranger.current_rank}**. Their new rank has been entered on the Corps roster.`)
     .addFields(
       { name: "Previous Rank", value: previousRank, inline: true },

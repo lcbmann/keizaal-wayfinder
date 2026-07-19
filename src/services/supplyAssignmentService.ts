@@ -17,6 +17,7 @@ import {
   type SupplyContributionRow
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 
 interface SupplySnapshot {
   assignment: SupplyAssignmentRow;
@@ -172,15 +173,15 @@ export async function refreshSupplyAssignmentBoard(guild: Guild, assignmentCode:
   return publishSupplyBoard(guild, assignment.id);
 }
 
-export async function supplyAssignmentEmbed(assignmentCode: string): Promise<EmbedBuilder> {
-  return buildSupplyBoardEmbed(await requireSupplySnapshot(assignmentCode));
+export async function supplyAssignmentEmbed(guild: Guild, assignmentCode: string): Promise<EmbedBuilder> {
+  return buildSupplyBoardEmbed(guild, await requireSupplySnapshot(assignmentCode));
 }
 
-export async function supplyContributorsEmbed(assignmentCode: string): Promise<EmbedBuilder> {
+export async function supplyContributorsEmbed(guild: Guild, assignmentCode: string): Promise<EmbedBuilder> {
   const snapshot = await requireSupplySnapshot(assignmentCode);
   const totals = contributorTotals(snapshot.contributions, snapshot.assignment.ranger_rate_per_item);
   return new EmbedBuilder()
-    .setTitle(`${snapshot.assignment.name} Contributors`)
+    .setTitle(emojiTitle(guild, "supplies", `${snapshot.assignment.name} Contributors`))
     .setDescription(totals.length
       ? totals.slice(0, 40).map((entry, index) =>
           `${index + 1}. <@${entry.memberId}> - ${formatNumber(entry.quantity)} items - ${formatSeptims(entry.owed)}`
@@ -226,8 +227,8 @@ async function publishSupplyBoard(guild: Guild, assignmentId: string, fallbackCh
     message = await channel.messages.fetch(snapshot.assignment.discord_message_id).catch(() => null);
   }
   message = message
-    ? await message.edit({ embeds: [buildSupplyBoardEmbed(snapshot)] })
-    : await channel.send({ embeds: [buildSupplyBoardEmbed(snapshot)] });
+    ? await message.edit({ embeds: [buildSupplyBoardEmbed(guild, snapshot)] })
+    : await channel.send({ embeds: [buildSupplyBoardEmbed(guild, snapshot)] });
 
   const { data, error } = await supabase.from("supply_assignments").update({
     discord_channel_id: channel.id,
@@ -288,7 +289,7 @@ async function getSupplySnapshotById(assignmentId: string): Promise<SupplySnapsh
   } : null;
 }
 
-function buildSupplyBoardEmbed(snapshot: SupplySnapshot): EmbedBuilder {
+function buildSupplyBoardEmbed(guild: Guild, snapshot: SupplySnapshot): EmbedBuilder {
   const { assignment, items, contributions } = snapshot;
   const totals = itemTotals(contributions);
   const targetTotal = items.reduce((sum, item) => sum + item.target_quantity, 0);
@@ -299,7 +300,7 @@ function buildSupplyBoardEmbed(snapshot: SupplySnapshot): EmbedBuilder {
   const contributors = contributorTotals(contributions, assignment.ranger_rate_per_item);
 
   const embed = new EmbedBuilder()
-    .setTitle(assignment.name)
+    .setTitle(emojiTitle(guild, "supplies", assignment.name))
     .setDescription([
       `**Client:** ${assignment.client_name}`,
       `**Status:** ${assignment.status}`,

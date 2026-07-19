@@ -15,6 +15,7 @@ import {
 } from "../services/trailmarkService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 
 export const trailmarkCommand: BotCommand = {
@@ -136,7 +137,7 @@ export const trailmarkCommand: BotCommand = {
     if (subcommand === "list") {
       const trailmarks = await listActiveTrailmarks(25);
       const embed = new EmbedBuilder()
-        .setTitle("Active Trailmarks")
+        .setTitle(emojiTitle(interaction.guild, "trailmark", "Active Trailmarks"))
         .setDescription(
           trailmarks.length
             ? trailmarks.map((trailmark) => `**${trailmark.name}** - ${trailmark.hold}`).join("\n")
@@ -285,7 +286,7 @@ export const trailmarkCommand: BotCommand = {
         })
       );
       const embed = new EmbedBuilder()
-        .setTitle("Active Trailmark Sessions")
+        .setTitle(emojiTitle(interaction.guild, "trailmark", "Active Trailmark Sessions"))
         .setDescription(lines.length ? lines.join("\n") : "No active sessions.")
         .setColor(0x587c4a);
       await interaction.reply({ embeds: [embed], ephemeral: true });

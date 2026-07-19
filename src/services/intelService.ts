@@ -27,6 +27,7 @@ import {
 } from "./atlasService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
+import { emojiTitle, guildEmoji } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 import {
@@ -1164,7 +1165,7 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
   const sentMessages: Message[] = [];
 
   const header = new EmbedBuilder()
-    .setTitle(`${topic.name} Reports`)
+    .setTitle(emojiTitle(guild, "intel", `${topic.name} Reports`))
     .setDescription(
       validReports.length === 0
         ? "No delivered reports yet."
@@ -1513,7 +1514,8 @@ function reportEmbed(
     .setTimestamp(new Date(report.created_at));
 
   if (atlasField) {
-    embed.addFields({ name: "Atlas Share", value: atlasField, inline: false });
+    const atlasEmoji = guildEmoji(guild, "atlas");
+    embed.addFields({ name: atlasEmoji ? `${atlasEmoji} Atlas Share` : "Atlas Share", value: atlasField, inline: false });
   }
 
   return embed;

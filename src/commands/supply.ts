@@ -188,11 +188,11 @@ export const supplyCommand: BotCommand = {
     }
 
     if (subcommand === "status") {
-      await interaction.reply({ embeds: [await supplyAssignmentEmbed(assignmentCode)], ephemeral: true });
+      await interaction.reply({ embeds: [await supplyAssignmentEmbed(interaction.guild, assignmentCode)], ephemeral: true });
       return;
     }
     if (subcommand === "contributors") {
-      await interaction.reply({ embeds: [await supplyContributorsEmbed(assignmentCode)], ephemeral: true });
+      await interaction.reply({ embeds: [await supplyContributorsEmbed(interaction.guild, assignmentCode)], ephemeral: true });
       return;
     }
 

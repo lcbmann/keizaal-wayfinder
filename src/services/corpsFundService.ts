@@ -7,6 +7,7 @@ import {
   type CorpsFundTransactionType
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 
 interface CreateFundTransactionParams {
   guild: Guild;
@@ -36,7 +37,7 @@ export async function recordFundTransaction(params: CreateFundTransactionParams)
 
   assertNoDbError(error, "record corps fund transaction");
 
-  const message = await channel.send({ embeds: [transactionEmbed(data)] });
+  const message = await channel.send({ embeds: [transactionEmbed(params.guild, data)] });
   const { data: updated, error: updateError } = await supabase
     .from("corps_fund_transactions")
     .update({ discord_channel_id: channel.id, discord_message_id: message.id })
@@ -75,11 +76,11 @@ export async function refreshFundSummaryForGuild(guild: Guild): Promise<void> {
   await refreshFundSummary(await requireFundsChannel(guild));
 }
 
-export async function fundBalanceEmbed(): Promise<EmbedBuilder> {
-  return summaryEmbed();
+export async function fundBalanceEmbed(guild: Guild): Promise<EmbedBuilder> {
+  return summaryEmbed(guild);
 }
 
-export async function fundHistoryEmbed(memberDiscordUserId?: string | null): Promise<EmbedBuilder> {
+export async function fundHistoryEmbed(guild: Guild, memberDiscordUserId?: string | null): Promise<EmbedBuilder> {
   let query = supabase
     .from("corps_fund_transactions")
     .select("*")
@@ -94,13 +95,13 @@ export async function fundHistoryEmbed(memberDiscordUserId?: string | null): Pro
   assertNoDbError(error, "get corps fund history");
 
   return new EmbedBuilder()
-    .setTitle(memberDiscordUserId ? "Corps Fund Member History" : "Corps Fund History")
+    .setTitle(emojiTitle(guild, "funds", memberDiscordUserId ? "Corps Fund Member History" : "Corps Fund History"))
     .setDescription((data?.length ?? 0) > 0 ? data!.map(formatRecentTransaction).join("\n").slice(0, 4096) : "No transactions found.")
     .setColor(0xd5a84f)
     .setTimestamp(new Date());
 }
 
-export async function monthlyFundSummaryEmbed(year: number, month: number): Promise<EmbedBuilder> {
+export async function monthlyFundSummaryEmbed(guild: Guild, year: number, month: number): Promise<EmbedBuilder> {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 1));
   const { data, error } = await supabase
@@ -118,7 +119,7 @@ export async function monthlyFundSummaryEmbed(year: number, month: number): Prom
   const net = rows.reduce((total, row) => total + row.amount, 0);
 
   return new EmbedBuilder()
-    .setTitle(`Corps Fund Monthly Summary: ${year}-${String(month).padStart(2, "0")}`)
+    .setTitle(emojiTitle(guild, "funds", `Corps Fund Monthly Summary: ${year}-${String(month).padStart(2, "0")}`))
     .addFields(
       { name: "Donations", value: formatSeptims(donations), inline: true },
       { name: "Expenses", value: formatSeptims(expenses), inline: true },
@@ -162,7 +163,7 @@ export async function undoLastFundTransaction(guild: Guild, recordedByDiscordUse
   await channel.send({
     embeds: [
       new EmbedBuilder()
-        .setTitle("Transaction Undone")
+        .setTitle(emojiTitle(guild, "funds", "Transaction Undone"))
         .setDescription(data.description)
         .addFields(
           { name: "Amount", value: formatSignedSeptims(data.amount), inline: true },
@@ -192,7 +193,7 @@ async function refreshFundSummary(channel: TextChannel): Promise<void> {
     }
   }
 
-  const message = await channel.send({ embeds: [await summaryEmbed()] });
+  const message = await channel.send({ embeds: [await summaryEmbed(channel.guild)] });
   const { error } = await supabase
     .from("corps_fund_summary_state")
     .upsert({ id: true, discord_channel_id: channel.id, discord_message_id: message.id, updated_at: new Date().toISOString() });
@@ -242,11 +243,11 @@ async function getRecentTransactions(limit = 5): Promise<CorpsFundTransactionRow
   return data ?? [];
 }
 
-async function summaryEmbed(): Promise<EmbedBuilder> {
+async function summaryEmbed(guild: Guild): Promise<EmbedBuilder> {
   const balance = await getFundBalance();
   const recent = await getRecentTransactions();
   const embed = new EmbedBuilder()
-    .setTitle("Corps Fund")
+    .setTitle(emojiTitle(guild, "funds", "Corps Fund"))
     .setDescription(`Current total: **${formatSeptims(balance.balance)}**`)
     .addFields(
       { name: "Donations", value: formatSeptims(balance.donations), inline: true },
@@ -267,10 +268,10 @@ async function summaryEmbed(): Promise<EmbedBuilder> {
   return embed;
 }
 
-function transactionEmbed(transaction: CorpsFundTransactionRow): EmbedBuilder {
+function transactionEmbed(guild: Guild, transaction: CorpsFundTransactionRow): EmbedBuilder {
   const member = transaction.member_discord_user_id ? `<@${transaction.member_discord_user_id}>` : null;
   const embed = new EmbedBuilder()
-    .setTitle(transaction.transaction_type)
+    .setTitle(emojiTitle(guild, "funds", transaction.transaction_type))
     .setDescription(transaction.description)
     .addFields(
       { name: "Amount", value: formatSignedSeptims(transaction.amount), inline: true },

@@ -20,6 +20,7 @@ import {
   type RangerRow
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 import { syncMemberToRoster, requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 
@@ -184,7 +185,7 @@ export async function proposeApprenticeship(params: {
   try {
     await recipient.send({
       embeds: [new EmbedBuilder()
-        .setTitle("Apprenticeship Proposal")
+        .setTitle(emojiTitle(params.guild, "teamwork", "Apprenticeship Proposal"))
         .setDescription(`<@${params.proposerDiscordUserId}> has offered to form an apprenticeship with you.`)
         .addFields(
           { name: "Mentor", value: `<@${mentor.discord_user_id}>`, inline: true },
@@ -313,7 +314,7 @@ export async function sponsorApprentice(params: {
     const entry = await postStrongboxThread({
       guild: params.guild,
       threadName: `Apprentice Sponsor - ${recruitMember.displayName}`,
-      embed: apprenticeshipReviewEmbed(details),
+      embed: apprenticeshipReviewEmbed(params.guild, details),
       components: [apprenticeshipReviewActionRow(apprenticeship.id)],
       reason: `Apprentice sponsorship from ${displayName(mentor)}`
     });
@@ -530,10 +531,10 @@ export function apprenticeshipReviewActionRow(apprenticeshipId: string, disabled
   );
 }
 
-export function apprenticeshipReviewEmbed(details: ApprenticeshipDetails): EmbedBuilder {
+export function apprenticeshipReviewEmbed(guild: Guild, details: ApprenticeshipDetails): EmbedBuilder {
   const row = details.apprenticeship;
   return new EmbedBuilder()
-    .setTitle("Apprentice Sponsorship")
+    .setTitle(emojiTitle(guild, "teamwork", "Apprentice Sponsorship"))
     .setDescription(row.sponsor_reason ?? "No sponsorship reason provided.")
     .addFields(
       { name: "Sponsor and mentor", value: `<@${row.mentor_discord_user_id}>`, inline: true },
@@ -653,7 +654,11 @@ async function publishApprenticeshipPreference(
   }
   const payload = {
     embeds: [new EmbedBuilder()
-      .setTitle(preference.seeking === "Mentor" ? "Looking for a Mentor" : "Looking for an Apprentice")
+      .setTitle(emojiTitle(
+        guild,
+        "teamwork",
+        preference.seeking === "Mentor" ? "Looking for a Mentor" : "Looking for an Apprentice"
+      ))
       .setDescription(preference.note ?? "No additional note provided.")
       .addFields(
         { name: "Member", value: `<@${ranger.discord_user_id}>`, inline: true },
@@ -727,7 +732,7 @@ async function postApprenticeshipRecord(
     guild,
     threadName: `Apprenticeship - ${apprentice ? displayName(apprentice) : apprenticeship.apprentice_discord_user_id}`,
     embed: new EmbedBuilder()
-      .setTitle(title)
+      .setTitle(emojiTitle(guild, "teamwork", title))
       .addFields(
         { name: "Mentor", value: `<@${mentor.discord_user_id}>`, inline: true },
         { name: "Apprentice", value: `<@${apprenticeship.apprentice_discord_user_id}>`, inline: true },

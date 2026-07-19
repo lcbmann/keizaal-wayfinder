@@ -11,6 +11,7 @@ import {
 } from "../db/supabase.js";
 import { daysBetween, formatMaybeDateTime } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 import { getRangerByDiscordId, getRangerById, promoteRanger } from "./rangerService.js";
 
 export interface EligibleRanger {
@@ -268,11 +269,11 @@ export async function denyPromotionVote(voteId: string, deniedByDiscordUserId: s
   assertNoDbError(error, "deny promotion vote");
 }
 
-export async function promotionVoteEmbed(vote: PromotionVoteRow): Promise<EmbedBuilder> {
+export async function promotionVoteEmbed(guild: Guild, vote: PromotionVoteRow): Promise<EmbedBuilder> {
   const candidate = await getRangerById(vote.candidate_ranger_id);
   const tally = await getPromotionVoteTally(vote.id);
   const embed = new EmbedBuilder()
-    .setTitle(`Promotion Vote: ${candidate?.discord_display_name ?? "Unknown Ranger"}`)
+    .setTitle(emojiTitle(guild, "promotion", `Promotion Vote: ${candidate?.discord_display_name ?? "Unknown Ranger"}`))
     .setDescription([
       candidate
         ? `The Corps is considering <@${candidate.discord_user_id}> for promotion to **${vote.target_rank}**. Cast **Yes**, **No**, or **Abstain** below.`
@@ -297,7 +298,7 @@ export async function promotionVoteEmbed(vote: PromotionVoteRow): Promise<EmbedB
   return embed;
 }
 
-export async function refreshPromotionVoteMessage(voteId: string): Promise<{
+export async function refreshPromotionVoteMessage(guild: Guild, voteId: string): Promise<{
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
 }> {
@@ -307,7 +308,7 @@ export async function refreshPromotionVoteMessage(voteId: string): Promise<{
   }
 
   return {
-    embeds: [await promotionVoteEmbed(vote)],
+    embeds: [await promotionVoteEmbed(guild, vote)],
     components: vote.status === "Open" ? [promotionVoteActionRow(vote.id)] : []
   };
 }

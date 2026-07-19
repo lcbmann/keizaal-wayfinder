@@ -14,6 +14,7 @@ import { roleIdForRank } from "../config/roles.js";
 import { assertNoDbError, supabase, type TrailmarkRow, type TrailmarkSessionRow } from "../db/supabase.js";
 import { addMinutes } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 import { channelNameForTrailmark, slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
@@ -385,7 +386,7 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
   const sentMessages: Message[] = [];
 
   const embed = new EmbedBuilder()
-    .setTitle("Ranger Trailmarks")
+    .setTitle(emojiTitle(channel.guild, "trailmark", "Ranger Trailmarks"))
     .setDescription(
       "Choose the cache your character has reached. You may read or leave notes there for a short time; opening another cache closes the one you currently have open. Apprentice or higher required."
     )
@@ -422,7 +423,9 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
     );
 
     sentMessages.push(await channel.send({
-      embeds: [messageIndex === 0 ? embed : EmbedBuilder.from(embed).setTitle("Ranger Trailmarks Continued")],
+      embeds: [messageIndex === 0
+        ? embed
+        : EmbedBuilder.from(embed).setTitle(emojiTitle(channel.guild, "trailmark", "Ranger Trailmarks Continued"))],
       components: rows
     }));
   }
@@ -436,7 +439,11 @@ async function postTrailmarkInfo(
   options: { titlePrefix?: string; timestamp?: Date } = {}
 ): Promise<void> {
   const embed = new EmbedBuilder()
-    .setTitle(options.titlePrefix ? `${options.titlePrefix}: ${trailmark.name}` : trailmark.name)
+    .setTitle(emojiTitle(
+      channel.guild,
+      "trailmark",
+      options.titlePrefix ? `${options.titlePrefix}: ${trailmark.name}` : trailmark.name
+    ))
     .setDescription(trailmark.location_description.slice(0, 4096))
     .addFields({ name: "Hold", value: trailmark.hold, inline: true })
     .addFields({ name: "Pinned", value: trailmark.pinned ? "Yes" : "No", inline: true })

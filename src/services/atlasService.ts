@@ -1,5 +1,6 @@
 import { EmbedBuilder, type Message } from "discord.js";
 import { assertNoDbError, supabase, type Json } from "../db/supabase.js";
+import { emojiTitle } from "../utils/guildEmojis.js";
 
 const SHARE_CODE_PREFIX = "RGFA2.";
 const LEGACY_GUILD_SHARE_CODE_PREFIX = "RGFA1.";
@@ -101,7 +102,7 @@ export async function maybeSendAtlasSharePreview(message: Message): Promise<bool
   }
 
   await message.reply({
-    embeds: [atlasSharePreviewEmbed(preview)],
+    embeds: [atlasSharePreviewEmbed(preview, message.guild)],
     allowedMentions: { repliedUser: false }
   });
   return true;
@@ -158,9 +159,9 @@ export function atlasSharePreviewFromJson(value: Json | null): AtlasSharePreview
   };
 }
 
-export function atlasSharePreviewEmbed(preview: AtlasSharePreview): EmbedBuilder {
+export function atlasSharePreviewEmbed(preview: AtlasSharePreview, guild?: Message["guild"]): EmbedBuilder {
   const embed = new EmbedBuilder()
-    .setTitle("Field Atlas Share")
+    .setTitle(guild ? emojiTitle(guild, "atlas", "Field Atlas Share") : "Field Atlas Share")
     .setDescription(`${preview.featureCount} ${preview.featureCount === 1 ? "entry" : "entries"} - ${typeCountText(preview)}`)
     .setColor(0x4f6535)
     .addFields(

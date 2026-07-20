@@ -14,7 +14,7 @@ import { roleIdForRank } from "../config/roles.js";
 import { assertNoDbError, supabase, type TrailmarkRow, type TrailmarkSessionRow } from "../db/supabase.js";
 import { addMinutes } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiTitle, guildEmojiImageUrl } from "../utils/guildEmojis.js";
 import { channelNameForTrailmark, slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
@@ -392,6 +392,11 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
     )
     .setColor(0x3f6f4e);
 
+  const trailmarkEmojiUrl = guildEmojiImageUrl(channel.guild, "trailmark");
+  if (trailmarkEmojiUrl) {
+    embed.setThumbnail(trailmarkEmojiUrl);
+  }
+
   if (trailmarks.length === 0) {
     sentMessages.push(await channel.send({ embeds: [embed.setDescription("No active Trailmarks exist yet.")] }));
     return sentMessages;
@@ -449,6 +454,11 @@ async function postTrailmarkInfo(
     .addFields({ name: "Pinned", value: trailmark.pinned ? "Yes" : "No", inline: true })
     .setColor(0x587c4a)
     .setTimestamp(options.timestamp ?? new Date(trailmark.created_at));
+
+  const trailmarkEmojiUrl = guildEmojiImageUrl(channel.guild, "trailmark");
+  if (trailmarkEmojiUrl) {
+    embed.setThumbnail(trailmarkEmojiUrl);
+  }
 
   if (trailmark.atlas_location_id) {
     embed.addFields({ name: "Atlas Location ID", value: trailmark.atlas_location_id, inline: true });

@@ -20,6 +20,14 @@ export function guildEmoji(guild: Guild, name: WayfinderEmojiName): string {
   return guild.emojis.cache.find((emoji) => emoji.name === name)?.toString() ?? "";
 }
 
+export function guildEmojiImageUrl(
+  guild: Guild,
+  name: WayfinderEmojiName,
+  size = 128
+): string | null {
+  return guild.emojis.cache.find((emoji) => emoji.name === name)?.imageURL({ size }) ?? null;
+}
+
 export function emojiText(
   guild: Guild,
   name: WayfinderEmojiName,

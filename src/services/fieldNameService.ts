@@ -42,6 +42,7 @@ export async function setupFieldNamesChannel(guild: Guild): Promise<TextChannel>
   if (existing) {
     await applyFieldNamePermissions(existing);
     await refreshFieldNamesBulletin(guild);
+    await refreshOpenFieldNameProposalMessages(guild);
     return existing;
   }
 
@@ -62,6 +63,7 @@ export async function setupFieldNamesChannel(guild: Guild): Promise<TextChannel>
   await applyFieldNamePermissions(channel);
   await saveBotMessageState(FIELD_NAMES_CHANNEL_STATE_KEY, channel.id, []);
   await refreshFieldNamesBulletin(guild);
+  await refreshOpenFieldNameProposalMessages(guild);
   return channel;
 }
 
@@ -251,6 +253,25 @@ export async function refreshFieldNamesBulletin(guild: Guild): Promise<void> {
     await message.pin("Keep current Ranger field names visible").catch(() => undefined);
   }
   await saveBotMessageState(FIELD_NAMES_BULLETIN_STATE_KEY, channel.id, [message.id]);
+}
+
+export async function refreshOpenFieldNameProposalMessages(guild: Guild): Promise<number> {
+  const { data, error } = await supabase
+    .from("field_name_proposals")
+    .select("*")
+    .eq("status", "Open")
+    .order("created_at", { ascending: true });
+  assertNoDbError(error, "list open field name proposals for refresh");
+
+  let refreshed = 0;
+  for (const proposal of data ?? []) {
+    if (!proposal.discord_channel_id || !proposal.discord_message_id) {
+      continue;
+    }
+    await refreshFieldNameProposalMessage(guild, proposal.id);
+    refreshed += 1;
+  }
+  return refreshed;
 }
 
 export async function resolveDueFieldNameProposals(guild: Guild): Promise<number> {

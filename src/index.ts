@@ -42,7 +42,11 @@ import {
 } from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
-import { refreshFieldNamesBulletin, refreshOpenFieldNameProposalMessages } from "./services/fieldNameService.js";
+import {
+  cleanupResolvedFieldNameProposalMessages,
+  refreshFieldNamesBulletin,
+  refreshOpenFieldNameProposalMessages
+} from "./services/fieldNameService.js";
 import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
   handleAllianceReportMessage,
@@ -114,6 +118,13 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to refresh open Field Name nominations:", error));
+    void cleanupResolvedFieldNameProposalMessages(corpsGuild)
+      .then((removed) => {
+        if (removed > 0) {
+          console.log(`Removed ${removed} resolved Field Name nomination${removed === 1 ? "" : "s"}.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to clean up resolved Field Name nominations:", error));
     void syncIntelReportChannelNames(corpsGuild)
       .then((renamed) => {
         if (renamed > 0) {

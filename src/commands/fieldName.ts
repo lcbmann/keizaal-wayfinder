@@ -70,7 +70,7 @@ export const fieldNameCommand: BotCommand = {
         reason: interaction.options.getString("reason", true)
       });
       await interaction.editReply({
-        content: `You put **${proposal.proposed_name}** forward for ${nominee}. The Ranger vote is open for 24 hours in the Field Names channel.`
+        content: `You put **${proposal.proposed_name}** forward for ${nominee}. The Ranger vote is open for 3 days in the Field Names channel. Other names may be proposed for the same Ranger and will compete when the contest closes.`
       });
       return;
     }

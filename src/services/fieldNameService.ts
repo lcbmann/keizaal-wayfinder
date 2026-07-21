@@ -30,7 +30,7 @@ import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from ".
 const FIELD_NAMES_CHANNEL_STATE_KEY = "field-names-channel";
 const FIELD_NAMES_BULLETIN_STATE_KEY = "field-names-bulletin";
 const FIELD_NAMES_CHANNEL_NAME = "field-names";
-const VOTE_DURATION_MS = 24 * 60 * 60 * 1000;
+const VOTE_DURATION_MS = 3 * 24 * 60 * 60 * 1000;
 const FIELD_NAME_ACCESS_RANKS: MainRank[] = ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"];
 
 export async function getFieldNamesChannel(guild: Guild): Promise<TextChannel | null> {
@@ -43,6 +43,7 @@ export async function setupFieldNamesChannel(guild: Guild): Promise<TextChannel>
     await applyFieldNamePermissions(existing);
     await refreshFieldNamesBulletin(guild);
     await refreshOpenFieldNameProposalMessages(guild);
+    await cleanupResolvedFieldNameProposalMessages(guild);
     return existing;
   }
 
@@ -64,6 +65,7 @@ export async function setupFieldNamesChannel(guild: Guild): Promise<TextChannel>
   await saveBotMessageState(FIELD_NAMES_CHANNEL_STATE_KEY, channel.id, []);
   await refreshFieldNamesBulletin(guild);
   await refreshOpenFieldNameProposalMessages(guild);
+  await cleanupResolvedFieldNameProposalMessages(guild);
   return channel;
 }
 
@@ -94,15 +96,14 @@ export async function nominateFieldName(params: {
     throw new UserFacingError(`${params.nominee.displayName} already has the field name **${existingName.field_name}**.`);
   }
 
-  const { data: openProposal, error: openError } = await supabase
+  const { data: openProposals, error: openError } = await supabase
     .from("field_name_proposals")
-    .select("*")
+    .select("proposed_name")
     .eq("target_discord_user_id", params.nominee.id)
-    .eq("status", "Open")
-    .maybeSingle();
+    .eq("status", "Open");
   assertNoDbError(openError, "check open field name proposal");
-  if (openProposal) {
-    throw new UserFacingError(`${params.nominee.displayName} already has an open field name nomination.`);
+  if ((openProposals ?? []).some((proposal) => proposal.proposed_name.toLowerCase() === proposedName.toLowerCase())) {
+    throw new UserFacingError(`${params.nominee.displayName} already has an open nomination for **${proposedName}**.`);
   }
 
   const channel = await getFieldNamesChannel(params.guild);
@@ -164,8 +165,7 @@ export async function recordFieldNameBallot(params: {
     throw new UserFacingError("That field name vote is no longer open.");
   }
   if (new Date(proposal.closes_at).getTime() <= Date.now()) {
-    await resolveFieldNameProposal(params.guild, proposal);
-    throw new UserFacingError("That field name vote has reached its closing time.");
+    throw new UserFacingError("That field name vote has reached its closing time. The contest will be resolved automatically.");
   }
   if (proposal.target_discord_user_id === params.voter.id) {
     throw new UserFacingError("You cannot vote on your own field name.");
@@ -246,9 +246,12 @@ export async function refreshFieldNamesBulletin(guild: Guild): Promise<void> {
   const prior = messageState?.discord_channel_id === channel.id && messageState.discord_message_ids[0]
     ? await channel.messages.fetch(messageState.discord_message_ids[0]).catch(() => null)
     : null;
-  const message = prior
-    ? await prior.edit({ embeds: [await fieldNamesBulletinEmbed(guild)] })
-    : await channel.send({ embeds: [await fieldNamesBulletinEmbed(guild)] });
+  const deleted = prior
+    ? await prior.delete().then(() => true).catch(() => false)
+    : true;
+  const message = !prior || deleted
+    ? await channel.send({ embeds: [await fieldNamesBulletinEmbed(guild)] })
+    : await prior.edit({ embeds: [await fieldNamesBulletinEmbed(guild)] });
   if (!message.pinned) {
     await message.pin("Keep current Ranger field names visible").catch(() => undefined);
   }
@@ -274,19 +277,42 @@ export async function refreshOpenFieldNameProposalMessages(guild: Guild): Promis
   return refreshed;
 }
 
+export async function cleanupResolvedFieldNameProposalMessages(guild: Guild): Promise<number> {
+  const { data, error } = await supabase
+    .from("field_name_proposals")
+    .select("*")
+    .in("status", ["Approved", "Denied", "Cancelled"])
+    .not("discord_message_id", "is", null);
+  assertNoDbError(error, "list resolved field name proposals for cleanup");
+
+  let removed = 0;
+  for (const proposal of data ?? []) {
+    await removeFieldNameProposalMessages(guild, proposal);
+    removed += 1;
+  }
+  return removed;
+}
+
 export async function resolveDueFieldNameProposals(guild: Guild): Promise<number> {
   const { data, error } = await supabase
     .from("field_name_proposals")
     .select("*")
     .eq("status", "Open")
     .lte("closes_at", new Date().toISOString())
-    .order("closes_at", { ascending: true })
-    .limit(25);
+    .order("closes_at", { ascending: true });
   assertNoDbError(error, "list due field name proposals");
-  for (const proposal of data ?? []) {
-    await resolveFieldNameProposal(guild, proposal);
+
+  const targetIds = [...new Set((data ?? []).map((proposal) => proposal.target_discord_user_id))];
+  let resolved = 0;
+  for (const targetId of targetIds) {
+    const proposals = await listOpenFieldNameProposalsForTarget(targetId);
+    if (proposals.length === 0 || proposals.some((proposal) => new Date(proposal.closes_at).getTime() > Date.now())) {
+      continue;
+    }
+    await resolveFieldNameContest(guild, proposals);
+    resolved += 1;
   }
-  return data?.length ?? 0;
+  return resolved;
 }
 
 export async function cancelFieldNameProposal(params: {
@@ -307,7 +333,7 @@ export async function cancelFieldNameProposal(params: {
     })
     .eq("id", proposal.id);
   assertNoDbError(error, "cancel field name proposal");
-  await refreshFieldNameProposalMessage(params.guild, proposal.id);
+  await removeFieldNameProposalMessages(params.guild, proposal);
   await refreshFieldNamesBulletin(params.guild);
 }
 
@@ -336,29 +362,39 @@ export async function getActiveFieldNameMap(discordUserIds: string[]): Promise<M
   return new Map((data ?? []).map((entry) => [entry.discord_user_id, entry.field_name]));
 }
 
-async function resolveFieldNameProposal(guild: Guild, proposal: FieldNameProposalRow): Promise<void> {
-  const current = await getFieldNameProposal(proposal.id);
-  if (!current || current.status !== "Open") {
+async function resolveFieldNameContest(guild: Guild, proposals: FieldNameProposalRow[]): Promise<void> {
+  if (proposals.length === 0 || proposals.some((proposal) => proposal.status !== "Open")) {
     return;
   }
-  const ballots = await getFieldNameBallots(current.id);
-  const yes = ballots.filter((ballot) => ballot.vote === "yes").length;
-  const no = ballots.filter((ballot) => ballot.vote === "no").length;
-  const approved = yes > no && yes > 0;
-  const decision = approved ? "Approved" : "Denied";
+  const tallies = await Promise.all(proposals.map(async (proposal) => {
+    const ballots = await getFieldNameBallots(proposal.id);
+    return {
+      proposal,
+      yes: ballots.filter((ballot) => ballot.vote === "yes").length,
+      no: ballots.filter((ballot) => ballot.vote === "no").length,
+      abstain: ballots.filter((ballot) => ballot.vote === "abstain").length
+    };
+  }));
+  const highestYes = Math.max(...tallies.map((tally) => tally.yes));
+  const leaders = tallies.filter((tally) => tally.yes === highestYes);
+  const topLeader = leaders.length === 1 ? leaders[0] : undefined;
+  const winner = topLeader && topLeader.yes > topLeader.no && topLeader.yes > 0
+    ? topLeader
+    : null;
+  const now = new Date().toISOString();
 
-  if (approved) {
+  if (winner) {
     const { error: deactivateError } = await supabase
       .from("ranger_field_names")
-      .update({ active: false, removed_at: new Date().toISOString(), removed_reason: "Replaced by a newer field name." })
-      .eq("discord_user_id", current.target_discord_user_id)
+      .update({ active: false, removed_at: now, removed_reason: "Replaced by a newer field name." })
+      .eq("discord_user_id", winner.proposal.target_discord_user_id)
       .eq("active", true);
     assertNoDbError(deactivateError, "replace previous field name");
 
     const { error: assignError } = await supabase.from("ranger_field_names").insert({
-      discord_user_id: current.target_discord_user_id,
-      field_name: current.proposed_name,
-      assigned_by_proposal_id: current.id,
+      discord_user_id: winner.proposal.target_discord_user_id,
+      field_name: winner.proposal.proposed_name,
+      assigned_by_proposal_id: winner.proposal.id,
       active: true,
       removed_at: null,
       removed_reason: null
@@ -366,16 +402,25 @@ async function resolveFieldNameProposal(guild: Guild, proposal: FieldNameProposa
     assertNoDbError(assignError, "assign field name");
   }
 
-  const { error } = await supabase
-    .from("field_name_proposals")
-    .update({
-      status: decision,
-      decided_at: new Date().toISOString(),
-      decision_reason: `${yes} Yes, ${no} No, ${ballots.filter((ballot) => ballot.vote === "abstain").length} Abstain.`
-    })
-    .eq("id", current.id);
-  assertNoDbError(error, "resolve field name proposal");
-  await refreshFieldNameProposalMessage(guild, current.id);
+  for (const tally of tallies) {
+    const decision = winner?.proposal.id === tally.proposal.id ? "Approved" : "Denied";
+    const decisionReason = winner
+      ? decision === "Approved"
+        ? `${tally.yes} Yes, ${tally.no} No, ${tally.abstain} Abstain. Highest Yes vote in the contest.`
+        : `Not selected. ${winner.proposal.proposed_name} received ${winner.yes} Yes vote${winner.yes === 1 ? "" : "s"}.`
+      : `No clear winner: the top proposals tied or no proposal had more Yes than No.`;
+    const { error } = await supabase
+      .from("field_name_proposals")
+      .update({
+        status: decision,
+        decided_at: now,
+        decision_reason: decisionReason
+      })
+      .eq("id", tally.proposal.id)
+      .eq("status", "Open");
+    assertNoDbError(error, "resolve field name proposal");
+    await removeFieldNameProposalMessages(guild, tally.proposal);
+  }
   await refreshFieldNamesBulletin(guild);
 }
 
@@ -402,7 +447,7 @@ async function fieldNamesBulletinEmbed(guild: Guild): Promise<EmbedBuilder> {
       "Field names are Ranger-assigned names used in the field so members can identify one another without relying on personal names.",
       "Rangers may nominate Apprentices or fellow Rangers, but nobody may nominate themselves. Full Rangers vote on each proposal; Apprentices cannot see or vote on nominations.",
       "Field names are optional for Apprentices, but every full Ranger should eventually have an approved name.",
-      "Use `/field-name nominate` to put forward a name. Vote buttons appear in the nomination thread and close after 24 hours."
+      "Use `/field-name nominate` to put forward a name. Multiple names may compete for one Ranger; when all proposals close, the unique proposal with the most Yes votes wins. A tie or no Yes majority assigns nothing."
     ].join("\n"))
     .addFields(
       { name: "Assigned", value: truncate(assignedText), inline: false },
@@ -410,7 +455,7 @@ async function fieldNamesBulletinEmbed(guild: Guild): Promise<EmbedBuilder> {
       { name: "Open nominations", value: truncate(pendingText), inline: false }
     )
     .setColor(0x587c4a)
-    .setFooter({ text: "Nominate with /field-name nominate. Votes close after 24 hours." })
+    .setFooter({ text: "Nominate with /field-name nominate. Votes close after 3 days." })
     .setTimestamp(new Date());
 }
 
@@ -467,6 +512,25 @@ async function refreshFieldNameProposalMessage(guild: Guild, proposalId: string)
   await message?.edit(await fieldNameProposalMessagePayload(guild, proposalId)).catch(() => undefined);
 }
 
+async function removeFieldNameProposalMessages(guild: Guild, proposal: FieldNameProposalRow): Promise<void> {
+  if (proposal.discord_thread_id) {
+    const thread = await guild.channels.fetch(proposal.discord_thread_id).catch(() => null);
+    if (thread?.isThread()) {
+      await thread.delete("Remove resolved Field Name discussion thread").catch(() => undefined);
+    }
+  }
+
+  if (!proposal.discord_channel_id || !proposal.discord_message_id) {
+    return;
+  }
+  const channel = await guild.channels.fetch(proposal.discord_channel_id).catch(() => null);
+  if (channel?.type !== ChannelType.GuildText) {
+    return;
+  }
+  const message = await channel.messages.fetch(proposal.discord_message_id).catch(() => null);
+  await message?.delete().catch(() => undefined);
+}
+
 async function getFieldNameProposal(id: string): Promise<FieldNameProposalRow | null> {
   const { data, error } = await supabase.from("field_name_proposals").select("*").eq("id", id).maybeSingle();
   assertNoDbError(error, "get field name proposal");
@@ -476,6 +540,17 @@ async function getFieldNameProposal(id: string): Promise<FieldNameProposalRow | 
 async function listOpenFieldNameProposals(): Promise<FieldNameProposalRow[]> {
   const { data, error } = await supabase.from("field_name_proposals").select("*").eq("status", "Open").order("closes_at", { ascending: true });
   assertNoDbError(error, "list open field name proposals");
+  return data ?? [];
+}
+
+async function listOpenFieldNameProposalsForTarget(targetDiscordUserId: string): Promise<FieldNameProposalRow[]> {
+  const { data, error } = await supabase
+    .from("field_name_proposals")
+    .select("*")
+    .eq("target_discord_user_id", targetDiscordUserId)
+    .eq("status", "Open")
+    .order("created_at", { ascending: true });
+  assertNoDbError(error, "list competing field name proposals");
   return data ?? [];
 }
 
@@ -540,7 +615,6 @@ function fieldNamePermissionOverwrites(guild: Guild) {
       id: roleIdForRank(rank),
       allow: [
         PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ReadMessageHistory,
         PermissionFlagsBits.EmbedLinks,
         PermissionFlagsBits.CreatePublicThreads,
@@ -573,7 +647,7 @@ async function applyFieldNamePermissions(channel: TextChannel): Promise<void> {
   for (const rank of FIELD_NAME_ACCESS_RANKS) {
     await channel.permissionOverwrites.edit(roleIdForRank(rank), {
       ViewChannel: true,
-      SendMessages: true,
+      SendMessages: false,
       ReadMessageHistory: true,
       EmbedLinks: true,
       CreatePublicThreads: true,

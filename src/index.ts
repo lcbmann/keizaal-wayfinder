@@ -37,6 +37,7 @@ import {
   captureTrailmarkIntelReports,
   removeCorpsOnlyIntelReports,
   removeIntelReportsForDiscordMessage,
+  synchronizeEditedTrailmarkIntelReports,
   syncIntelReportChannelNames
 } from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
@@ -241,7 +242,7 @@ client.on("messageUpdate", (_oldMessage, newMessage) => {
           messageId: message.id
         });
       } else {
-        await captureTrailmarkIntelReports(message);
+        await synchronizeEditedTrailmarkIntelReports(message);
         await syncCorpsReportAlliancePrivacyForMessage(message);
       }
     }

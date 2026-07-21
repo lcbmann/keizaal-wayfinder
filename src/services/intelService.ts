@@ -328,6 +328,75 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
   return routed.topics.length;
 }
 
+export async function synchronizeEditedTrailmarkIntelReports(message: Message): Promise<number> {
+  if (!message.guild || message.author.bot) {
+    return 0;
+  }
+
+  const trailmark = await getActiveTrailmarkByChannelId(message.channelId);
+  if (!trailmark) {
+    return 0;
+  }
+
+  const content = message.content.trim();
+  if (!content || isCorpsOnlyReport(content)) {
+    return removeIntelReportsForDiscordMessage({
+      guild: message.guild,
+      channelId: message.channelId,
+      messageId: message.id
+    });
+  }
+
+  const settings = await getIntelSettings();
+  const topics = await listIntelTopics();
+  const catchallTopic = catchallTopicFromSettings(settings, topics);
+  const routed = routeIntelContent({ content, topics, catchallTopic });
+  const routedTopicIds = new Set(routed.topics.map((topic) => topic.id));
+  const { data: existingReports, error: existingError } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .eq("discord_channel_id", message.channelId)
+    .eq("discord_message_id", message.id);
+  assertNoDbError(existingError, "list edited Trailmark intel reports");
+
+  for (const report of existingReports ?? []) {
+    if (routedTopicIds.has(report.topic_id)) {
+      continue;
+    }
+    await deleteBulletinMessageForReport(message.guild, report);
+    await removeCorpsIntelReportFromAlliance(message.guild.client, report.id);
+    const { error } = await supabase.from("intel_reports").delete().eq("id", report.id);
+    assertNoDbError(error, "remove intel topic from edited Trailmark report");
+  }
+
+  if (routed.topics.length === 0) {
+    return 0;
+  }
+
+  await captureTrailmarkIntelReports(message);
+  const atlasPreview = await resolveAtlasSharePreviewFromContent(content);
+  const { error: updateError } = await supabase
+    .from("intel_reports")
+    .update({
+      content,
+      author_display_name: reportAuthorDisplayName(message),
+      atlas_share_code: atlasPreview?.code ?? null,
+      atlas_summary: atlasPreviewToJson(atlasPreview)
+    })
+    .eq("discord_channel_id", message.channelId)
+    .eq("discord_message_id", message.id);
+  assertNoDbError(updateError, "update edited Trailmark intel reports");
+
+  const { data: refreshedReports, error: refreshedError } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .eq("discord_channel_id", message.channelId)
+    .eq("discord_message_id", message.id);
+  assertNoDbError(refreshedError, "list refreshed Trailmark intel reports");
+  await refreshEditedDeliveredReportMessages(message.guild, refreshedReports ?? []);
+  return routed.topics.length;
+}
+
 export async function removeIntelReportsForDiscordMessage(params: {
   guild: Guild;
   channelId: string;
@@ -1465,6 +1534,31 @@ async function removeCatchallReportForDiscordMessage(params: {
 
 function topicMatchesContent(topic: IntelTopicRow, content: string): boolean {
   return matchingIntelTopics([topic], content).length > 0;
+}
+
+async function refreshEditedDeliveredReportMessages(guild: Guild, reports: IntelReportRow[]): Promise<void> {
+  const postedReports = reports.filter((report) =>
+    Boolean(report.delivered_at && report.bulletin_channel_id && report.bulletin_message_id && report.bulletin_message_id !== "legacy")
+  );
+  if (postedReports.length === 0) {
+    return;
+  }
+
+  const trailmarks = await trailmarkMapForReports(postedReports);
+  const displayNames = await resolveReportDisplayNames(guild, postedReports);
+  for (const report of postedReports) {
+    const channel = await guild.channels.fetch(report.bulletin_channel_id!).catch(() => null);
+    if (!isMessageFetchableChannel(channel)) {
+      continue;
+    }
+    const bulletinMessage = await channel.messages.fetch(report.bulletin_message_id!).catch(() => null);
+    if (!bulletinMessage) {
+      continue;
+    }
+    await bulletinMessage.edit({
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
+    });
+  }
 }
 
 function isMissingColumnError(error: { message: string; code?: string } | null): boolean {

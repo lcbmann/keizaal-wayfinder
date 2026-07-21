@@ -193,6 +193,17 @@ export async function handleFieldNameVoteButton(interaction: ButtonInteraction):
     throw new UserFacingError("Invalid field name vote button.");
   }
   const member = await interaction.guild.members.fetch(interaction.user.id);
+  const proposal = await getFieldNameProposal(proposalId);
+  if (!proposal || proposal.status !== "Open") {
+    throw new UserFacingError("That field name vote is no longer open.");
+  }
+  if (new Date(proposal.closes_at).getTime() <= Date.now()) {
+    throw new UserFacingError("That field name vote has reached its closing time.");
+  }
+  if (proposal.target_discord_user_id === member.id) {
+    throw new UserFacingError("You cannot vote on your own field name.");
+  }
+  requireRanger(member, "Only full Rangers may vote on field names. Apprentices cannot view or vote on these nominations.");
   await interaction.deferUpdate();
   await recordFieldNameBallot({ guild: interaction.guild, proposalId, voter: member, vote });
   await interaction.editReply(await fieldNameProposalMessagePayload(interaction.guild, proposalId));

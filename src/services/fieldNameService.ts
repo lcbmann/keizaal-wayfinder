@@ -367,7 +367,9 @@ async function fieldNamesBulletinEmbed(guild: Guild): Promise<EmbedBuilder> {
 
   return emojiEmbed(guild, "teamwork", "Ranger Field Names")
     .setDescription([
-      "Field names are assigned by Ranger vote. Rangers may nominate Apprentices or fellow Rangers; Apprentices cannot see or vote on these nominations.",
+      "Field names are Ranger-assigned names used in the field so members can identify one another without relying on personal names.",
+      "Rangers may nominate Apprentices or fellow Rangers, but nobody may nominate themselves. Full Rangers vote on each proposal; Apprentices cannot see or vote on nominations.",
+      "Field names are optional for Apprentices, but every full Ranger should eventually have an approved name.",
       "Use `/field-name nominate` to put forward a name. Vote buttons appear in the nomination thread and close after 24 hours."
     ].join("\n"))
     .addFields(

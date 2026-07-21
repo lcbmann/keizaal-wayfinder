@@ -32,6 +32,7 @@ import {
   listActiveDutyAssignments,
   syncHoldWardenAssignments
 } from "../services/dutyService.js";
+import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -400,6 +401,9 @@ export const rangerCommand: BotCommand = {
         ...(reason ? { reason } : {})
       });
       await refreshStoredAssignmentsBoard(interaction.guild);
+      await refreshFieldNamesBulletin(interaction.guild).catch((error) => {
+        console.warn("Could not refresh Field Names after promotion:", error);
+      });
       await interaction.reply({
         content: previousRanger && previousRanger.current_rank !== ranger.current_rank
           ? `${user} has been promoted from **${previousRanger.current_rank}** to **${ranger.current_rank}**. Their new rank has been entered on the Corps roster.`

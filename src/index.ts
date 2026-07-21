@@ -20,13 +20,16 @@ import { allianceCommand } from "./commands/alliance.js";
 import { supplyCommand } from "./commands/supply.js";
 import { dutyCommand } from "./commands/duty.js";
 import { apprenticeshipCommand } from "./commands/apprenticeship.js";
+import { fieldNameCommand } from "./commands/fieldName.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
 import { handleDutyButton } from "./components/dutyButtons.js";
 import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.js";
+import { handleFieldNameButton } from "./components/fieldNameButtons.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
+import { startFieldNameResolutionJob } from "./jobs/resolveFieldNameProposals.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
@@ -38,6 +41,7 @@ import {
 } from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
+import { refreshFieldNamesBulletin } from "./services/fieldNameService.js";
 import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
   handleAllianceReportMessage,
@@ -63,7 +67,8 @@ for (const command of [
   allianceCommand,
   supplyCommand,
   dutyCommand,
-  apprenticeshipCommand
+  apprenticeshipCommand,
+  fieldNameCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -82,6 +87,7 @@ const client = new Client({
 client.once("ready", (readyClient) => {
   console.log(`Keizaal Wayfinder logged in as ${readyClient.user.tag}`);
   startTrailmarkSessionExpirationJob(readyClient);
+  startFieldNameResolutionJob(readyClient);
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
     void removeCorpsOnlyIntelReports(corpsGuild)
@@ -98,6 +104,8 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
+    void refreshFieldNamesBulletin(corpsGuild)
+      .catch((error) => console.warn("Failed to refresh Field Names bulletin:", error));
     void syncIntelReportChannelNames(corpsGuild)
       .then((renamed) => {
         if (renamed > 0) {
@@ -297,6 +305,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
       await safelyRecordInteraction(interaction.user.id);
     }
     await handleApprenticeshipButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith("fieldname:vote:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Field Name voting is only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleFieldNameButton(interaction);
     return;
   }
 

@@ -113,6 +113,9 @@ The migration creates:
 - `ranger_duty_assignments`
 - `apprenticeship_preferences`
 - `apprenticeships`
+- `field_name_proposals`
+- `field_name_ballots`
+- `ranger_field_names`
 - `bot_message_state`
 - `intel_settings`
 - `intel_topics`
@@ -226,6 +229,11 @@ Implemented commands:
 - `/apprenticeship end`
 - `/apprenticeship info`
 - `/apprenticeship requests`
+- `/field-name setup`
+- `/field-name nominate`
+- `/field-name list`
+- `/field-name remove`
+- `/field-name cancel`
 - `/intel set-hq`
 - `/intel topic-add`
 - `/intel topic-edit`
@@ -285,6 +293,14 @@ Apprenticeships are voluntary and do not replace the promotion vote system. Appr
 `/apprenticeship sponsor` is for a new recruit who has already joined the Discord but does not yet have a Ranger roster entry. The sponsorship reason goes to a dedicated Strongbox review thread. Marshal approval gives the recruit the Apprentice role, removes Guest, creates the roster entry, and activates the pairing. Marshal+ can also use `/apprenticeship assign` to pair existing roster members directly.
 
 Either participant may use `/apprenticeship end` to end their current pairing. Marshal+ may select another member to end that pairing. `/apprenticeship info` shows the current pairing for a selected member.
+
+## Ranger Field Names
+
+Run migration `014_create_field_names.sql`, redeploy slash commands, and run `/field-name setup` once as a Marshal. Wayfinder creates or repairs a `field-names` channel under the configured Trailmarks category and gives it to the `Ranger` role. Because main rank roles are cumulative, Ranger Captain, Marshal, and Commander members retain access; Apprentices do not.
+
+Full Rangers use `/field-name nominate` to propose a name for an Apprentice or another Ranger. Self-nominations are rejected, and a nominee does not choose their own name. Each nomination gets its own discussion thread and Yes, No, and Abstain buttons. Full Rangers may vote, Apprentices cannot see the channel or vote, and the vote resolves automatically after 24 hours by majority of submitted Yes/No votes. Approved names are stored without changing Discord nicknames.
+
+The Field Names bulletin lists assigned names, open nominations, and full Rangers still awaiting a name. It refreshes after promotion and on startup. `/field-name list` shows the assigned names; Marshal+ can use `/field-name remove` or `/field-name cancel` for administration.
 
 ## Trailmark Intel
 

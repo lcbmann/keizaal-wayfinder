@@ -11,6 +11,8 @@ export type DutyApplicationStatus = "Pending" | "Approved" | "Denied" | "Withdra
 export type DutyAssignmentStatus = "Active" | "Ended";
 export type ApprenticeshipSeekingType = "Mentor" | "Apprentice";
 export type ApprenticeshipStatus = "Proposed" | "Pending Marshal" | "Active" | "Declined" | "Ended";
+export type FieldNameProposalStatus = "Open" | "Approved" | "Denied" | "Cancelled";
+export type FieldNameBallotVote = "yes" | "no" | "abstain";
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface RangerRow {
@@ -229,6 +231,44 @@ export interface ApprenticeshipRow {
   strongbox_thread_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface FieldNameProposalRow {
+  id: string;
+  target_discord_user_id: string;
+  proposed_name: string;
+  reason: string;
+  nominated_by_discord_user_id: string;
+  status: FieldNameProposalStatus;
+  opened_at: string;
+  closes_at: string;
+  decided_at: string | null;
+  decision_reason: string | null;
+  discord_channel_id: string | null;
+  discord_message_id: string | null;
+  discord_thread_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FieldNameBallotRow {
+  id: string;
+  proposal_id: string;
+  voter_discord_user_id: string;
+  vote: FieldNameBallotVote;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RangerFieldNameRow {
+  id: string;
+  discord_user_id: string;
+  field_name: string;
+  assigned_by_proposal_id: string | null;
+  assigned_at: string;
+  active: boolean;
+  removed_at: string | null;
+  removed_reason: string | null;
 }
 
 export interface SupplyAssignmentRow {
@@ -452,6 +492,36 @@ export interface Database {
           updated_at?: string;
         };
         Update: Partial<ApprenticeshipRow>;
+      };
+      field_name_proposals: {
+        Row: FieldNameProposalRow;
+        Insert: Omit<FieldNameProposalRow, "id" | "created_at" | "updated_at" | "decided_at" | "discord_channel_id" | "discord_message_id" | "discord_thread_id"> & {
+          id?: string;
+          decided_at?: string | null;
+          discord_channel_id?: string | null;
+          discord_message_id?: string | null;
+          discord_thread_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<FieldNameProposalRow>;
+      };
+      field_name_ballots: {
+        Row: FieldNameBallotRow;
+        Insert: Omit<FieldNameBallotRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<FieldNameBallotRow>;
+      };
+      ranger_field_names: {
+        Row: RangerFieldNameRow;
+        Insert: Omit<RangerFieldNameRow, "id" | "assigned_at"> & {
+          id?: string;
+          assigned_at?: string;
+        };
+        Update: Partial<RangerFieldNameRow>;
       };
       member_activity_events: {
         Row: {

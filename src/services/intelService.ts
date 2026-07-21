@@ -28,6 +28,7 @@ import {
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
 import { emojiEmbed, guildEmoji, intelReportChannelName, isStandardIntelReportChannelName } from "../utils/guildEmojis.js";
+import { getActiveFieldNameMap } from "./fieldNameService.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 import {
@@ -1511,8 +1512,8 @@ function reportEmbed(
   trailmark: TrailmarkRow | undefined,
   displayNames: ReadonlyMap<string, string>
 ): EmbedBuilder {
-  const reporter = report.author_display_name
-    ?? displayNames.get(report.author_discord_user_id)
+  const reporter = displayNames.get(report.author_discord_user_id)
+    ?? report.author_display_name
     ?? "Unknown reporter";
   const deliveredBy = report.delivered_by_discord_user_id
     ? displayNames.get(report.delivered_by_discord_user_id) ?? "Unknown Ranger"
@@ -1612,6 +1613,11 @@ async function resolveReportDisplayNames(
       .is("author_display_name", null);
     assertNoDbError(error, `recover intel report author name for ${userId}`);
   }));
+
+  const fieldNames = await getActiveFieldNameMap([...userIds]);
+  for (const [userId, fieldName] of fieldNames) {
+    displayNames.set(userId, fieldName);
+  }
 
   return displayNames;
 }

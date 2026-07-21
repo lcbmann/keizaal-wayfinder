@@ -13,6 +13,7 @@ import { daysBetween, formatMaybeDateTime } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
 import { emojiEmbed } from "../utils/guildEmojis.js";
 import { getRangerByDiscordId, getRangerById, promoteRanger } from "./rangerService.js";
+import { refreshFieldNamesBulletin } from "./fieldNameService.js";
 
 export interface EligibleRanger {
   ranger: RangerRow;
@@ -239,6 +240,9 @@ export async function approvePromotionVote(params: {
     targetRank: vote.target_rank,
     changedByDiscordUserId: params.approverDiscordUserId,
     reason: `Approved promotion vote ${vote.id}`
+  });
+  await refreshFieldNamesBulletin(params.guild).catch((error) => {
+    console.warn("Could not refresh Field Names after promotion vote:", error);
   });
 
   const { data: approvedVote, error } = await supabase

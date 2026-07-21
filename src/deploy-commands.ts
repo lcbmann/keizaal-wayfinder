@@ -13,6 +13,7 @@ import { allianceCommand } from "./commands/alliance.js";
 import { supplyCommand } from "./commands/supply.js";
 import { dutyCommand } from "./commands/duty.js";
 import { apprenticeshipCommand } from "./commands/apprenticeship.js";
+import { fieldNameCommand } from "./commands/fieldName.js";
 
 const corpsCommands = [
   pingCommand,
@@ -26,7 +27,8 @@ const corpsCommands = [
   strongboxCommand,
   supplyCommand,
   dutyCommand,
-  apprenticeshipCommand
+  apprenticeshipCommand,
+  fieldNameCommand
 ].map((command) => command.data.toJSON());
 
 const allianceCommands = [pingCommand, allianceCommand].map((command) => command.data.toJSON());

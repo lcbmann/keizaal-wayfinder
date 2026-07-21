@@ -217,13 +217,16 @@ async function publishSupplyBoard(guild: Guild, assignmentId: string, fallbackCh
     await channel.setArchived(false, "Update supply assignment board").catch(() => undefined);
   }
 
-  let message: Message | null = null;
+  let previousMessage: Message | null = null;
   if (snapshot.assignment.discord_message_id) {
-    message = await channel.messages.fetch(snapshot.assignment.discord_message_id).catch(() => null);
+    previousMessage = await channel.messages.fetch(snapshot.assignment.discord_message_id).catch(() => null);
   }
-  message = message
-    ? await message.edit({ embeds: [buildSupplyBoardEmbed(guild, snapshot)] })
-    : await channel.send({ embeds: [buildSupplyBoardEmbed(guild, snapshot)] });
+  const message = await channel.send({ embeds: [buildSupplyBoardEmbed(guild, snapshot)] });
+  if (previousMessage) {
+    await previousMessage.delete().catch((error) => {
+      console.warn(`Could not remove previous supply board message ${previousMessage?.id}:`, error);
+    });
+  }
 
   const { data, error } = await supabase.from("supply_assignments").update({
     discord_channel_id: channel.id,
@@ -302,6 +305,10 @@ function buildSupplyBoardEmbed(guild: Guild, snapshot: SupplySnapshot): EmbedBui
       assignment.notes
     ].filter(Boolean).join("\n"))
     .addFields(
+      {
+        name: "Log a Contribution",
+        value: `Use \`/supply log\` and select \`${assignment.code}\`. Choose an item and quantity; add \`item_2\`/\`quantity_2\` through \`item_4\`/\`quantity_4\` to record several items at once.`
+      },
       {
         name: "Overall Progress",
         value: `${progressBar(collectedTotal, targetTotal)} **${formatNumber(collectedTotal)} / ${formatNumber(targetTotal)}** (${percent(collectedTotal, targetTotal)}%)`

@@ -33,7 +33,8 @@ import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService
 import {
   captureTrailmarkIntelReports,
   removeCorpsOnlyIntelReports,
-  removeIntelReportsForDiscordMessage
+  removeIntelReportsForDiscordMessage,
+  syncIntelReportChannelNames
 } from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
@@ -43,7 +44,8 @@ import {
   isCorpsOnlyReport,
   isAllianceGuildId,
   removeAllianceReportForDiscordMessage,
-  syncCorpsReportAlliancePrivacyForMessage
+  syncCorpsReportAlliancePrivacyForMessage,
+  syncCorpsAllyReportsChannelName
 } from "./services/allianceIntelService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
 
@@ -96,6 +98,20 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
+    void syncIntelReportChannelNames(corpsGuild)
+      .then((renamed) => {
+        if (renamed > 0) {
+          console.log(`Renamed ${renamed} intel report channel${renamed === 1 ? "" : "s"} with topic emoji.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to synchronize intel report channel names:", error));
+    void syncCorpsAllyReportsChannelName(corpsGuild)
+      .then((renamed) => {
+        if (renamed) {
+          console.log("Renamed the Corps Ally Reports channel with the teamwork emoji.");
+        }
+      })
+      .catch((error) => console.warn("Failed to synchronize Corps Ally Reports channel name:", error));
   }
 });
 

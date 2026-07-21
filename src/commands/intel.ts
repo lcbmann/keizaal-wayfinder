@@ -15,7 +15,7 @@ import {
 import { findTrailmarksByName, getTrailmark } from "../services/trailmarkService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
-import { slugify } from "../utils/slugs.js";
+import { intelReportChannelName } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 import { env } from "../config/env.js";
 import { syncAllianceTopicMirrors } from "../services/allianceIntelService.js";
@@ -343,7 +343,7 @@ async function resolveTopicChannel(interaction: Parameters<BotCommand["execute"]
   }
 
   return interaction.guild.channels.create({
-    name: `${slugify(name)}-reports`.slice(0, 90),
+    name: intelReportChannelName(interaction.guild, name),
     type: ChannelType.GuildText,
     ...(env.CORPS_INTEL_CATEGORY_ID ? { parent: env.CORPS_INTEL_CATEGORY_ID } : {}),
     reason: `Create Trailmark intel topic channel for ${name}`

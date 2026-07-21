@@ -27,7 +27,7 @@ import {
 } from "./atlasService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
-import { emojiEmbed, guildEmoji } from "../utils/guildEmojis.js";
+import { emojiEmbed, guildEmoji, intelReportChannelName, isStandardIntelReportChannelName } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 import {
@@ -166,6 +166,24 @@ export async function listIntelTopics(includeInactive = false): Promise<IntelTop
   const { data, error } = await query;
   assertNoDbError(error, "list intel topics");
   return data ?? [];
+}
+
+export async function syncIntelReportChannelNames(guild: Guild): Promise<number> {
+  const topics = await listIntelTopics();
+  let renamed = 0;
+  for (const topic of topics) {
+    const channel = await guild.channels.fetch(topic.discord_channel_id).catch(() => null);
+    if (!isIntelReportChannel(channel) || !isStandardIntelReportChannelName(channel.name, topic.name)) {
+      continue;
+    }
+
+    const previousName = channel.name;
+    await refreshIntelReportChannelName(channel, topic.name);
+    if (channel.name !== previousName) {
+      renamed += 1;
+    }
+  }
+  return renamed;
 }
 
 export async function findIntelTopicsByName(query: string): Promise<IntelTopicRow[]> {
@@ -1158,6 +1176,7 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
   await deleteStoredMessages(guild, stateKey);
 
   const channel = await requireIntelTextChannel(guild, topic.discord_channel_id);
+  await refreshIntelReportChannelName(channel, topic.name);
   const reports = await listDeliveredReports(topic.id);
   const validReports = await filterReportsWithExistingOriginals(guild, reports);
   const trailmarks = await trailmarkMapForReports(validReports);
@@ -1197,6 +1216,7 @@ async function publishUnpostedDeliveredReports(guild: Guild, topicId: string): P
   }
 
   const channel = await requireIntelTextChannel(guild, topic.discord_channel_id);
+  await refreshIntelReportChannelName(channel, topic.name);
   const validReports = await filterReportsWithExistingOriginals(guild, reports);
   if (validReports.length === 0) {
     return;
@@ -1366,6 +1386,17 @@ async function requireIntelTextChannel(guild: Guild, channelId: string): Promise
   }
 
   return channel;
+}
+
+async function refreshIntelReportChannelName(channel: IntelReportChannel, topicName: string): Promise<void> {
+  if (!isStandardIntelReportChannelName(channel.name, topicName)) {
+    return;
+  }
+
+  const desiredName = intelReportChannelName(channel.guild, topicName);
+  if (channel.name !== desiredName) {
+    await channel.setName(desiredName, `Add report type emoji for ${topicName}`);
+  }
 }
 
 function isIntelReportChannel(channel: GuildBasedChannel | null): channel is IntelReportChannel {

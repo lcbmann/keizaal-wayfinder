@@ -1,4 +1,5 @@
 import { EmbedBuilder, type Guild } from "discord.js";
+import { slugify } from "./slugs.js";
 
 export type WayfinderEmojiName =
   | "atlas"
@@ -12,7 +13,12 @@ export type WayfinderEmojiName =
   | "supplies"
   | "teamwork"
   | "trailmark"
-  | "wayfinder";
+  | "wayfinder"
+  | "war"
+  | "cultists"
+  | "bandits"
+  | "werewolf"
+  | "vampire";
 
 export type EmojiTextStyle = "dash" | "symmetric";
 
@@ -64,4 +70,44 @@ export function emojiTitle(
   style: EmojiTextStyle = "dash"
 ): string {
   return emojiText(guild, name, title, style);
+}
+
+export function intelReportChannelName(guild: Guild, topicName: string): string {
+  const baseName = `${slugify(topicName)}-reports`.slice(0, 78);
+  const emojiName = intelTopicEmojiName(topicName);
+  const emoji = emojiName ? guildEmoji(guild, emojiName) : "";
+  return emoji ? `${emoji} | ${baseName}`.slice(0, 100) : baseName;
+}
+
+export function allyReportsChannelName(guild: Guild): string {
+  const emoji = guildEmoji(guild, "teamwork");
+  return emoji ? `${emoji} | ally-reports` : "ally-reports";
+}
+
+export function isStandardIntelReportChannelName(channelName: string, topicName: string): boolean {
+  return channelName === intelReportChannelNameWithoutEmoji(topicName);
+}
+
+function intelReportChannelNameWithoutEmoji(topicName: string): string {
+  return `${slugify(topicName)}-reports`.slice(0, 78);
+}
+
+function intelTopicEmojiName(topicName: string): WayfinderEmojiName | null {
+  const topic = slugify(topicName);
+  if (topic === "war") {
+    return "war";
+  }
+  if (topic === "cultist" || topic === "cultists") {
+    return "cultists";
+  }
+  if (topic === "bandit" || topic === "bandits") {
+    return "bandits";
+  }
+  if (topic === "werewolf" || topic === "werewolves") {
+    return "werewolf";
+  }
+  if (topic === "vampire" || topic === "vampires") {
+    return "vampire";
+  }
+  return null;
 }

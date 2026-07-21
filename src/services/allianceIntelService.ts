@@ -25,12 +25,12 @@ import {
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
+import { allyReportsChannelName, intelReportChannelName } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
 import { createTrailmark } from "./trailmarkService.js";
 import { atlasReportFieldValue } from "./atlasService.js";
 
 const MAX_DESCRIPTION_LENGTH = 4000;
-const ALLY_REPORTS_CHANNEL_NAME = "ally-reports";
 type ReportChannel = TextChannel | NewsChannel;
 
 interface HeadquartersDefinition {
@@ -258,6 +258,27 @@ export async function publishDeliveredAllianceReportsToCorps(
     }
   }
   return allianceReports.length;
+}
+
+export async function syncCorpsAllyReportsChannelName(corpsGuild: Guild): Promise<boolean> {
+  const { data: settings, error } = await supabase
+    .from("alliance_intel_settings")
+    .select("corps_ally_reports_channel_id")
+    .eq("id", true)
+    .maybeSingle();
+  assertNoDbError(error, "get Corps Ally Reports channel");
+  if (!settings?.corps_ally_reports_channel_id) {
+    return false;
+  }
+
+  const channel = await corpsGuild.channels.fetch(settings.corps_ally_reports_channel_id).catch(() => null);
+  if (channel?.type !== ChannelType.GuildText) {
+    return false;
+  }
+
+  const previousName = channel.name;
+  await renameAllyReportsChannel(channel);
+  return channel.name !== previousName;
 }
 
 export async function deliverReportsOriginatingAtAllianceHeadquarters(params: {
@@ -681,6 +702,8 @@ async function ensureHeadquartersTopicChannel(
   hq: AllianceHeadquartersRow,
   topic: IntelTopicRow
 ): Promise<TextChannel> {
+  const channelName = intelReportChannelName(guild, topic.name);
+  const standardChannelName = `${slugify(topic.name)}-reports`.slice(0, 100);
   const { data: stored, error } = await supabase
     .from("alliance_headquarters_topic_channels")
     .select("*")
@@ -691,17 +714,17 @@ async function ensureHeadquartersTopicChannel(
   if (stored) {
     const channel = await guild.channels.fetch(stored.discord_channel_id).catch(() => null);
     if (channel?.type === ChannelType.GuildText) {
+      await renameIntelTopicChannel(channel, channelName, standardChannelName);
       await configureHeadquartersTopicChannel(channel, hq);
       return channel;
     }
   }
 
   await guild.channels.fetch();
-  const channelName = `${slugify(topic.name)}-reports`.slice(0, 90);
   const existing = guild.channels.cache.find(
     (channel) => channel.type === ChannelType.GuildText
       && channel.parentId === hq.reports_category_id
-      && channel.name === channelName
+      && (channel.name === standardChannelName || channel.name === channelName)
   );
   const channel = existing?.type === ChannelType.GuildText
     ? existing
@@ -711,6 +734,7 @@ async function ensureHeadquartersTopicChannel(
         parent: hq.reports_category_id,
         reason: `Create ${hq.name} ${topic.name} reports`
       });
+  await renameIntelTopicChannel(channel, channelName, standardChannelName);
   await configureHeadquartersTopicChannel(channel, hq);
 
   const { error: upsertError } = await supabase.from("alliance_headquarters_topic_channels").upsert({
@@ -720,6 +744,16 @@ async function ensureHeadquartersTopicChannel(
   });
   assertNoDbError(upsertError, "store allied headquarters topic channel");
   return channel;
+}
+
+async function renameIntelTopicChannel(
+  channel: TextChannel,
+  desiredName: string,
+  standardName: string
+): Promise<void> {
+  if (channel.name === standardName && channel.name !== desiredName) {
+    await channel.setName(desiredName, "Add report type emoji");
+  }
 }
 
 async function configureHeadquartersTopicChannel(
@@ -919,24 +953,27 @@ async function ensureCorpsAllyReportsChannel(corpsGuild: Guild): Promise<TextCha
   if (settings?.corps_ally_reports_channel_id) {
     const stored = await corpsGuild.channels.fetch(settings.corps_ally_reports_channel_id).catch(() => null);
     if (stored?.type === ChannelType.GuildText) {
+      await renameAllyReportsChannel(stored);
       return stored;
     }
   }
 
   await corpsGuild.channels.fetch();
+  const desiredName = allyReportsChannelName(corpsGuild);
   const existing = corpsGuild.channels.cache.find((channel) =>
     channel.type === ChannelType.GuildText
       && channel.parentId === env.CORPS_INTEL_CATEGORY_ID
-      && channel.name === ALLY_REPORTS_CHANNEL_NAME
+      && (channel.name === "ally-reports" || channel.name === desiredName)
   );
   const channel = existing?.type === ChannelType.GuildText
     ? existing
     : await corpsGuild.channels.create({
-        name: ALLY_REPORTS_CHANNEL_NAME,
+        name: desiredName,
         type: ChannelType.GuildText,
         parent: env.CORPS_INTEL_CATEGORY_ID,
         reason: "Create Ranger Alliance report archive"
       });
+  await renameAllyReportsChannel(channel);
   await channel.permissionOverwrites.edit(corpsGuild.roles.everyone.id, { SendMessages: false });
   await channel.permissionOverwrites.edit(corpsGuild.client.user.id, { ViewChannel: true, SendMessages: true, EmbedLinks: true });
 
@@ -947,6 +984,13 @@ async function ensureCorpsAllyReportsChannel(corpsGuild: Guild): Promise<TextCha
     assertNoDbError(updateError, "store Corps Ally Reports channel");
   }
   return channel;
+}
+
+async function renameAllyReportsChannel(channel: TextChannel): Promise<void> {
+  const desiredName = allyReportsChannelName(channel.guild);
+  if (channel.name === "ally-reports" && desiredName !== channel.name) {
+    await channel.setName(desiredName, "Add teamwork emoji to Ally Reports");
+  }
 }
 
 async function routedTopics(content: string): Promise<IntelTopicRow[]> {

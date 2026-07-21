@@ -244,9 +244,12 @@ export const rangerCommand: BotCommand = {
       requireMarshal(actor);
       const user = interaction.options.getUser("user", true);
       const status = interaction.options.getString("status", true) as RangerStatus;
+      await interaction.deferReply({ ephemeral: true });
       const ranger = await setRangerStatus(user.id, status);
-      await refreshStoredAssignmentsBoard(interaction.guild);
-      await interaction.reply({ content: `Set ${user} to ${ranger.status}.`, ephemeral: true });
+      await interaction.editReply({ content: `Set ${user} to ${ranger.status}.` });
+      await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
+        console.error("Failed to refresh assignments board after Ranger status change:", error);
+      });
       return;
     }
 

@@ -9,7 +9,6 @@ import {
   setupDutyRoles,
   withdrawDutyApplication
 } from "../services/dutyService.js";
-import { getStrongboxDropChannel } from "../services/strongboxService.js";
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -59,7 +58,6 @@ export const dutyCommand: BotCommand = {
 
     if (subcommand === "volunteer") {
       requireCorpsMember(actor);
-      await requireStrongboxDrop(interaction.channelId, interaction.guild);
       await interaction.deferReply({ ephemeral: true });
       const details = await createDutyApplication({
         guild: interaction.guild,
@@ -76,7 +74,6 @@ export const dutyCommand: BotCommand = {
 
     if (subcommand === "withdraw") {
       requireCorpsMember(actor);
-      await requireStrongboxDrop(interaction.channelId, interaction.guild);
       const dutyName = interaction.options.getString("duty", true);
       const withdrawn = await withdrawDutyApplication({
         guild: interaction.guild,
@@ -168,15 +165,5 @@ function requireCorpsMember(member: GuildMember): void {
 function requireMarshal(member: GuildMember): void {
   if (!canOpenPromotionVotes(member)) {
     throw new UserFacingError("Ranger Marshal or higher is required to manage Corps duties.");
-  }
-}
-
-async function requireStrongboxDrop(channelId: string, guild: GuildMember["guild"]): Promise<void> {
-  const dropChannel = await getStrongboxDropChannel(guild);
-  if (!dropChannel) {
-    throw new UserFacingError("The Strongbox has not been set up. Ask a Marshal to run `/strongbox setup`.");
-  }
-  if (channelId !== dropChannel.id) {
-    throw new UserFacingError(`Submit duty applications in ${dropChannel}.`);
   }
 }

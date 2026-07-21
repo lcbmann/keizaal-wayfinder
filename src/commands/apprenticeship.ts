@@ -7,11 +7,9 @@ import {
   listApprenticeshipPreferences,
   listCurrentApprenticeships,
   proposeApprenticeship,
-  requireNoticeBoardChannel,
   setApprenticeshipPreference,
   sponsorApprentice
 } from "../services/apprenticeshipService.js";
-import { getStrongboxDropChannel } from "../services/strongboxService.js";
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -68,7 +66,6 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "looking-for") {
       requireCorpsMember(actor);
-      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       await interaction.deferReply({ ephemeral: true });
       const seeking = interaction.options.getString("type", true) as "Mentor" | "Apprentice";
       await setApprenticeshipPreference({
@@ -86,7 +83,6 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "withdraw-looking") {
       requireCorpsMember(actor);
-      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const removed = await clearApprenticeshipPreference(interaction.user.id, interaction.guild);
       await interaction.reply({ content: removed ? "You remove your apprenticeship notice from the Corps notice board." : "You do not have an active matching request.", ephemeral: true });
       if (removed) {
@@ -97,7 +93,6 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "propose") {
       requireCorpsMember(actor);
-      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const other = interaction.options.getUser("member", true);
       await interaction.deferReply({ ephemeral: true });
       const result = await proposeApprenticeship({
@@ -111,7 +106,6 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "sponsor") {
       requireCorpsMember(actor);
-      await requireApprenticeshipRequestChannel(interaction.channelId, interaction.guild);
       const recruit = interaction.options.getUser("recruit", true);
       await interaction.deferReply({ ephemeral: true });
       await sponsorApprentice({
@@ -220,21 +214,6 @@ function requireMarshal(member: GuildMember): void {
   if (!canOpenPromotionVotes(member)) {
     throw new UserFacingError("Ranger Marshal or higher is required for this apprenticeship command.");
   }
-}
-
-async function requireApprenticeshipRequestChannel(channelId: string, guild: Guild): Promise<void> {
-  const dropChannel = await getStrongboxDropChannel(guild);
-  if (dropChannel?.id === channelId) {
-    return;
-  }
-
-  const noticeBoardChannel = await requireNoticeBoardChannel(guild);
-  if (noticeBoardChannel.id === channelId) {
-    return;
-  }
-
-  const allowedChannels = [dropChannel, noticeBoardChannel].filter((channel) => channel !== null).join(" or ");
-  throw new UserFacingError(`Submit apprenticeship requests in ${allowedChannels}.`);
 }
 
 function formatMaybeTime(value: string | null): string {

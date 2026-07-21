@@ -164,7 +164,7 @@ function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
 
 function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
   return emojiEmbed(guild, "corps", "Strongbox Commands")
-    .setDescription("Application and apprenticeship commands available through the Strongbox Drop.")
+    .setDescription("Application and apprenticeship commands available in any channel where you can use them. Results are filed in the appropriate Corps records, notice board, or Strongbox thread.")
     .addFields(
       {
         name: "Corps Duties",
@@ -193,7 +193,7 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
       }
     )
     .setColor(0x587c4a)
-    .setFooter({ text: "These submission commands must be run in this channel." });
+    .setFooter({ text: "The private /strongbox drop command remains limited to this channel." });
 }
 
 export async function dropStrongboxMessage(params: {

@@ -270,13 +270,13 @@ After deploying the threaded Strongbox update, run `/strongbox setup` once to ad
 
 Run migration `012_create_duties_and_apprenticeships.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Detective, and Courier roles and stores their Discord role IDs in Supabase. The Wayfinder bot role must remain above these roles.
 
-Apprentice or higher can run `/duty volunteer` in `strongbox-drop`. The application appears as a review card in the Marshal-only Strongbox and receives its own discussion thread. Marshal+ approves or denies it using the card buttons. Approval records the assignment and grants the corresponding Discord role. Quartermaster permits only one active holder. Warden applications and assignments require a free-text Range; this will later be replaced by the Atlas-backed Range model.
+Apprentice or higher can run `/duty volunteer` in any accessible channel. The application appears as a review card in the Marshal-only Strongbox and receives its own discussion thread. Marshal+ approves or denies it using the card buttons. Approval records the assignment and grants the corresponding Discord role. Quartermaster permits only one active holder. Warden applications and assignments require a free-text Range; this will later be replaced by the Atlas-backed Range model.
 
 Marshal+ can use `/duty assign` and `/duty remove` for direct administration, `/duty applications` to find pending review threads, and `/duty setup` to repair missing roles. `/duty list` is available to Corps members, and active duties also appear in `/ranger info`. Applicants can use `/duty withdraw` while an application is still pending.
 
 ## Apprenticeships
 
-Apprenticeships are voluntary and do not replace the promotion vote system. Apprentice or higher may use the submission commands in either `strongbox-drop` or the configured notice board.
+Apprenticeships are voluntary and do not replace the promotion vote system. Apprentice or higher may use the commands in any accessible channel.
 
 `/apprenticeship looking-for` posts a public notice in the configured notice board: an Apprentice may seek a mentor and a Ranger+ may seek an Apprentice. Running the command again edits the same notice. `/apprenticeship withdraw-looking` removes it. The notice is also removed automatically when the member enters an apprenticeship. Marshal+ can see all current requests and pairings with `/apprenticeship requests`.
 

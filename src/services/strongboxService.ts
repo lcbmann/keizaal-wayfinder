@@ -16,7 +16,7 @@ import { env } from "../config/env.js";
 import { roleIdForRank } from "../config/roles.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed } from "../utils/guildEmojis.js";
 import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
 const STRONGBOX_STATE_KEY = "hq-strongbox-channel";
@@ -56,8 +56,7 @@ async function setupPrivateStrongboxChannel(guild: Guild): Promise<TextChannel> 
   await saveBotMessageState(STRONGBOX_STATE_KEY, channel.id, []);
   await channel.send({
     embeds: [
-      new EmbedBuilder()
-        .setTitle(emojiTitle(guild, "strongbox", "HQ Strongbox"))
+      emojiEmbed(guild, "strongbox", "HQ Strongbox")
         .setDescription("Private reports and applications appear here. Each entry has its own Marshal discussion thread. Only Ranger Marshal or higher can read this channel.")
         .setColor(0x587c4a)
         .setTimestamp(new Date())
@@ -145,8 +144,7 @@ function strongboxDropTopic(): string {
 }
 
 function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
-  return new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "strongbox", "Strongbox Drop"))
+  return emojiEmbed(guild, "strongbox", "Strongbox Drop")
     .setDescription([
       "Use this channel for private submissions to Ranger Marshal or higher.",
       "You cannot read previous submissions. Wayfinder forwards each entry to the private Strongbox, creates a Marshal discussion thread, and removes any public copy."
@@ -165,8 +163,7 @@ function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
 }
 
 function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
-  return new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "corps", "Strongbox Commands"))
+  return emojiEmbed(guild, "corps", "Strongbox Commands")
     .setDescription("Application and apprenticeship commands available through the Strongbox Drop.")
     .addFields(
       {
@@ -205,8 +202,7 @@ export async function dropStrongboxMessage(params: {
   message: string;
   attachments?: Attachment[];
 }): Promise<StrongboxThreadResult> {
-  const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(params.guild, "strongbox", "Strongbox Drop"))
+  const embed = emojiEmbed(params.guild, "strongbox", "Strongbox Drop")
     .setDescription(params.message.slice(0, 4096))
     .addFields(
       { name: "Submitted by", value: `${params.member} (${params.member.displayName})`, inline: true },

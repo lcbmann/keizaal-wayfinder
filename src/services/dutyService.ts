@@ -17,7 +17,7 @@ import {
 } from "../db/supabase.js";
 import { rankAtLeast } from "../config/ranks.js";
 import { UserFacingError } from "../utils/errors.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed } from "../utils/guildEmojis.js";
 import { requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 
@@ -502,8 +502,7 @@ export function dutyApplicationActionRow(applicationId: string, disabled = false
 
 export function dutyApplicationEmbed(guild: Guild, details: DutyApplicationDetails): EmbedBuilder {
   const { application, duty, applicant } = details;
-  const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "duty", `Duty Application: ${duty.name}`))
+  const embed = emojiEmbed(guild, "duty", `Duty Application: ${duty.name}`)
     .setDescription(application.reason)
     .addFields(
       { name: "Applicant", value: `<@${applicant.discord_user_id}>`, inline: true },

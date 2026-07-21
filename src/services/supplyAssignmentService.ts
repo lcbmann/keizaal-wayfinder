@@ -17,7 +17,7 @@ import {
   type SupplyContributionRow
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed } from "../utils/guildEmojis.js";
 
 interface SupplySnapshot {
   assignment: SupplyAssignmentRow;
@@ -180,13 +180,8 @@ export async function supplyAssignmentEmbed(guild: Guild, assignmentCode: string
 export async function supplyContributorsEmbed(guild: Guild, assignmentCode: string): Promise<EmbedBuilder> {
   const snapshot = await requireSupplySnapshot(assignmentCode);
   const totals = contributorTotals(snapshot.contributions, snapshot.assignment.ranger_rate_per_item);
-  return new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "supplies", `${snapshot.assignment.name} Contributors`))
-    .setDescription(totals.length
-      ? totals.slice(0, 40).map((entry, index) =>
-          `${index + 1}. <@${entry.memberId}> - ${formatNumber(entry.quantity)} items - ${formatSeptims(entry.owed)}`
-        ).join("\n").slice(0, 4096)
-      : "No contributions logged yet.")
+  return emojiEmbed(guild, "supplies", `${snapshot.assignment.name} Contributors`)
+    .setDescription(totals.length ? contributorLines(totals, 4096) : "No contributions logged yet.")
     .setColor(0x587c4a)
     .setFooter({ text: snapshot.assignment.code })
     .setTimestamp(new Date());
@@ -299,8 +294,7 @@ function buildSupplyBoardEmbed(guild: Guild, snapshot: SupplySnapshot): EmbedBui
   const currentOwed = collectedTotal * assignment.ranger_rate_per_item;
   const contributors = contributorTotals(contributions, assignment.ranger_rate_per_item);
 
-  const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "supplies", assignment.name))
+  const embed = emojiEmbed(guild, "supplies", assignment.name)
     .setDescription([
       `**Client:** ${assignment.client_name}`,
       `**Status:** ${assignment.status}`,
@@ -338,12 +332,39 @@ function buildSupplyBoardEmbed(guild: Guild, snapshot: SupplySnapshot): EmbedBui
   if (contributors.length) {
     embed.addFields({
       name: "Contributors",
-      value: contributors.slice(0, 10).map((entry) =>
-        `<@${entry.memberId}> - ${formatNumber(entry.quantity)} items - ${formatSeptims(entry.owed)}`
-      ).join("\n").slice(0, 1024)
+      value: contributorLines(contributors, 1024)
     });
   }
   return embed;
+}
+
+function contributorLines(
+  contributors: Array<{ memberId: string; quantity: number; owed: number }>,
+  maxLength: number
+): string {
+  const lines: string[] = [];
+  let nextIndex = 0;
+  for (; nextIndex < contributors.length; nextIndex += 1) {
+    const entry = contributors[nextIndex];
+    if (!entry) {
+      break;
+    }
+    const line = `${nextIndex + 1}. <@${entry.memberId}> - ${formatNumber(entry.quantity)} items - ${formatSeptims(entry.owed)}`;
+    const suffix = nextIndex < contributors.length - 1 ? `\n... and ${contributors.length - nextIndex - 1} more` : "";
+    if ((lines.join("\n") + (lines.length ? "\n" : "") + line + suffix).length > maxLength) {
+      break;
+    }
+    lines.push(line);
+  }
+  if (nextIndex < contributors.length) {
+    const remaining = `... and ${contributors.length - nextIndex} more`;
+    while ((lines.join("\n") + "\n" + remaining).length > maxLength && lines.length > 0) {
+      lines.pop();
+      nextIndex -= 1;
+    }
+    lines.push(remaining);
+  }
+  return lines.join("\n");
 }
 
 function itemTotals(contributions: SupplyContributionRow[]): Map<string, number> {

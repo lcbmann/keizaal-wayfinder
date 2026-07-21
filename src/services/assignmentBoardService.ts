@@ -10,7 +10,7 @@ import {
 } from "./apprenticeshipService.js";
 import { listActiveDutyAssignments, type DutyAssignmentDetails } from "./dutyService.js";
 import { listAllRangers } from "./rangerService.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed } from "../utils/guildEmojis.js";
 
 const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
 const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
@@ -60,8 +60,7 @@ function assignmentsEmbeds(
   const detectives = dutyAssignments
     .filter(({ duty }) => duty.name === "Detective")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  const leadershipEmbed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "corps", "Ranger Corps Leadership"))
+  const leadershipEmbed = emojiEmbed(guild, "corps", "Ranger Corps Leadership")
     .setDescription("The Rangers presently entrusted with command of the Corps.")
     .setColor(0xb08d32)
     .setTimestamp(new Date());
@@ -74,8 +73,7 @@ function assignmentsEmbeds(
     });
   }
 
-  const wardensEmbed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "duty", "Ranger Corps Wardens"))
+  const wardensEmbed = emojiEmbed(guild, "duty", "Ranger Corps Wardens")
     .setDescription("Rangers entrusted with the safety and oversight of a Hold or another designated Range.")
     .setColor(0x587c4a)
     .setTimestamp(new Date());
@@ -101,8 +99,7 @@ function assignmentsEmbeds(
       : "None assigned."
   });
 
-  const detectivesEmbed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "duty", "Ranger Corps Detectives"))
+  const detectivesEmbed = emojiEmbed(guild, "duty", "Ranger Corps Detectives")
     .setDescription("Rangers tasked with investigations, gathering testimony, and preserving evidence.")
     .setColor(0x4f6d8a)
     .addFields({
@@ -116,8 +113,7 @@ function assignmentsEmbeds(
   const activeApprenticeships = apprenticeships.filter(({ apprenticeship }) => apprenticeship.status === "Active");
   const seekingMentors = apprenticeshipPreferences.filter((preference) => preference.seeking === "Mentor");
   const seekingApprentices = apprenticeshipPreferences.filter((preference) => preference.seeking === "Apprentice");
-  const apprenticeshipsEmbed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "teamwork", "Ranger Corps Apprenticeships"))
+  const apprenticeshipsEmbed = emojiEmbed(guild, "teamwork", "Ranger Corps Apprenticeships")
     .setDescription("Rangers can mentor Apprentices and help prepare them for promotion. Use `/apprenticeship looking-for` to find a match.")
     .setColor(0x8b6f9e)
     .addFields(

@@ -1,6 +1,6 @@
 import { EmbedBuilder, type Message } from "discord.js";
 import { assertNoDbError, supabase, type Json } from "../db/supabase.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed } from "../utils/guildEmojis.js";
 
 const SHARE_CODE_PREFIX = "RGFA2.";
 const LEGACY_GUILD_SHARE_CODE_PREFIX = "RGFA1.";
@@ -160,8 +160,9 @@ export function atlasSharePreviewFromJson(value: Json | null): AtlasSharePreview
 }
 
 export function atlasSharePreviewEmbed(preview: AtlasSharePreview, guild?: Message["guild"]): EmbedBuilder {
-  const embed = new EmbedBuilder()
-    .setTitle(guild ? emojiTitle(guild, "atlas", "Field Atlas Share") : "Field Atlas Share")
+  const embed = guild
+    ? emojiEmbed(guild, "atlas", "Field Atlas Share")
+    : new EmbedBuilder().setTitle("Field Atlas Share")
     .setDescription(`${preview.featureCount} ${preview.featureCount === 1 ? "entry" : "entries"} - ${typeCountText(preview)}`)
     .setColor(0x4f6535)
     .addFields(

@@ -21,7 +21,7 @@ import { getRangerByDiscordId, getRangerById } from "../services/rangerService.j
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canApprovePromotions, canOpenPromotionVotes } from "../utils/permissions.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 
 export const promotionCommand: BotCommand = {
@@ -232,8 +232,7 @@ function promotionEligibilityEmbed(guild: Guild, candidates: EligibleRanger[]): 
   const eligible = candidates.filter((candidate) => candidate.eligible).length;
   const blocked = candidates.length - eligible;
 
-  const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "promotion", "Apprentice Promotion Eligibility"))
+  const embed = emojiEmbed(guild, "promotion", "Apprentice Promotion Eligibility")
     .setDescription(
       candidates.length
         ? `${eligible} eligible / ${blocked} not eligible. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
@@ -332,8 +331,7 @@ function promotionBallotsEmbed(
     abstain: ballots.filter((entry) => entry.ballot.vote === "abstain")
   };
 
-  return new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "promotion", `Promotion Ballots: ${vote.target_rank}`))
+  return emojiEmbed(guild, "promotion", `Promotion Ballots: ${vote.target_rank}`)
     .setDescription(`Vote ID: ${vote.id}`)
     .addFields(
       { name: `Yes (${grouped.promote.length})`, value: formatBallotGroup(grouped.promote), inline: false },
@@ -369,8 +367,7 @@ function promotionApprovalEmbed(
   const yes = ballots.filter((entry) => entry.ballot.vote === "promote").length;
   const no = ballots.filter((entry) => entry.ballot.vote === "hold").length;
   const abstain = ballots.filter((entry) => entry.ballot.vote === "abstain").length;
-  const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "cape", "Promotion Approved", "symmetric"))
+  const embed = emojiEmbed(guild, "cape", "Promotion Approved", "symmetric")
     .setDescription(`<@${ranger.discord_user_id}> has been promoted from **${previousRank}** to **${ranger.current_rank}**. Their new rank has been entered on the Corps roster.`)
     .addFields(
       { name: "Previous Rank", value: previousRank, inline: true },

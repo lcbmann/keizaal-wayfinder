@@ -1,4 +1,4 @@
-import type { Guild } from "discord.js";
+import { EmbedBuilder, type Guild } from "discord.js";
 
 export type WayfinderEmojiName =
   | "atlas"
@@ -26,6 +26,20 @@ export function guildEmojiImageUrl(
   size = 128
 ): string | null {
   return guild.emojis.cache.find((emoji) => emoji.name === name)?.imageURL({ size }) ?? null;
+}
+
+export function emojiEmbed(
+  guild: Guild,
+  name: WayfinderEmojiName,
+  title: string,
+  style: EmojiTextStyle = "dash"
+): EmbedBuilder {
+  const embed = new EmbedBuilder().setTitle(emojiTitle(guild, name, title, style));
+  const imageUrl = guildEmojiImageUrl(guild, name);
+  if (imageUrl) {
+    embed.setThumbnail(imageUrl);
+  }
+  return embed;
 }
 
 export function emojiText(

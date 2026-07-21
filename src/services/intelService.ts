@@ -27,7 +27,7 @@ import {
 } from "./atlasService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
-import { emojiTitle, guildEmoji } from "../utils/guildEmojis.js";
+import { emojiEmbed, guildEmoji } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 import {
@@ -1164,8 +1164,7 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
   const displayNames = await resolveReportDisplayNames(guild, validReports);
   const sentMessages: Message[] = [];
 
-  const header = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "intel", `${topic.name} Reports`))
+  const header = emojiEmbed(guild, "intel", `${topic.name} Reports`)
     .setDescription(
       validReports.length === 0
         ? "No delivered reports yet."

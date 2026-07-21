@@ -7,7 +7,7 @@ import {
   type CorpsFundTransactionType
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
-import { emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed } from "../utils/guildEmojis.js";
 
 interface CreateFundTransactionParams {
   guild: Guild;
@@ -94,8 +94,7 @@ export async function fundHistoryEmbed(guild: Guild, memberDiscordUserId?: strin
   const { data, error } = await query;
   assertNoDbError(error, "get corps fund history");
 
-  return new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "funds", memberDiscordUserId ? "Corps Fund Member History" : "Corps Fund History"))
+  return emojiEmbed(guild, "funds", memberDiscordUserId ? "Corps Fund Member History" : "Corps Fund History")
     .setDescription((data?.length ?? 0) > 0 ? data!.map(formatRecentTransaction).join("\n").slice(0, 4096) : "No transactions found.")
     .setColor(0xd5a84f)
     .setTimestamp(new Date());
@@ -118,8 +117,7 @@ export async function monthlyFundSummaryEmbed(guild: Guild, year: number, month:
   const adjustments = rows.filter((row) => row.transaction_type === "Adjustment").reduce((total, row) => total + row.amount, 0);
   const net = rows.reduce((total, row) => total + row.amount, 0);
 
-  return new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "funds", `Corps Fund Monthly Summary: ${year}-${String(month).padStart(2, "0")}`))
+  return emojiEmbed(guild, "funds", `Corps Fund Monthly Summary: ${year}-${String(month).padStart(2, "0")}`)
     .addFields(
       { name: "Donations", value: formatSeptims(donations), inline: true },
       { name: "Expenses", value: formatSeptims(expenses), inline: true },
@@ -162,8 +160,7 @@ export async function undoLastFundTransaction(guild: Guild, recordedByDiscordUse
 
   await channel.send({
     embeds: [
-      new EmbedBuilder()
-        .setTitle(emojiTitle(guild, "funds", "Transaction Undone"))
+      emojiEmbed(guild, "funds", "Transaction Undone")
         .setDescription(data.description)
         .addFields(
           { name: "Amount", value: formatSignedSeptims(data.amount), inline: true },
@@ -246,8 +243,7 @@ async function getRecentTransactions(limit = 5): Promise<CorpsFundTransactionRow
 async function summaryEmbed(guild: Guild): Promise<EmbedBuilder> {
   const balance = await getFundBalance();
   const recent = await getRecentTransactions();
-  const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "funds", "Corps Fund"))
+  const embed = emojiEmbed(guild, "funds", "Corps Fund")
     .setDescription(`Current total: **${formatSeptims(balance.balance)}**`)
     .addFields(
       { name: "Donations", value: formatSeptims(balance.donations), inline: true },
@@ -270,8 +266,7 @@ async function summaryEmbed(guild: Guild): Promise<EmbedBuilder> {
 
 function transactionEmbed(guild: Guild, transaction: CorpsFundTransactionRow): EmbedBuilder {
   const member = transaction.member_discord_user_id ? `<@${transaction.member_discord_user_id}>` : null;
-  const embed = new EmbedBuilder()
-    .setTitle(emojiTitle(guild, "funds", transaction.transaction_type))
+  const embed = emojiEmbed(guild, "funds", transaction.transaction_type)
     .setDescription(transaction.description)
     .addFields(
       { name: "Amount", value: formatSignedSeptims(transaction.amount), inline: true },

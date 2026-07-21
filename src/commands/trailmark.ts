@@ -15,7 +15,7 @@ import {
 } from "../services/trailmarkService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
-import { emojiText, emojiTitle } from "../utils/guildEmojis.js";
+import { emojiEmbed, emojiText } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 
 export const trailmarkCommand: BotCommand = {
@@ -143,8 +143,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "list") {
       const trailmarks = await listActiveTrailmarks(25);
-      const embed = new EmbedBuilder()
-        .setTitle(emojiTitle(interaction.guild, "trailmark", "Active Trailmarks"))
+      const embed = emojiEmbed(interaction.guild, "trailmark", "Active Trailmarks")
         .setDescription(
           trailmarks.length
             ? trailmarks.map((trailmark) => `**${trailmark.name}** - ${trailmark.hold}`).join("\n")
@@ -292,8 +291,7 @@ export const trailmarkCommand: BotCommand = {
           return `<@${session.discord_user_id}> - ${trailmark?.name ?? "Unknown Trailmark"} - expires in ${expiresAt}m`;
         })
       );
-      const embed = new EmbedBuilder()
-        .setTitle(emojiTitle(interaction.guild, "trailmark", "Active Trailmark Sessions"))
+      const embed = emojiEmbed(interaction.guild, "trailmark", "Active Trailmark Sessions")
         .setDescription(lines.length ? lines.join("\n") : "No active sessions.")
         .setColor(0x587c4a);
       await interaction.reply({ embeds: [embed], ephemeral: true });

@@ -149,6 +149,12 @@ export async function nominateFieldName(params: {
     .select("*")
     .single();
   assertNoDbError(attachError, "attach field name proposal message");
+  if (!memberRankAtLeast(params.nominee, "Ranger")) {
+    await params.nominee.send({
+      content: `A Ranger has proposed **${proposal.proposed_name}** as your field name. You may veto this proposal with **No** within 3 days. This is the only field-name vote available to Apprentices.`,
+      components: [fieldNameVetoRow(proposal.id)]
+    }).catch(() => undefined);
+  }
   await refreshFieldNamesBulletin(params.guild);
   return attached;
 }
@@ -159,7 +165,6 @@ export async function recordFieldNameBallot(params: {
   voter: GuildMember;
   vote: FieldNameBallotVote;
 }): Promise<FieldNameBallotRow> {
-  requireRanger(params.voter, "Only full Rangers may vote on field names. Apprentices cannot view or vote on these nominations.");
   const proposal = await getFieldNameProposal(params.proposalId);
   if (!proposal || proposal.status !== "Open") {
     throw new UserFacingError("That field name vote is no longer open.");
@@ -167,8 +172,12 @@ export async function recordFieldNameBallot(params: {
   if (new Date(proposal.closes_at).getTime() <= Date.now()) {
     throw new UserFacingError("That field name vote has reached its closing time. The contest will be resolved automatically.");
   }
-  if (proposal.target_discord_user_id === params.voter.id) {
-    throw new UserFacingError("You cannot vote on your own field name.");
+  const isNominee = proposal.target_discord_user_id === params.voter.id;
+  if (isNominee && params.vote !== "no") {
+    throw new UserFacingError("You may only veto your own field name proposal with No.");
+  }
+  if (!isNominee) {
+    requireRanger(params.voter, "Only full Rangers may vote on field names. Apprentices cannot view or vote on these nominations.");
   }
 
   const { data, error } = await supabase
@@ -187,14 +196,15 @@ export async function recordFieldNameBallot(params: {
 }
 
 export async function handleFieldNameVoteButton(interaction: ButtonInteraction): Promise<void> {
-  if (!interaction.inCachedGuild()) {
+  const guild = interaction.guild ?? await interaction.client.guilds.fetch(env.DISCORD_GUILD_ID).catch(() => null);
+  if (!guild) {
     throw new UserFacingError("Field name voting is only available in the Ranger Corps server.");
   }
   const [, , proposalId, vote] = interaction.customId.split(":");
   if (!proposalId || !isFieldNameBallotVote(vote)) {
     throw new UserFacingError("Invalid field name vote button.");
   }
-  const member = await interaction.guild.members.fetch(interaction.user.id);
+  const member = await guild.members.fetch(interaction.user.id);
   const proposal = await getFieldNameProposal(proposalId);
   if (!proposal || proposal.status !== "Open") {
     throw new UserFacingError("That field name vote is no longer open.");
@@ -202,14 +212,21 @@ export async function handleFieldNameVoteButton(interaction: ButtonInteraction):
   if (new Date(proposal.closes_at).getTime() <= Date.now()) {
     throw new UserFacingError("That field name vote has reached its closing time.");
   }
-  if (proposal.target_discord_user_id === member.id) {
-    throw new UserFacingError("You cannot vote on your own field name.");
+  if (proposal.target_discord_user_id === member.id && vote !== "no") {
+    throw new UserFacingError("You may only veto your own field name proposal with No.");
   }
-  requireRanger(member, "Only full Rangers may vote on field names. Apprentices cannot view or vote on these nominations.");
+  if (proposal.target_discord_user_id !== member.id) {
+    requireRanger(member, "Only full Rangers may vote on field names. Apprentices cannot view or vote on these nominations.");
+  }
   await interaction.deferUpdate();
-  await recordFieldNameBallot({ guild: interaction.guild, proposalId, voter: member, vote });
-  await interaction.editReply(await fieldNameProposalMessagePayload(interaction.guild, proposalId));
-  await interaction.followUp({ content: `Your **${voteLabel(vote)}** vote is recorded.`, ephemeral: true });
+  await recordFieldNameBallot({ guild, proposalId, voter: member, vote });
+  await interaction.editReply(await fieldNameProposalMessagePayload(guild, proposalId, member.id));
+  await interaction.followUp({
+    content: proposal.target_discord_user_id === member.id
+      ? "Your veto is recorded. This proposal cannot win the field-name contest."
+      : `Your **${voteLabel(vote)}** vote is recorded.`,
+    ...(interaction.guildId ? { ephemeral: true } : {})
+  });
 }
 
 export async function listFieldNames(): Promise<RangerFieldNameRow[]> {
@@ -372,11 +389,13 @@ async function resolveFieldNameContest(guild: Guild, proposals: FieldNameProposa
       proposal,
       yes: ballots.filter((ballot) => ballot.vote === "yes").length,
       no: ballots.filter((ballot) => ballot.vote === "no").length,
-      abstain: ballots.filter((ballot) => ballot.vote === "abstain").length
+      abstain: ballots.filter((ballot) => ballot.vote === "abstain").length,
+      vetoed: ballots.some((ballot) => ballot.voter_discord_user_id === proposal.target_discord_user_id && ballot.vote === "no")
     };
   }));
-  const highestYes = Math.max(...tallies.map((tally) => tally.yes));
-  const leaders = tallies.filter((tally) => tally.yes === highestYes);
+  const candidates = tallies.filter((tally) => !tally.vetoed);
+  const highestYes = candidates.length > 0 ? Math.max(...candidates.map((tally) => tally.yes)) : 0;
+  const leaders = candidates.filter((tally) => tally.yes === highestYes);
   const topLeader = leaders.length === 1 ? leaders[0] : undefined;
   const winner = topLeader && topLeader.yes > topLeader.no && topLeader.yes > 0
     ? topLeader
@@ -404,11 +423,13 @@ async function resolveFieldNameContest(guild: Guild, proposals: FieldNameProposa
 
   for (const tally of tallies) {
     const decision = winner?.proposal.id === tally.proposal.id ? "Approved" : "Denied";
-    const decisionReason = winner
-      ? decision === "Approved"
-        ? `${tally.yes} Yes, ${tally.no} No, ${tally.abstain} Abstain. Highest Yes vote in the contest.`
-        : `Not selected. ${winner.proposal.proposed_name} received ${winner.yes} Yes vote${winner.yes === 1 ? "" : "s"}.`
-      : `No clear winner: the top proposals tied or no proposal had more Yes than No.`;
+    const decisionReason = tally.vetoed
+      ? "Vetoed by the nominee."
+      : winner
+        ? decision === "Approved"
+          ? `${tally.yes} Yes, ${tally.no} No, ${tally.abstain} Abstain. Highest Yes vote in the contest.`
+          : `Not selected. ${winner.proposal.proposed_name} received ${winner.yes} Yes vote${winner.yes === 1 ? "" : "s"}.`
+        : "No clear winner: the top proposals tied or no proposal had more Yes than No.";
     const { error } = await supabase
       .from("field_name_proposals")
       .update({
@@ -445,7 +466,7 @@ async function fieldNamesBulletinEmbed(guild: Guild): Promise<EmbedBuilder> {
   return emojiEmbed(guild, "teamwork", "Ranger Field Names")
     .setDescription([
       "Field names are Ranger-assigned names used in the field so members can identify one another without relying on personal names.",
-      "Rangers may nominate Apprentices or fellow Rangers, but nobody may nominate themselves. Full Rangers vote on each proposal; Apprentices cannot see or vote on nominations.",
+      "Rangers may nominate Apprentices or fellow Rangers, but nobody may nominate themselves. Full Rangers vote on each proposal; nominees may veto their own proposal with No. Apprentices receive a private veto button without access to the channel.",
       "Field names are optional for Apprentices, but every full Ranger should eventually have an approved name.",
       "Use `/field-name nominate` to put forward a name. Multiple names may compete for one Ranger; when all proposals close, the unique proposal with the most Yes votes wins. A tie or no Yes majority assigns nothing."
     ].join("\n"))
@@ -472,7 +493,7 @@ async function fieldNameProposalEmbed(guild: Guild, proposal: FieldNameProposalR
       { name: "Current tally", value: tally, inline: false }
     )
     .setColor(proposal.status === "Approved" ? 0x3ba55d : proposal.status === "Denied" || proposal.status === "Cancelled" ? 0xed4245 : 0x587c4a)
-    .setFooter({ text: proposal.status === "Open" ? "Ranger+ only: vote Yes, No, or Abstain." : `Vote ${proposal.status.toLowerCase()}.` })
+    .setFooter({ text: proposal.status === "Open" ? "Ranger+ only: vote Yes, No, or Abstain. The nominee may veto with No." : `Vote ${proposal.status.toLowerCase()}.` })
     .setTimestamp(new Date(proposal.opened_at));
 }
 
@@ -484,7 +505,13 @@ function fieldNameVoteRow(proposalId: string, disabled = false): ActionRowBuilde
   );
 }
 
-async function fieldNameProposalMessagePayload(guild: Guild, proposalId: string): Promise<{
+function fieldNameVetoRow(proposalId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`fieldname:vote:${proposalId}:no`).setLabel("Veto (No)").setStyle(ButtonStyle.Danger)
+  );
+}
+
+async function fieldNameProposalMessagePayload(guild: Guild, proposalId: string, viewerId?: string): Promise<{
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
 }> {
@@ -495,7 +522,9 @@ async function fieldNameProposalMessagePayload(guild: Guild, proposalId: string)
   const nominee = await guild.members.fetch(proposal.target_discord_user_id).catch(() => undefined);
   return {
     embeds: [await fieldNameProposalEmbed(guild, proposal, nominee)],
-    components: [fieldNameVoteRow(proposal.id, proposal.status !== "Open")]
+    components: [proposal.target_discord_user_id === viewerId
+      ? fieldNameVetoRow(proposal.id)
+      : fieldNameVoteRow(proposal.id, proposal.status !== "Open")]
   };
 }
 

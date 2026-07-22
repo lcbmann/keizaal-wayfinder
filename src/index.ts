@@ -328,10 +328,12 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
   }
 
   if (interaction.isButton() && interaction.customId.startsWith("fieldname:vote:")) {
-    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+    if (interaction.guildId && interaction.guildId !== env.DISCORD_GUILD_ID) {
       throw new UserFacingError("Field Name voting is only available in the Ranger Corps server.");
     }
-    await safelyRecordInteraction(interaction.user.id);
+    if (interaction.guildId === env.DISCORD_GUILD_ID) {
+      await safelyRecordInteraction(interaction.user.id);
+    }
     await handleFieldNameButton(interaction);
     return;
   }

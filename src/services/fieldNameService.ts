@@ -149,12 +149,10 @@ export async function nominateFieldName(params: {
     .select("*")
     .single();
   assertNoDbError(attachError, "attach field name proposal message");
-  if (!memberRankAtLeast(params.nominee, "Ranger")) {
-    await params.nominee.send({
-      content: `A Ranger has proposed **${proposal.proposed_name}** as your field name. You may veto this proposal with **No** within 3 days. This is the only field-name vote available to Apprentices.`,
-      components: [fieldNameVetoRow(proposal.id)]
-    }).catch(() => undefined);
-  }
+  await params.nominee.send({
+    content: `The Rangers have proposed **${proposal.proposed_name}** as your field name. Use **Veto (No)** within 3 days if you reject this proposal. This private button is your veto; the public vote remains visible to eligible Rangers.`,
+    components: [fieldNameVetoRow(proposal.id)]
+  }).catch(() => undefined);
   await refreshFieldNamesBulletin(params.guild);
   return attached;
 }

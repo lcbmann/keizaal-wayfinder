@@ -43,6 +43,7 @@ import {
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import {
+  backfillFieldNameVetoNotices,
   cleanupResolvedFieldNameProposalMessages,
   refreshFieldNamesBulletin,
   refreshOpenFieldNameProposalMessages
@@ -125,6 +126,13 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to clean up resolved Field Name nominations:", error));
+    void backfillFieldNameVetoNotices(corpsGuild)
+      .then((notified) => {
+        if (notified > 0) {
+          console.log(`Sent ${notified} Field Name veto notice${notified === 1 ? "" : "s"}.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to backfill Field Name veto notices:", error));
     void syncIntelReportChannelNames(corpsGuild)
       .then((renamed) => {
         if (renamed > 0) {

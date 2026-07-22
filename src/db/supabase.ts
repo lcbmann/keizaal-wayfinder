@@ -247,6 +247,7 @@ export interface FieldNameProposalRow {
   discord_channel_id: string | null;
   discord_message_id: string | null;
   discord_thread_id: string | null;
+  nominee_veto_notified_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -495,12 +496,13 @@ export interface Database {
       };
       field_name_proposals: {
         Row: FieldNameProposalRow;
-        Insert: Omit<FieldNameProposalRow, "id" | "created_at" | "updated_at" | "decided_at" | "discord_channel_id" | "discord_message_id" | "discord_thread_id"> & {
+        Insert: Omit<FieldNameProposalRow, "id" | "created_at" | "updated_at" | "decided_at" | "discord_channel_id" | "discord_message_id" | "discord_thread_id" | "nominee_veto_notified_at"> & {
           id?: string;
           decided_at?: string | null;
           discord_channel_id?: string | null;
           discord_message_id?: string | null;
           discord_thread_id?: string | null;
+          nominee_veto_notified_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

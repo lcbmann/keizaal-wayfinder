@@ -44,6 +44,7 @@ export async function setupFieldNamesChannel(guild: Guild): Promise<TextChannel>
     await refreshFieldNamesBulletin(guild);
     await refreshOpenFieldNameProposalMessages(guild);
     await cleanupResolvedFieldNameProposalMessages(guild);
+    await backfillFieldNameVetoNotices(guild);
     return existing;
   }
 
@@ -66,6 +67,7 @@ export async function setupFieldNamesChannel(guild: Guild): Promise<TextChannel>
   await refreshFieldNamesBulletin(guild);
   await refreshOpenFieldNameProposalMessages(guild);
   await cleanupResolvedFieldNameProposalMessages(guild);
+  await backfillFieldNameVetoNotices(guild);
   return channel;
 }
 
@@ -149,10 +151,7 @@ export async function nominateFieldName(params: {
     .select("*")
     .single();
   assertNoDbError(attachError, "attach field name proposal message");
-  await params.nominee.send({
-    content: `The Rangers have proposed **${proposal.proposed_name}** as your field name. Use **Veto (No)** within 3 days if you reject this proposal. This private button is your veto; the public vote remains visible to eligible Rangers.`,
-    components: [fieldNameVetoRow(proposal.id)]
-  }).catch(() => undefined);
+  await sendFieldNameVetoNotice(params.nominee, proposal);
   await refreshFieldNamesBulletin(params.guild);
   return attached;
 }
@@ -306,6 +305,27 @@ export async function cleanupResolvedFieldNameProposalMessages(guild: Guild): Pr
     removed += 1;
   }
   return removed;
+}
+
+export async function backfillFieldNameVetoNotices(guild: Guild): Promise<number> {
+  const { data, error } = await supabase
+    .from("field_name_proposals")
+    .select("*")
+    .eq("status", "Open")
+    .is("nominee_veto_notified_at", null)
+    .gt("closes_at", new Date().toISOString())
+    .order("created_at", { ascending: true });
+  assertNoDbError(error, "list field name veto notices to backfill");
+
+  let notified = 0;
+  for (const proposal of data ?? []) {
+    const nominee = await guild.members.fetch(proposal.target_discord_user_id).catch(() => null);
+    if (!nominee || !(await sendFieldNameVetoNotice(nominee, proposal))) {
+      continue;
+    }
+    notified += 1;
+  }
+  return notified;
 }
 
 export async function resolveDueFieldNameProposals(guild: Guild): Promise<number> {
@@ -562,6 +582,23 @@ async function getFieldNameProposal(id: string): Promise<FieldNameProposalRow | 
   const { data, error } = await supabase.from("field_name_proposals").select("*").eq("id", id).maybeSingle();
   assertNoDbError(error, "get field name proposal");
   return data;
+}
+
+async function sendFieldNameVetoNotice(nominee: GuildMember, proposal: FieldNameProposalRow): Promise<boolean> {
+  const delivered = await nominee.send({
+    content: `The Rangers have proposed **${proposal.proposed_name}** as your field name. Use **Veto (No)** within 3 days if you reject this proposal. This private button is your veto; the public vote remains visible to eligible Rangers.`,
+    components: [fieldNameVetoRow(proposal.id)]
+  }).then(() => true).catch(() => false);
+  if (!delivered) {
+    return false;
+  }
+  const { error } = await supabase
+    .from("field_name_proposals")
+    .update({ nominee_veto_notified_at: new Date().toISOString() })
+    .eq("id", proposal.id)
+    .eq("status", "Open");
+  assertNoDbError(error, "mark field name veto notice delivered");
+  return true;
 }
 
 async function listOpenFieldNameProposals(): Promise<FieldNameProposalRow[]> {

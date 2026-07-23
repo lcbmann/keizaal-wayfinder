@@ -1,13 +1,14 @@
 import { SlashCommandBuilder, type GuildMember } from "discord.js";
 import {
-  cancelFieldNameProposal,
+  cancelFieldNameContest,
   listFieldNames,
-  nominateFieldName,
-  removeFieldName,
+  openFieldNameContest,
   refreshFieldNamesBulletin,
-  setupFieldNamesChannel
+  removeFieldName,
+  setupFieldNamesChannel,
+  suggestFieldNameOption
 } from "../services/fieldNameService.js";
-import { canOpenPromotionVotes, canUseTrailmarks, memberRankAtLeast } from "../utils/permissions.js";
+import { canUseTrailmarks, memberRankAtLeast } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
 
@@ -19,11 +20,17 @@ export const fieldNameCommand: BotCommand = {
       .setName("setup")
       .setDescription("Marshal+: create or repair the Ranger-only Field Names channel."))
     .addSubcommand((subcommand) => subcommand
-      .setName("nominate")
-      .setDescription("Ranger+: nominate an Apprentice or Ranger for a field name.")
-      .addUserOption((option) => option.setName("member").setDescription("The Apprentice or Ranger receiving the nomination.").setRequired(true))
-      .addStringOption((option) => option.setName("name").setDescription("The proposed field name; the nominee cannot choose it themselves.").setRequired(true).setMaxLength(40))
-      .addStringOption((option) => option.setName("reason").setDescription("Why the Corps should adopt this name.").setRequired(true).setMaxLength(1000)))
+      .setName("open")
+      .setDescription("Marshal+: open one three-day field name contest for a member.")
+      .addUserOption((option) => option.setName("member").setDescription("The Apprentice or Ranger receiving the contest.").setRequired(true))
+      .addStringOption((option) => option.setName("names").setDescription("Optional starting names, separated by commas.").setMaxLength(1000))
+      .addStringOption((option) => option.setName("reason").setDescription("Optional context for the contest.").setMaxLength(1000)))
+    .addSubcommand((subcommand) => subcommand
+      .setName("suggest")
+      .setDescription("Ranger+: add a name option to an open contest.")
+      .addUserOption((option) => option.setName("member").setDescription("The member whose contest is open.").setRequired(true))
+      .addStringOption((option) => option.setName("name").setDescription("The new field name option.").setRequired(true).setMaxLength(40))
+      .addStringOption((option) => option.setName("reason").setDescription("Why this name suits them.").setRequired(true).setMaxLength(1000)))
     .addSubcommand((subcommand) => subcommand
       .setName("list")
       .setDescription("Ranger+: list assigned field names."))
@@ -34,9 +41,9 @@ export const fieldNameCommand: BotCommand = {
       .addStringOption((option) => option.setName("reason").setDescription("Why the field name is being removed.").setMaxLength(500)))
     .addSubcommand((subcommand) => subcommand
       .setName("cancel")
-      .setDescription("Marshal+: cancel an open field name nomination.")
-      .addStringOption((option) => option.setName("proposal").setDescription("Proposal UUID from the nomination message.").setRequired(true))
-      .addStringOption((option) => option.setName("reason").setDescription("Why the nomination is being cancelled.").setMaxLength(500))),
+      .setDescription("Marshal+: cancel an open field name contest.")
+      .addStringOption((option) => option.setName("contest").setDescription("Contest UUID from the contest post.").setRequired(true))
+      .addStringOption((option) => option.setName("reason").setDescription("Why the contest is being cancelled.").setMaxLength(500))),
 
   async execute(interaction) {
     if (!interaction.inCachedGuild()) {
@@ -55,23 +62,42 @@ export const fieldNameCommand: BotCommand = {
 
     requireRanger(actor);
 
-    if (subcommand === "nominate") {
+    if (subcommand === "open") {
+      requireMarshal(actor);
       const nomineeUser = interaction.options.getUser("member", true);
       const nominee = await interaction.guild.members.fetch(nomineeUser.id).catch(() => null);
       if (!nominee) {
         throw new UserFacingError("That member is not available in this server.");
       }
       await interaction.deferReply({ ephemeral: true });
-      const proposal = await nominateFieldName({
+      const contest = await openFieldNameContest({
         guild: interaction.guild,
         nominee,
-        nominator: actor,
+        opener: actor,
+        initialNames: parseStartingNames(interaction.options.getString("names")),
+        reason: interaction.options.getString("reason") ?? ""
+      });
+      await interaction.editReply({
+        content: `The three-day field name contest for ${nominee} is open. Starting options: ${parseStartingNames(interaction.options.getString("names")).length || "none"}. Contest ID: \`${contest.id}\``
+      });
+      return;
+    }
+
+    if (subcommand === "suggest") {
+      const nomineeUser = interaction.options.getUser("member", true);
+      const nominee = await interaction.guild.members.fetch(nomineeUser.id).catch(() => null);
+      if (!nominee) {
+        throw new UserFacingError("That member is not available in this server.");
+      }
+      await interaction.deferReply({ ephemeral: true });
+      const option = await suggestFieldNameOption({
+        guild: interaction.guild,
+        nominee,
+        proposer: actor,
         proposedName: interaction.options.getString("name", true),
         reason: interaction.options.getString("reason", true)
       });
-      await interaction.editReply({
-        content: `You put **${proposal.proposed_name}** forward for ${nominee}. The Ranger vote is open for 3 days in the Field Names channel. Other names may be proposed for the same Ranger and will compete when the contest closes.`
-      });
+      await interaction.editReply({ content: `**${option.proposed_name}** has been added to ${nominee}'s open field name contest.` });
       return;
     }
 
@@ -104,14 +130,12 @@ export const fieldNameCommand: BotCommand = {
       return;
     }
 
-    if (subcommand === "cancel") {
-      await cancelFieldNameProposal({
-        guild: interaction.guild,
-        proposalId: interaction.options.getString("proposal", true),
-        reason: interaction.options.getString("reason") ?? "Cancelled by a Marshal."
-      });
-      await interaction.reply({ content: "The field name nomination has been cancelled.", ephemeral: true });
-    }
+    await cancelFieldNameContest({
+      guild: interaction.guild,
+      contestId: interaction.options.getString("contest", true),
+      reason: interaction.options.getString("reason") ?? "Cancelled by a Marshal."
+    });
+    await interaction.reply({ content: "The field name contest has been cancelled.", ephemeral: true });
   }
 };
 
@@ -122,7 +146,14 @@ function requireRanger(member: GuildMember): void {
 }
 
 function requireMarshal(member: GuildMember): void {
-  if (!canOpenPromotionVotes(member)) {
+  if (!memberRankAtLeast(member, "Ranger Marshal")) {
     throw new UserFacingError("Ranger Marshal or higher is required for this Field Names command.");
   }
+}
+
+function parseStartingNames(value: string | null): string[] {
+  if (!value?.trim()) {
+    return [];
+  }
+  return value.split(",").map((name) => name.trim()).filter(Boolean);
 }

@@ -1,6 +1,6 @@
 import type { ButtonInteraction } from "discord.js";
-import { handleFieldNameVoteButton } from "../services/fieldNameService.js";
+import { handleFieldNameButton as handleFieldNameInteraction } from "../services/fieldNameService.js";
 
 export async function handleFieldNameButton(interaction: ButtonInteraction): Promise<void> {
-  await handleFieldNameVoteButton(interaction);
+  await handleFieldNameInteraction(interaction);
 }

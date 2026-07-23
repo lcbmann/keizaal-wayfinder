@@ -43,10 +43,11 @@ import {
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import {
-  backfillFieldNameVetoNotices,
+  backfillFieldNameContestVetoNotices,
+  cleanupResolvedFieldNameContestMessages,
   cleanupResolvedFieldNameProposalMessages,
   refreshFieldNamesBulletin,
-  refreshOpenFieldNameProposalMessages
+  refreshOpenFieldNameContestMessages
 } from "./services/fieldNameService.js";
 import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
@@ -112,13 +113,13 @@ client.once("ready", (readyClient) => {
       .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
     void refreshFieldNamesBulletin(corpsGuild)
       .catch((error) => console.warn("Failed to refresh Field Names bulletin:", error));
-    void refreshOpenFieldNameProposalMessages(corpsGuild)
+    void refreshOpenFieldNameContestMessages(corpsGuild)
       .then((refreshed) => {
         if (refreshed > 0) {
-          console.log(`Refreshed ${refreshed} open Field Name nomination${refreshed === 1 ? "" : "s"}.`);
+          console.log(`Refreshed ${refreshed} open Field Name contest${refreshed === 1 ? "" : "s"}.`);
         }
       })
-      .catch((error) => console.warn("Failed to refresh open Field Name nominations:", error));
+      .catch((error) => console.warn("Failed to refresh open Field Name contests:", error));
     void cleanupResolvedFieldNameProposalMessages(corpsGuild)
       .then((removed) => {
         if (removed > 0) {
@@ -126,13 +127,20 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to clean up resolved Field Name nominations:", error));
-    void backfillFieldNameVetoNotices(corpsGuild)
-      .then((notified) => {
-        if (notified > 0) {
-          console.log(`Sent ${notified} Field Name veto notice${notified === 1 ? "" : "s"}.`);
+    void cleanupResolvedFieldNameContestMessages(corpsGuild)
+      .then((removed) => {
+        if (removed > 0) {
+          console.log(`Removed ${removed} resolved Field Name contest${removed === 1 ? "" : "s"}.`);
         }
       })
-      .catch((error) => console.warn("Failed to backfill Field Name veto notices:", error));
+      .catch((error) => console.warn("Failed to clean up resolved Field Name contests:", error));
+    void backfillFieldNameContestVetoNotices(corpsGuild)
+      .then((notified) => {
+        if (notified > 0) {
+          console.log(`Sent ${notified} Field Name contest veto notice${notified === 1 ? "" : "s"}.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to backfill Field Name contest veto notices:", error));
     void syncIntelReportChannelNames(corpsGuild)
       .then((renamed) => {
         if (renamed > 0) {
@@ -335,7 +343,11 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     return;
   }
 
-  if (interaction.isButton() && interaction.customId.startsWith("fieldname:vote:")) {
+  if (interaction.isButton() && (
+    interaction.customId.startsWith("fieldname:choose:") ||
+    interaction.customId.startsWith("fieldname:veto:") ||
+    interaction.customId.startsWith("fieldname:vote:")
+  )) {
     if (interaction.guildId && interaction.guildId !== env.DISCORD_GUILD_ID) {
       throw new UserFacingError("Field Name voting is only available in the Ranger Corps server.");
     }

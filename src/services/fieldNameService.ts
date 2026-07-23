@@ -4,10 +4,14 @@ import {
   ButtonStyle,
   ChannelType,
   EmbedBuilder,
+  ModalBuilder,
   PermissionFlagsBits,
+  TextInputBuilder,
+  TextInputStyle,
   type ButtonInteraction,
   type Guild,
   type GuildMember,
+  type ModalSubmitInteraction,
   type TextChannel
 } from "discord.js";
 import { env } from "../config/env.js";
@@ -33,7 +37,7 @@ const FIELD_NAMES_CHANNEL_STATE_KEY = "field-names-channel";
 const FIELD_NAMES_BULLETIN_STATE_KEY = "field-names-bulletin";
 const FIELD_NAMES_CHANNEL_NAME = "field-names";
 const VOTE_DURATION_MS = 3 * 24 * 60 * 60 * 1000;
-const MAX_OPTIONS = 25;
+const MAX_OPTIONS = 20;
 const FIELD_NAME_ACCESS_RANKS: MainRank[] = ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"];
 
 export async function getFieldNamesChannel(guild: Guild): Promise<TextChannel | null> {
@@ -115,9 +119,17 @@ export async function openFieldNameContest(params: {
   }
 
   const message = await channel.send(await fieldNameContestMessagePayload(params.guild, contest.id));
+  const thread = await message.startThread({
+    name: `Field Name - ${params.nominee.displayName}`.slice(0, 100),
+    autoArchiveDuration: 1440,
+    reason: "Discuss Ranger field name contest"
+  }).catch(() => null);
+  if (thread) {
+    await thread.send("Discuss the proposed names here. The buttons on the parent post are where Rangers cast their votes.").catch(() => undefined);
+  }
   const { data: attached, error: attachError } = await supabase
     .from("field_name_contests")
-    .update({ discord_channel_id: channel.id, discord_message_id: message.id })
+    .update({ discord_channel_id: channel.id, discord_message_id: message.id, discord_thread_id: thread?.id ?? null })
     .eq("id", contest.id)
     .select("*")
     .single();
@@ -220,6 +232,14 @@ export async function handleFieldNameButton(interaction: ButtonInteraction): Pro
     await handleFieldNameContestVeto(interaction, guild, parts[2]);
     return;
   }
+  if (parts[1] === "suggest") {
+    const contestId = parts[2];
+    if (!contestId) {
+      throw new UserFacingError("Invalid field name suggestion button.");
+    }
+    await interaction.showModal(fieldNameSuggestionModal(contestId));
+    return;
+  }
   if (parts[1] !== "choose") {
     throw new UserFacingError("That field name poll has been retired. Use the current contest post.");
   }
@@ -233,6 +253,33 @@ export async function handleFieldNameButton(interaction: ButtonInteraction): Pro
   await recordFieldNameContestVote({ guild, contestId, optionId, voter: member });
   await interaction.editReply(await fieldNameContestMessagePayload(guild, contestId));
   await interaction.followUp({ content: "Your field name choice is recorded. You can change it before the contest closes.", ephemeral: true });
+}
+
+export async function handleFieldNameSuggestionModal(interaction: ModalSubmitInteraction): Promise<void> {
+  const contestId = interaction.customId.split(":")[2];
+  if (!contestId) {
+    throw new UserFacingError("Invalid field name suggestion form.");
+  }
+  await interaction.deferReply({ ephemeral: true });
+  const contest = await getFieldNameContest(contestId);
+  if (!contest || contest.status !== "Open") {
+    throw new UserFacingError("That field name contest is no longer open.");
+  }
+  if (!interaction.guild) {
+    throw new UserFacingError("Field name suggestions must be submitted in the Ranger Corps server.");
+  }
+  const nominee = await interaction.guild.members.fetch(contest.target_discord_user_id).catch(() => null);
+  if (!nominee) {
+    throw new UserFacingError("The contest nominee is no longer available in this server.");
+  }
+  const option = await suggestFieldNameOption({
+    guild: interaction.guild,
+    nominee,
+    proposer: await interaction.guild.members.fetch(interaction.user.id),
+    proposedName: interaction.fields.getTextInputValue("field-name-option"),
+    reason: interaction.fields.getTextInputValue("field-name-reason")
+  });
+  await interaction.editReply({ content: `**${option.proposed_name}** has been added to the contest.` });
 }
 
 export async function listFieldNames(): Promise<RangerFieldNameRow[]> {
@@ -283,10 +330,7 @@ export async function refreshFieldNamesBulletin(guild: Guild): Promise<void> {
   const prior = messageState?.discord_channel_id === channel.id && messageState.discord_message_ids[0]
     ? await channel.messages.fetch(messageState.discord_message_ids[0]).catch(() => null)
     : null;
-  const deleted = prior
-    ? await prior.delete().then(() => true).catch(() => false)
-    : true;
-  const message = !prior || deleted
+  const message = !prior
     ? await channel.send({ embeds: [await fieldNamesBulletinEmbed(guild)] })
     : await prior.edit({ embeds: [await fieldNamesBulletinEmbed(guild)] });
   await saveBotMessageState(FIELD_NAMES_BULLETIN_STATE_KEY, channel.id, [message.id]);
@@ -296,6 +340,7 @@ export async function refreshOpenFieldNameContestMessages(guild: Guild): Promise
   const contests = await listOpenFieldNameContests();
   let refreshed = 0;
   for (const contest of contests) {
+    await ensureFieldNameContestThread(guild, contest);
     await refreshFieldNameContestMessage(guild, contest.id);
     refreshed += 1;
   }
@@ -472,6 +517,36 @@ async function refreshFieldNameContestMessage(guild: Guild, contestId: string): 
   await message?.edit(await fieldNameContestMessagePayload(guild, contest.id)).catch(() => undefined);
 }
 
+async function ensureFieldNameContestThread(guild: Guild, contest: FieldNameContestRow): Promise<void> {
+  if (contest.discord_thread_id || !contest.discord_channel_id || !contest.discord_message_id) {
+    return;
+  }
+  const channel = await guild.channels.fetch(contest.discord_channel_id).catch(() => null);
+  if (channel?.type !== ChannelType.GuildText) {
+    return;
+  }
+  const message = await channel.messages.fetch(contest.discord_message_id).catch(() => null);
+  if (!message) {
+    return;
+  }
+  const nominee = await guild.members.fetch(contest.target_discord_user_id).catch(() => null);
+  const thread = await message.startThread({
+    name: `Field Name - ${nominee?.displayName ?? "Contest"}`.slice(0, 100),
+    autoArchiveDuration: 1440,
+    reason: "Add discussion thread to Field Name contest"
+  }).catch(() => null);
+  if (!thread) {
+    return;
+  }
+  await thread.send("Discuss the proposed names here. The buttons on the parent post are where Rangers cast their votes.").catch(() => undefined);
+  const { error } = await supabase
+    .from("field_name_contests")
+    .update({ discord_thread_id: thread.id })
+    .eq("id", contest.id)
+    .eq("status", "Open");
+  assertNoDbError(error, "attach field name contest discussion thread");
+}
+
 async function fieldNameContestMessagePayload(guild: Guild, contestId: string): Promise<{
   embeds: EmbedBuilder[];
   components: ActionRowBuilder<ButtonBuilder>[];
@@ -529,7 +604,38 @@ function optionButtonRows(contestId: string, options: FieldNameOptionRow[]): Act
     }
     rows.push(row);
   }
+  rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`fieldname:suggest:${contestId}`)
+      .setLabel("Nominate a name")
+      .setStyle(ButtonStyle.Primary)
+  ));
   return rows;
+}
+
+function fieldNameSuggestionModal(contestId: string): ModalBuilder {
+  return new ModalBuilder()
+    .setCustomId(`fieldname:suggest-submit:${contestId}`)
+    .setTitle("Nominate a Field Name")
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("field-name-option")
+          .setLabel("Suggested field name")
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(2)
+          .setMaxLength(40)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("field-name-reason")
+          .setLabel("Why does it suit them?")
+          .setStyle(TextInputStyle.Paragraph)
+          .setMaxLength(1000)
+          .setRequired(true)
+      )
+    );
 }
 
 function fieldNameVetoRow(contestId: string): ActionRowBuilder<ButtonBuilder> {
@@ -704,6 +810,12 @@ async function updateContestStatus(id: string, status: FieldNameContestStatus, r
 }
 
 async function removeFieldNameContestMessages(guild: Guild, contest: FieldNameContestRow): Promise<void> {
+  if (contest.discord_thread_id) {
+    const thread = await guild.channels.fetch(contest.discord_thread_id).catch(() => null);
+    if (thread?.isThread()) {
+      await thread.delete("Remove resolved Field Name contest discussion thread").catch(() => undefined);
+    }
+  }
   if (!contest.discord_channel_id || !contest.discord_message_id) {
     return;
   }

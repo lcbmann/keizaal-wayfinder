@@ -26,7 +26,7 @@ import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
 import { handleDutyButton } from "./components/dutyButtons.js";
 import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.js";
-import { handleFieldNameButton } from "./components/fieldNameButtons.js";
+import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./components/fieldNameButtons.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startFieldNameResolutionJob } from "./jobs/resolveFieldNameProposals.js";
@@ -346,7 +346,8 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
   if (interaction.isButton() && (
     interaction.customId.startsWith("fieldname:choose:") ||
     interaction.customId.startsWith("fieldname:veto:") ||
-    interaction.customId.startsWith("fieldname:vote:")
+    interaction.customId.startsWith("fieldname:vote:") ||
+    interaction.customId.startsWith("fieldname:suggest:")
   )) {
     if (interaction.guildId && interaction.guildId !== env.DISCORD_GUILD_ID) {
       throw new UserFacingError("Field Name voting is only available in the Ranger Corps server.");
@@ -355,6 +356,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
       await safelyRecordInteraction(interaction.user.id);
     }
     await handleFieldNameButton(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("fieldname:suggest-submit:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Field Name suggestions are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleFieldNameSuggestionModal(interaction);
     return;
   }
 

@@ -188,6 +188,21 @@ export async function recordFieldNameBallot(params: {
     .select("*")
     .single();
   assertNoDbError(error, "record field name ballot");
+  if (isNominee) {
+    const { error: vetoError } = await supabase
+      .from("field_name_proposals")
+      .update({
+        status: "Denied",
+        decided_at: new Date().toISOString(),
+        decision_reason: "Vetoed by the nominee."
+      })
+      .eq("id", proposal.id)
+      .eq("status", "Open");
+    assertNoDbError(vetoError, "veto field name proposal");
+    await refreshFieldNameProposalMessage(params.guild, proposal.id);
+    await refreshFieldNamesBulletin(params.guild);
+    return data;
+  }
   await refreshFieldNameProposalMessage(params.guild, proposal.id);
   return data;
 }
@@ -217,6 +232,15 @@ export async function handleFieldNameVoteButton(interaction: ButtonInteraction):
   }
   await interaction.deferUpdate();
   await recordFieldNameBallot({ guild, proposalId, voter: member, vote });
+  if (proposal.target_discord_user_id === member.id) {
+    await interaction.deleteReply().catch(() => undefined);
+    await removeFieldNameProposalMessages(guild, proposal);
+    await interaction.followUp({
+      content: "Your veto was recorded. The field-name proposal has been removed from the active list.",
+      ...(interaction.guildId ? { ephemeral: true } : {})
+    });
+    return;
+  }
   await interaction.editReply(await fieldNameProposalMessagePayload(guild, proposalId, member.id));
   await interaction.followUp({
     content: proposal.target_discord_user_id === member.id

@@ -103,7 +103,7 @@ export const intelCommand: BotCommand = {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("repair-reporters")
-        .setDescription("Repair reporter names in existing bulletins without reposting messages.")
+        .setDescription("Repair existing report embeds and reporter names in place without reposting messages.")
         .addStringOption((option) =>
           option.setName("topic").setDescription("Topic to repair. Omit to repair all topics.").setAutocomplete(true)
         )
@@ -282,7 +282,7 @@ export const intelCommand: BotCommand = {
       const result = await repairIntelReporterNames(interaction.guild, topicId);
       await interaction.editReply({
         content: [
-          "Reporter-name repair complete. Existing messages were edited in place; nothing was reposted.",
+          "Report embed repair complete. Existing messages were edited in place; nothing was reposted.",
           `Topics checked: ${result.topicsChecked}`,
           `Reports checked: ${result.reportsChecked}`,
           `Names recovered: ${result.namesRecovered}`,

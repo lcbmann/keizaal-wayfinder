@@ -25,7 +25,7 @@ import {
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
-import { allyReportsChannelName, intelReportChannelName } from "../utils/guildEmojis.js";
+import { allyReportsChannelName, emojiTitle, intelReportChannelName, intelTopicEmojiName } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
 import { createTrailmark } from "./trailmarkService.js";
 import { atlasReportFieldValue } from "./atlasService.js";
@@ -248,7 +248,7 @@ export async function publishDeliveredAllianceReportsToCorps(
 
   const channel = await ensureCorpsAllyReportsChannel(corpsGuild);
   for (const report of allianceReports) {
-    const message = await sendOrEditMessage(channel, report.corps_ally_message_id, allianceReportEmbed(report));
+    const message = await sendOrEditMessage(channel, report.corps_ally_message_id, allianceReportEmbed(corpsGuild, report));
     if (report.corps_ally_channel_id !== channel.id || report.corps_ally_message_id !== message.id) {
       const { error: updateError } = await supabase.from("alliance_reports").update({
         corps_ally_channel_id: channel.id,
@@ -431,7 +431,7 @@ async function synchronizeAllianceReport(client: Client, report: AllianceReportR
     throw new UserFacingError(`${hq.name} Trailmark was not found.`);
   }
   const trailmarkChannel = await requireTextChannel(corpsGuild, trailmark.discord_channel_id);
-  const trailmarkEmbed = allianceTrailmarkNoteEmbed(report, hq);
+  const trailmarkEmbed = allianceTrailmarkNoteEmbed(corpsGuild, report, hq);
   const trailmarkMessage = await sendOrEditMessage(trailmarkChannel, report.trailmark_message_id, trailmarkEmbed);
   if (report.trailmark_message_id !== trailmarkMessage.id || report.trailmark_message_channel_id !== trailmarkChannel.id) {
     const { error } = await supabase.from("alliance_reports").update({
@@ -553,7 +553,7 @@ async function publishHeadquartersReport(
   }
   const channel = await ensureHeadquartersTopicChannel(allianceGuild, hq, topic);
   const trailmark = await getTrailmark(report.trailmark_id);
-  const embed = await headquartersReportEmbed(corpsGuild, hq, report, delivery, trailmark);
+  const embed = await headquartersReportEmbed(corpsGuild, allianceGuild, hq, report, delivery, trailmark, topic);
   const message = await sendOrEditMessage(channel, existing?.discord_message_id ?? null, embed);
   const { error: upsertError } = await supabase.from("alliance_headquarters_publications").upsert({
     report_id: report.id,
@@ -866,10 +866,12 @@ async function upsertHeadquartersDelivery(
 
 async function headquartersReportEmbed(
   corpsGuild: Guild,
+  allianceGuild: Guild,
   hq: AllianceHeadquartersRow,
   report: IntelReportRow,
   delivery: AllianceHeadquartersDeliveryRow,
-  trailmark: TrailmarkRow | null
+  trailmark: TrailmarkRow | null,
+  topic: IntelTopicRow
 ): Promise<EmbedBuilder> {
   const reporter = report.author_display_name
     ?? await discordDisplayName(corpsGuild, report.author_discord_user_id);
@@ -879,7 +881,7 @@ async function headquartersReportEmbed(
     ? await allianceOriginalLink(report.source_alliance_report_id)
     : `https://discord.com/channels/${corpsGuild.id}/${report.discord_channel_id}/${report.discord_message_id}`;
   const embed = new EmbedBuilder()
-    .setTitle(`${trailmark?.name ?? "Ranger Report"} - ${discordTime(report.created_at)}`)
+    .setTitle(emojiTitle(allianceGuild, intelTopicEmojiName(topic.name) ?? "intel", `${trailmark?.name ?? "Ranger Report"} - ${discordTime(report.created_at)}`))
     .setDescription(formatContent(report.content))
     .addFields(
       { name: "Reported by", value: reporter, inline: true },
@@ -898,10 +900,10 @@ async function headquartersReportEmbed(
   return embed;
 }
 
-function allianceTrailmarkNoteEmbed(report: AllianceReportRow, hq: AllianceHeadquartersRow): EmbedBuilder {
+function allianceTrailmarkNoteEmbed(corpsGuild: Guild, report: AllianceReportRow, hq: AllianceHeadquartersRow): EmbedBuilder {
   const originalUrl = `https://discord.com/channels/${env.RANGER_ALLIANCE_GUILD_ID}/${report.discord_channel_id}/${report.discord_message_id}`;
   const embed = new EmbedBuilder()
-    .setTitle(`${report.source_order} Report Left at ${hq.name}`)
+    .setTitle(emojiTitle(corpsGuild, "teamwork", `${report.source_order} Report Left at ${hq.name}`))
     .setDescription(formatContent(report.content || "Attachment-only report."))
     .addFields(
       { name: "Reported by", value: report.author_display_name, inline: true },
@@ -920,10 +922,10 @@ function allianceTrailmarkNoteEmbed(report: AllianceReportRow, hq: AllianceHeadq
   return embed;
 }
 
-function allianceReportEmbed(report: AllianceReportRow): EmbedBuilder {
+function allianceReportEmbed(corpsGuild: Guild, report: AllianceReportRow): EmbedBuilder {
   const originalUrl = `https://discord.com/channels/${env.RANGER_ALLIANCE_GUILD_ID}/${report.discord_channel_id}/${report.discord_message_id}`;
   const embed = new EmbedBuilder()
-    .setTitle(`Alliance Report - ${report.source_order}`)
+    .setTitle(emojiTitle(corpsGuild, "teamwork", `Alliance Report - ${report.source_order}`))
     .setDescription(formatContent(report.content || "Attachment-only report."))
     .addFields(
       { name: "Reported by", value: report.author_display_name, inline: true },

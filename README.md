@@ -241,6 +241,7 @@ Implemented commands:
 - `/intel catchall-set`
 - `/intel catchall-clear`
 - `/intel refresh`
+- `/intel repair-reporters`
 - `/intel backfill`
 - `/alliance setup`
 - `/alliance sync`
@@ -308,13 +309,13 @@ Trailmark intel topics collect delivered reports from Trailmark channels into pu
 
 `/intel catchall-set` configures a dedicated keywordless fallback topic for delivered reports that do not match any normal topic. `/intel catchall-clear` disables future catchall capture without deleting existing reports.
 
-When a message is posted in an active Trailmark channel, Wayfinder checks it against active intel topic keywords. Matching messages are stored as pending reports. A pending report is published only after a Ranger opens that source Trailmark after the report was written and later opens the configured HQ Trailmark. HQ-origin reports are published immediately. Bulletins are rebuilt in original report chronology and include the original reporter, source Trailmark, report time, original link, and the Ranger who delivered it to HQ.
+When a message is posted in an active Trailmark channel, Wayfinder checks it against active intel topic keywords. Matching messages are stored as pending reports. A pending report is published only after a Ranger opens that source Trailmark after the report was written and later opens the configured HQ Trailmark. HQ-origin reports are published immediately. Bulletins are rebuilt in original report chronology and include the original reporter, source Trailmark, report time, original link, and the Ranger who delivered it to HQ. Topic-specific report embeds use the matching category emoji in their titles; Ally Reports use the teamwork emoji.
 
 Atlas share codes in Trailmark messages get a preview reply when Wayfinder can decode them. Intel reports also store Atlas summary metadata and include an Atlas Share field in the report embed.
 
 `/intel backfill` scans old Trailmark messages into the current intel topics. It scans current Trailmark channels and the archived legacy `#trailmarks` forum (`1511443716420800673`), mapping forum thread names such as `Morthal Stash` to current Trailmarks where possible. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
-Automatic intel updates append newly delivered reports instead of rebuilding entire report channels. Use `/intel refresh` when you intentionally want to delete and rebuild a topic bulletin in strict original report chronology.
+Automatic intel updates append newly delivered reports instead of rebuilding entire report channels. Use `/intel repair-reporters` to update existing posted report embeds in place, including their category emojis, without deleting or reposting them. Use `/intel refresh` only when you intentionally want to delete and rebuild a topic bulletin in strict original report chronology.
 
 ## Ranger Alliance Intel Bridge
 

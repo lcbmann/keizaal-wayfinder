@@ -92,7 +92,7 @@ function intelReportChannelNameWithoutEmoji(topicName: string): string {
   return `${slugify(topicName)}-reports`.slice(0, 78);
 }
 
-function intelTopicEmojiName(topicName: string): WayfinderEmojiName | null {
+export function intelTopicEmojiName(topicName: string): WayfinderEmojiName | null {
   const topic = slugify(topicName);
   if (topic === "war") {
     return "war";

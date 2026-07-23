@@ -27,7 +27,7 @@ import {
 } from "./atlasService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
-import { emojiEmbed, guildEmoji, intelReportChannelName, isStandardIntelReportChannelName } from "../utils/guildEmojis.js";
+import { emojiEmbed, emojiTitle, guildEmoji, intelReportChannelName, intelTopicEmojiName, isStandardIntelReportChannelName } from "../utils/guildEmojis.js";
 import { getActiveFieldNameMap } from "./fieldNameService.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
@@ -250,7 +250,7 @@ export async function repairIntelReporterNames(
       }
 
       await message.edit({
-        embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
+        embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames, topic)]
       });
       result.messagesUpdated += 1;
     }
@@ -1253,7 +1253,7 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
   const displayNames = await resolveReportDisplayNames(guild, validReports);
   const sentMessages: Message[] = [];
 
-  const header = emojiEmbed(guild, "intel", `${topic.name} Reports`)
+  const header = emojiEmbed(guild, intelTopicEmojiName(topic.name) ?? "intel", `${topic.name} Reports`)
     .setDescription(
       validReports.length === 0
         ? "No delivered reports yet."
@@ -1265,7 +1265,7 @@ async function repostIntelTopicBulletin(guild: Guild, topic: IntelTopicRow): Pro
 
   for (const report of validReports) {
     const message = await channel.send({
-      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames, topic)]
     });
     await markReportPosted(report.id, channel.id, message.id);
     sentMessages.push(message);
@@ -1298,7 +1298,7 @@ async function publishUnpostedDeliveredReports(guild: Guild, topicId: string): P
 
   for (const report of validReports) {
     const message = await channel.send({
-      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames, topic)]
     });
     await markReportPosted(report.id, channel.id, message.id);
     sentMessageIds.push(message.id);
@@ -1546,6 +1546,8 @@ async function refreshEditedDeliveredReportMessages(guild: Guild, reports: Intel
 
   const trailmarks = await trailmarkMapForReports(postedReports);
   const displayNames = await resolveReportDisplayNames(guild, postedReports);
+  const topics = await listIntelTopics(true);
+  const topicsById = new Map(topics.map((topic) => [topic.id, topic]));
   for (const report of postedReports) {
     const channel = await guild.channels.fetch(report.bulletin_channel_id!).catch(() => null);
     if (!isMessageFetchableChannel(channel)) {
@@ -1556,7 +1558,7 @@ async function refreshEditedDeliveredReportMessages(guild: Guild, reports: Intel
       continue;
     }
     await bulletinMessage.edit({
-      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames)]
+      embeds: [reportEmbed(guild, report, trailmarks.get(report.trailmark_id), displayNames, topicsById.get(report.topic_id))]
     });
   }
 }
@@ -1604,7 +1606,8 @@ function reportEmbed(
   guild: Guild,
   report: IntelReportRow,
   trailmark: TrailmarkRow | undefined,
-  displayNames: ReadonlyMap<string, string>
+  displayNames: ReadonlyMap<string, string>,
+  topic?: IntelTopicRow
 ): EmbedBuilder {
   const reporter = displayNames.get(report.author_discord_user_id)
     ?? report.author_display_name
@@ -1619,8 +1622,9 @@ function reportEmbed(
   const where = trailmark ? `${trailmark.name} (${trailmark.hold})` : "Unknown Trailmark";
   const atlasField = atlasReportFieldValue(report.atlas_summary, report.atlas_share_code);
 
+  const topicEmoji = intelTopicEmojiName(topic?.name ?? "") ?? "intel";
   const embed = new EmbedBuilder()
-    .setTitle(`${trailmark?.name ?? "Unknown Trailmark"} - ${formatDiscordTime(report.created_at)}`)
+    .setTitle(emojiTitle(guild, topicEmoji, `${trailmark?.name ?? "Unknown Trailmark"} - ${formatDiscordTime(report.created_at)}`))
     .setDescription(formatReportContent(report.content))
     .addFields(
       {

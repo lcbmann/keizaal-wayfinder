@@ -100,8 +100,8 @@ export const promotionCommand: BotCommand = {
     }
 
     const subcommand = interaction.options.getSubcommand();
-    if (subcommand === "approve") {
-      await interaction.deferReply();
+    if (subcommand === "approve" || subcommand === "eligible") {
+      await interaction.deferReply({ ephemeral: subcommand === "eligible" });
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
 
@@ -113,7 +113,7 @@ export const promotionCommand: BotCommand = {
       const candidates = await listApprenticePromotionEligibility();
       const embed = promotionEligibilityEmbed(interaction.guild, candidates);
 
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
 

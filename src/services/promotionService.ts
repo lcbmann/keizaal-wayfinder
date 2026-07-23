@@ -37,9 +37,22 @@ export async function listApprenticePromotionEligibility(): Promise<EligibleRang
 
   assertNoDbError(error, "list apprentice candidates");
 
+  const apprentices = data ?? [];
+  if (apprentices.length === 0) {
+    return [];
+  }
+
+  const { data: openVotes, error: openVotesError } = await supabase
+    .from("promotion_votes")
+    .select("candidate_ranger_id")
+    .in("candidate_ranger_id", apprentices.map((ranger) => ranger.id))
+    .eq("status", "Open");
+  assertNoDbError(openVotesError, "list open apprentice promotion votes");
+  const openVoteCandidateIds = new Set((openVotes ?? []).map((vote) => vote.candidate_ranger_id));
+
   const results: EligibleRanger[] = [];
-  for (const ranger of data ?? []) {
-    const openVote = await hasOpenPromotionVote(ranger.id);
+  for (const ranger of apprentices) {
+    const openVote = openVoteCandidateIds.has(ranger.id);
     const days = daysBetween(ranger.join_date);
     const reasons: string[] = [];
 

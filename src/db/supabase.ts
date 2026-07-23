@@ -269,7 +269,7 @@ export interface FieldNameContestRow {
   status: FieldNameContestStatus;
   reason: string | null;
   opened_at: string;
-  closes_at: string;
+  closes_at: string | null;
   decided_at: string | null;
   decision_reason: string | null;
   discord_channel_id: string | null;
@@ -557,8 +557,9 @@ export interface Database {
       };
       field_name_contests: {
         Row: FieldNameContestRow;
-        Insert: Omit<FieldNameContestRow, "id" | "created_at" | "updated_at" | "decided_at" | "discord_channel_id" | "discord_message_id" | "discord_thread_id" | "nominee_veto_notified_at"> & {
+        Insert: Omit<FieldNameContestRow, "id" | "created_at" | "updated_at" | "decided_at" | "discord_channel_id" | "discord_message_id" | "discord_thread_id" | "nominee_veto_notified_at" | "closes_at"> & {
           id?: string;
+          closes_at?: string | null;
           decided_at?: string | null;
           discord_channel_id?: string | null;
           discord_message_id?: string | null;

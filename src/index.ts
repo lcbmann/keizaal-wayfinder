@@ -29,7 +29,6 @@ import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.j
 import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./components/fieldNameButtons.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
-import { startFieldNameResolutionJob } from "./jobs/resolveFieldNameProposals.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
@@ -94,7 +93,6 @@ const client = new Client({
 client.once("ready", (readyClient) => {
   console.log(`Keizaal Wayfinder logged in as ${readyClient.user.tag}`);
   startTrailmarkSessionExpirationJob(readyClient);
-  startFieldNameResolutionJob(readyClient);
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
     void removeCorpsOnlyIntelReports(corpsGuild)

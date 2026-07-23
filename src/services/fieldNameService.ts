@@ -36,7 +36,6 @@ import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from ".
 const FIELD_NAMES_CHANNEL_STATE_KEY = "field-names-channel";
 const FIELD_NAMES_BULLETIN_STATE_KEY = "field-names-bulletin";
 const FIELD_NAMES_CHANNEL_NAME = "field-names";
-const VOTE_DURATION_MS = 3 * 24 * 60 * 60 * 1000;
 const MAX_OPTIONS = 20;
 const FIELD_NAME_ACCESS_RANKS: MainRank[] = ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"];
 
@@ -102,7 +101,7 @@ export async function openFieldNameContest(params: {
       status: "Open",
       reason: optionalReason(params.reason),
       opened_at: openedAt.toISOString(),
-      closes_at: new Date(openedAt.getTime() + VOTE_DURATION_MS).toISOString()
+      closes_at: null
     })
     .select("*")
     .single();
@@ -152,7 +151,7 @@ export async function suggestFieldNameOption(params: {
     throw new UserFacingError("You cannot suggest a field name for yourself.");
   }
   const contest = await getOpenFieldNameContestForTarget(params.nominee.id);
-  if (!contest || new Date(contest.closes_at).getTime() <= Date.now()) {
+  if (!contest) {
     throw new UserFacingError(`There is no open field name contest for ${params.nominee.displayName}.`);
   }
   const optionName = validateFieldName(params.proposedName);
@@ -193,9 +192,6 @@ export async function recordFieldNameContestVote(params: {
   const contest = await getFieldNameContest(params.contestId);
   if (!contest || contest.status !== "Open") {
     throw new UserFacingError("That field name contest is no longer open.");
-  }
-  if (new Date(contest.closes_at).getTime() <= Date.now()) {
-    throw new UserFacingError("That field name contest has reached its closing time. It will be resolved automatically.");
   }
   requireRanger(params.voter, "Only full Rangers may vote on field names. Apprentices cannot view or vote on these contests.");
   const options = await listFieldNameOptions(contest.id);
@@ -318,6 +314,17 @@ export async function cancelFieldNameContest(params: {
   await refreshFieldNamesBulletin(params.guild);
 }
 
+export async function closeFieldNameContest(params: {
+  guild: Guild;
+  contestId: string;
+}): Promise<void> {
+  const contest = await getFieldNameContest(params.contestId);
+  if (!contest || contest.status !== "Open") {
+    throw new UserFacingError("That field name contest is not open.");
+  }
+  await resolveFieldNameContest(params.guild, contest);
+}
+
 export async function refreshFieldNamesBulletin(guild: Guild): Promise<void> {
   const channel = await getFieldNamesChannel(guild);
   if (!channel) {
@@ -363,7 +370,6 @@ export async function backfillFieldNameContestVetoNotices(guild: Guild): Promise
     .select("*")
     .eq("status", "Open")
     .is("nominee_veto_notified_at", null)
-    .gt("closes_at", new Date().toISOString())
     .order("created_at", { ascending: true });
   assertNoDbError(error, "list field name contest veto notices to backfill");
   let notified = 0;
@@ -402,22 +408,6 @@ export async function cleanupResolvedFieldNameProposalMessages(guild: Guild): Pr
     await removeLegacyProposalMessages(guild, proposal);
   }
   return data?.length ?? 0;
-}
-
-export async function resolveDueFieldNameProposals(guild: Guild): Promise<number> {
-  const { data, error } = await supabase
-    .from("field_name_contests")
-    .select("*")
-    .eq("status", "Open")
-    .lte("closes_at", new Date().toISOString())
-    .order("closes_at", { ascending: true });
-  assertNoDbError(error, "list due field name contests");
-  let resolved = 0;
-  for (const contest of data ?? []) {
-    await resolveFieldNameContest(guild, contest);
-    resolved += 1;
-  }
-  return resolved;
 }
 
 export async function getActiveFieldName(discordUserId: string): Promise<RangerFieldNameRow | null> {
@@ -579,7 +569,7 @@ function fieldNameContestEmbed(
     .addFields(
       { name: "Nominee", value: nominee ? `${nominee} - ${nominee.displayName}` : `<@${contest.target_discord_user_id}>`, inline: true },
       { name: "Opened by", value: `<@${contest.opened_by_discord_user_id}>`, inline: true },
-      { name: "Vote closes", value: `<t:${Math.floor(new Date(contest.closes_at).getTime() / 1000)}:R>`, inline: true },
+      { name: "Vote status", value: "Open-ended; a Marshal+ closes it when a clear leader emerges.", inline: true },
       { name: "Name options", value: truncate(optionText), inline: false }
     )
     .setColor(0x587c4a)
@@ -744,12 +734,12 @@ async function fieldNamesBulletinEmbed(guild: Guild): Promise<EmbedBuilder> {
     ? needed.map((ranger) => `<@${ranger.discord_user_id}> - ${ranger.discord_display_name ?? "Ranger"}`).join("\n")
     : "Every full Ranger currently has a field name.";
   const contestText = contests.length
-    ? contests.map((contest) => `<@${contest.target_discord_user_id}> - closes <t:${Math.floor(new Date(contest.closes_at).getTime() / 1000)}:R>`).join("\n")
+    ? contests.map((contest) => `<@${contest.target_discord_user_id}> - open-ended; close with /field-name close`).join("\n")
     : "No open contests.";
   return emojiEmbed(guild, "teamwork", "Ranger Field Names")
     .setDescription([
       "Field names are Ranger-assigned names used in the field so members can identify one another without relying on personal names.",
-      "A Marshal+ opens one three-day contest for a Ranger. Rangers may suggest additional options, then each full Ranger chooses one option. The option with the most votes wins; ties or contests with no votes assign nothing.",
+      "A Marshal+ opens one open-ended contest for a Ranger. Rangers may suggest additional options, then each full Ranger chooses one option. A Marshal+ closes the contest when a clear leader emerges; ties or contests with no votes assign nothing.",
       "Field names are optional for Apprentices, but every full Ranger should eventually have an approved name. Nominees may veto a contest privately."
     ].join("\n"))
     .addFields(

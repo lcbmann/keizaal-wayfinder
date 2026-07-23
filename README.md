@@ -232,6 +232,7 @@ Implemented commands:
 - `/field-name setup`
 - `/field-name open`
 - `/field-name suggest`
+- `/field-name close`
 - `/field-name list`
 - `/field-name remove`
 - `/field-name cancel`
@@ -298,9 +299,9 @@ Either participant may use `/apprenticeship end` to end their current pairing. M
 
 ## Ranger Field Names
 
-Apply migrations `014_create_field_names.sql`, `015_field_name_contests.sql`, `016_add_field_name_veto_notice.sql`, `017_close_legacy_field_name_polls.sql`, and `018_create_field_name_contests.sql`, deploy the bot, and run `/field-name setup` once as a Marshal. Migration 017 cancels every old open poll so none can resolve under the previous rules. Wayfinder removes their old posts and repairs a `field-names` channel under the configured Trailmarks category. Because main rank roles are cumulative, Ranger Captain, Marshal, and Commander members retain access; Apprentices do not.
+Apply migrations `014_create_field_names.sql`, `015_field_name_contests.sql`, `016_add_field_name_veto_notice.sql`, `017_close_legacy_field_name_polls.sql`, `018_create_field_name_contests.sql`, and `019_field_name_contests_open_ended.sql`, deploy the bot, and run `/field-name setup` once as a Marshal. Migration 017 cancels every old open poll so none can resolve under the previous rules. Migration 019 removes the deadline from the current contest. Wayfinder removes old posts and repairs a `field-names` channel under the configured Trailmarks category. Because main rank roles are cumulative, Ranger Captain, Marshal, and Commander members retain access; Apprentices do not.
 
-Marshal+ uses `/field-name open` to create one three-day contest for an Apprentice or Ranger. Starting names are optional and can be entered as a comma-separated list. Rangers can add choices with the post's **Nominate a name** button and form, or with `/field-name suggest`; the bot edits the same contest post instead of creating another poll. Each contest also has a discussion thread. Each full Ranger, including the nominee, chooses one option with a button and may change that choice until the contest closes. The option with the most votes wins; ties or contests with no votes assign no name. The nominee also receives a private veto button to reject the entire contest. Approved names are stored without changing Discord nicknames.
+Marshal+ uses `/field-name open` to create an open-ended contest for an Apprentice or Ranger. Starting names are optional and can be entered as a comma-separated list. Rangers can add choices with the post's **Nominate a name** button and form, or with `/field-name suggest`; the bot edits the same contest post instead of creating another poll. Each contest also has a discussion thread. Each full Ranger, including the nominee, chooses one option with a button and may change that choice. When a clear leader has emerged, a Marshal+ uses `/field-name close` with the contest ID. The leading option wins; ties or contests with no votes assign no name. The nominee also receives a private veto button to reject the entire contest. Approved names are stored without changing Discord nicknames.
 
 The Field Names bulletin lists assigned names, open contests, and full Rangers still awaiting a name. It refreshes after promotion and on startup. `/field-name list` shows assigned names; Marshal+ can use `/field-name remove` or `/field-name cancel` for administration.
 

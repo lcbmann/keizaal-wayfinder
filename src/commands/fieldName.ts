@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, type GuildMember } from "discord.js";
 import {
   cancelFieldNameContest,
+  closeFieldNameContest,
   listFieldNames,
   openFieldNameContest,
   refreshFieldNamesBulletin,
@@ -21,7 +22,7 @@ export const fieldNameCommand: BotCommand = {
       .setDescription("Marshal+: create or repair the Ranger-only Field Names channel."))
     .addSubcommand((subcommand) => subcommand
       .setName("open")
-      .setDescription("Marshal+: open one three-day field name contest for a member.")
+      .setDescription("Marshal+: open an open-ended field name contest for a member.")
       .addUserOption((option) => option.setName("member").setDescription("The Apprentice or Ranger receiving the contest.").setRequired(true))
       .addStringOption((option) => option.setName("names").setDescription("Optional starting names, separated by commas.").setMaxLength(1000))
       .addStringOption((option) => option.setName("reason").setDescription("Optional context for the contest.").setMaxLength(1000)))
@@ -31,6 +32,10 @@ export const fieldNameCommand: BotCommand = {
       .addUserOption((option) => option.setName("member").setDescription("The member whose contest is open.").setRequired(true))
       .addStringOption((option) => option.setName("name").setDescription("The new field name option.").setRequired(true).setMaxLength(40))
       .addStringOption((option) => option.setName("reason").setDescription("Why this name suits them.").setRequired(true).setMaxLength(1000)))
+    .addSubcommand((subcommand) => subcommand
+      .setName("close")
+      .setDescription("Marshal+: close a contest and decide its leading field name.")
+      .addStringOption((option) => option.setName("contest").setDescription("Contest UUID from the contest post.").setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("list")
       .setDescription("Ranger+: list assigned field names."))
@@ -78,7 +83,7 @@ export const fieldNameCommand: BotCommand = {
         reason: interaction.options.getString("reason") ?? ""
       });
       await interaction.editReply({
-        content: `The three-day field name contest for ${nominee} is open. Starting options: ${parseStartingNames(interaction.options.getString("names")).length || "none"}. Contest ID: \`${contest.id}\``
+        content: `The open-ended field name contest for ${nominee} is open. Starting options: ${parseStartingNames(interaction.options.getString("names")).length || "none"}. Contest ID: \`${contest.id}\``
       });
       return;
     }
@@ -115,6 +120,16 @@ export const fieldNameCommand: BotCommand = {
     }
 
     requireMarshal(actor);
+
+    if (subcommand === "close") {
+      await interaction.deferReply({ ephemeral: true });
+      await closeFieldNameContest({
+        guild: interaction.guild,
+        contestId: interaction.options.getString("contest", true)
+      });
+      await interaction.editReply({ content: "The field name contest has been closed and its leading option has been decided." });
+      return;
+    }
 
     if (subcommand === "remove") {
       const member = interaction.options.getUser("member", true);

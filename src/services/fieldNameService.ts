@@ -197,9 +197,6 @@ export async function recordFieldNameContestVote(params: {
   if (new Date(contest.closes_at).getTime() <= Date.now()) {
     throw new UserFacingError("That field name contest has reached its closing time. It will be resolved automatically.");
   }
-  if (contest.target_discord_user_id === params.voter.id) {
-    throw new UserFacingError("The nominee cannot vote on their own field name contest. Use the private Veto button if you reject the contest.");
-  }
   requireRanger(params.voter, "Only full Rangers may vote on field names. Apprentices cannot view or vote on these contests.");
   const options = await listFieldNameOptions(contest.id);
   if (!options.some((option) => option.id === params.optionId)) {
@@ -586,7 +583,7 @@ function fieldNameContestEmbed(
       { name: "Name options", value: truncate(optionText), inline: false }
     )
     .setColor(0x587c4a)
-    .setFooter({ text: "Ranger+ only: choose one name. You may change your choice before the vote closes." })
+    .setFooter({ text: "Ranger+ only: choose one name, including nominees. You may change your choice before the vote closes." })
     .setTimestamp(new Date(contest.opened_at));
 }
 

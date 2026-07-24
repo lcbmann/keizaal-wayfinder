@@ -403,6 +403,7 @@ export interface AllianceHeadquartersRow {
   reports_category_id: string;
   intake_channel_id: string;
   active: boolean;
+  all_topics: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -411,6 +412,7 @@ export interface AllianceHeadquartersTopicChannelRow {
   headquarters_id: string;
   topic_id: string;
   discord_channel_id: string;
+  active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -724,7 +726,8 @@ export interface Database {
       };
       alliance_headquarters_topic_channels: {
         Row: AllianceHeadquartersTopicChannelRow;
-        Insert: Omit<AllianceHeadquartersTopicChannelRow, "created_at" | "updated_at">;
+        Insert: Omit<AllianceHeadquartersTopicChannelRow, "created_at" | "updated_at" | "active">
+          & { active?: boolean; created_at?: string; updated_at?: string };
         Update: Partial<AllianceHeadquartersTopicChannelRow>;
       };
       alliance_headquarters_deliveries: {

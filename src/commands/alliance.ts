@@ -2,9 +2,12 @@ import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { env } from "../config/env.js";
 import {
   allianceBridgeConfigured,
+  addAllianceGroup,
   getAllianceStatus,
   isAllianceGuildId,
   isAllianceLeader,
+  removeAllianceGroup,
+  setAllianceGroupTopics,
   setupAllianceBridge
 } from "../services/allianceIntelService.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -18,10 +21,41 @@ export const allianceCommand: BotCommand = {
       subcommand.setName("setup").setDescription("Create allied HQ Trailmarks and private intel sections.")
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("sync").setDescription("Repair HQ channels and migrate stored allied reports.")
+      subcommand.setName("sync").setDescription("Repair configured HQ channels without backfilling reports.")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("status").setDescription("Show Ranger Alliance bridge status.")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("group-add")
+        .setDescription("Create an Alliance group, HQ Trailmark, and selected report channels.")
+        .addStringOption((option) => option.setName("key").setDescription("Short unique key, such as dawnguard.").setRequired(true).setMaxLength(40))
+        .addStringOption((option) => option.setName("order").setDescription("Group name shown on reports.").setRequired(true).setMaxLength(80))
+        .addRoleOption((option) => option.setName("role").setDescription("Alliance role allowed to see this group's reports.").setRequired(true))
+        .addStringOption((option) => option.setName("headquarters").setDescription("Name of the group's HQ location.").setRequired(true).setMaxLength(80))
+        .addStringOption((option) => option.setName("hold").setDescription("Hold where the HQ Trailmark is located.").setRequired(true).setMaxLength(80))
+        .addStringOption((option) => option.setName("description").setDescription("In-world description of the HQ cache.").setRequired(true).setMaxLength(1000))
+        .addStringOption((option) => option.setName("topics").setDescription("Comma-separated topic names, slugs, or all.").setRequired(true).setMaxLength(500))
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("group-topics")
+        .setDescription("Change which intel topics an Alliance group can see.")
+        .addStringOption((option) => option.setName("key").setDescription("Alliance group key.").setRequired(true).setMaxLength(40))
+        .addStringOption((option) => option.setName("topics").setDescription("Comma-separated topic names, slugs, or all.").setRequired(true).setMaxLength(500))
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("group-remove")
+        .setDescription("Deactivate an Alliance group, HQ Trailmark, and report section.")
+        .addStringOption((option) => option.setName("key").setDescription("Alliance group key.").setRequired(true).setMaxLength(40))
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("headquarters-remove")
+        .setDescription("Deactivate an Alliance group's headquarters and report section.")
+        .addStringOption((option) => option.setName("key").setDescription("Alliance group key.").setRequired(true).setMaxLength(40))
     ),
 
   async execute(interaction) {
@@ -59,13 +93,54 @@ export const allianceCommand: BotCommand = {
     }
 
     await interaction.deferReply({ ephemeral: true });
+    if (subcommand === "group-add") {
+      const role = interaction.options.getRole("role", true);
+      const result = await addAllianceGroup({
+        client: interaction.client,
+        key: interaction.options.getString("key", true),
+        sourceOrder: interaction.options.getString("order", true),
+        viewerRoleId: role.id,
+        headquartersName: interaction.options.getString("headquarters", true),
+        hold: interaction.options.getString("hold", true),
+        description: interaction.options.getString("description", true),
+        topicNames: interaction.options.getString("topics", true)
+      });
+      await interaction.editReply([
+        `Alliance group **${result.headquarters.source_order}** created.`,
+        `HQ Trailmark: **${result.headquarters.name}**`,
+        `Topic channels created: **${result.topicChannels}**`,
+        "New group channels start empty; future deliveries will appear there."
+      ].join("\n"));
+      return;
+    }
+    if (subcommand === "group-topics") {
+      const topicChannels = await setAllianceGroupTopics({
+        client: interaction.client,
+        key: interaction.options.getString("key", true),
+        topicNames: interaction.options.getString("topics", true)
+      });
+      await interaction.editReply([
+        "Alliance group topics updated.",
+        `Active topic channels: **${topicChannels}**`,
+        "Newly enabled channels start empty; this does not backfill historical reports."
+      ].join("\n"));
+      return;
+    }
+    if (subcommand === "group-remove" || subcommand === "headquarters-remove") {
+      await removeAllianceGroup({
+        client: interaction.client,
+        key: interaction.options.getString("key", true)
+      });
+      await interaction.editReply("Alliance group and its headquarters have been deactivated. Its channels were archived and no new reports will be published there.");
+      return;
+    }
     const result = await setupAllianceBridge(interaction.client);
     await interaction.editReply({
       content: [
         subcommand === "setup" ? "Ranger Alliance headquarters network set up." : "Ranger Alliance headquarters network synchronized.",
         `Headquarters configured: ${result.headquarters}`,
         `HQ topic channels: ${result.topicChannels}`,
-        `Alliance reports migrated: ${result.allianceReportsMigrated}`
+        "Historical reports were not backfilled."
       ].join("\n")
     });
   }

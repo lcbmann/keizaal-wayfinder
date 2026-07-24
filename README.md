@@ -52,8 +52,8 @@ Optional:
 - `NOTICE_BOARD_CHANNEL_ID`, optional explicit channel for apprenticeship matching notices; otherwise Wayfinder finds a text channel ending in `notice-board`
 - `CORPS_INTEL_CATEGORY_ID`, required for automatic Corps intel channel creation and the Ranger Alliance bridge
 - `RANGER_ALLIANCE_GUILD_ID`
-- `RANGER_ALLIANCE_REPORTS_CATEGORY_ID`
-- `RANGER_ALLIANCE_INTAKE_CHANNEL_ID`
+- `RANGER_ALLIANCE_REPORTS_CATEGORY_ID`, optional legacy category to archive
+- `RANGER_ALLIANCE_INTAKE_CHANNEL_ID`, retained only for legacy deployments
 - `RANGER_ALLIANCE_ADMIN_CHANNEL_ID`
 - `RANGER_ALLIANCE_ROLE_LEADERS_ID`
 - `RANGER_ALLIANCE_ROLE_UNDAUNTED_ID`
@@ -61,7 +61,10 @@ Optional:
 - `RANGER_ALLIANCE_ROLE_RANGER_CORPS_ID`
 - `RANGER_ALLIANCE_PRIVATE_MARKER`, defaults to `[CORPS ONLY]`
 
-All Ranger Alliance values are optional as a group. Configure all of them to enable the Alliance intel bridge.
+The bridge requires `CORPS_INTEL_CATEGORY_ID`, `RANGER_ALLIANCE_GUILD_ID`,
+`RANGER_ALLIANCE_ADMIN_CHANNEL_ID`, and `RANGER_ALLIANCE_ROLE_LEADERS_ID`.
+The old group-role and legacy-category values are retained for compatibility;
+new groups are configured from the Alliance server with `/alliance group-add`.
 
 ## Discord Setup
 
@@ -248,6 +251,10 @@ Implemented commands:
 - `/alliance setup`
 - `/alliance sync`
 - `/alliance status`
+- `/alliance group-add`
+- `/alliance group-topics`
+- `/alliance group-remove`
+- `/alliance headquarters-remove`
 
 ## Corps Funds
 
@@ -321,13 +328,13 @@ Automatic intel updates append newly delivered reports instead of rebuilding ent
 
 ## Ranger Alliance Intel Bridge
 
-The Ranger Alliance bridge uses separate information-delivery points rather than directly mirroring Corps intel. Run migrations `009_create_ranger_alliance_bridge.sql` and `010_create_alliance_headquarters.sql`, configure every `RANGER_ALLIANCE_*` value and `CORPS_INTEL_CATEGORY_ID`, deploy commands, then run `/alliance setup` in the configured Alliance admin channel as a member with the Leaders role.
+The Ranger Alliance bridge uses separate information-delivery points rather than directly mirroring Corps intel. Run migrations `009_create_ranger_alliance_bridge.sql`, `010_create_alliance_headquarters.sql`, and `020_dynamic_alliance_groups.sql`, configure the required bridge values and `CORPS_INTEL_CATEGORY_ID`, deploy commands, then run `/alliance setup` in the configured Alliance admin channel as a member with the Leaders role.
 
-Setup creates two Corps Trailmarks: `Stonehills - North Star Headquarters` and `Dancing Horse Inn - Undaunted Headquarters`. It also creates private `NORTH STAR INTEL` and `UNDAUNTED INTEL` categories in the Alliance server. North Star Rangers can only see Stonehills reports, and Undaunted members can only see Dancing Horse Inn reports. The Leaders role grants setup-command access but no intel visibility; leaders see only the section allowed by their organization role. The Ranger Corps role alone cannot see either category. The retired direct-mirror category is hidden from members and retained only as a bot-managed archive.
+`/alliance setup` and `/alliance sync` repair active records only. They do not backfill or repost historical reports. The migration deactivates the retired Undaunted group while preserving its records for history.
 
-Each headquarters receives its own read-only copy of every active intel topic plus its own submission channel. A submission in `#north-star-submit-report` becomes an attributed note in the Stonehills Trailmark and is immediately available in North Star topic channels. An Undaunted submission behaves the same way at the Dancing Horse Inn. Neither submission reaches Hunter's Rest or the Corps intel channels until a Corps Ranger opens the source HQ Trailmark and later opens the Corps HQ Trailmark.
+Use `/alliance group-add` to create a new ally group. Provide its Alliance role, headquarters name, Core hold, cache description, and a comma-separated list of intel topics, or `all` for every current topic. Wayfinder creates the group's HQ Trailmark, private intake channel, report category, and only the selected report channels. New report sections start empty. Use `/alliance group-topics` later to change the allowed topics; disabling a topic stops future publications without deleting its history. Use `/alliance group-remove` (or `/alliance headquarters-remove`) to archive the group's channels, deactivate its HQ Trailmark, remove its topic mappings, and stop future delivery.
 
-Corps Trailmark reports travel independently. Opening a source Trailmark and then Stonehills delivers those reports only to North Star channels. Carrying the same information to the Dancing Horse Inn delivers it only to Undaunted channels. Hunter's Rest remains the existing Corps delivery point and continues using the existing Corps intel channels.
+Reports reach a group's Alliance channels only when they are delivered to that group's HQ Trailmark. Reports submitted in that group's intake channel are first recorded in its HQ Trailmark and become available in the topics selected for that group. A report delivered to one group's HQ does not appear in another group's channels. Alliance Leaders can manage the bridge but are explicitly denied report-category visibility; the group's viewer role controls access.
 
 Put `[CORPS ONLY]` anywhere in a Corps Trailmark message to keep it entirely inside the Trailmark network. Wayfinder does not create Corps intel records for it, publish it in Corps report channels, or deliver it to Stonehills, the Dancing Horse Inn, or the Ranger Alliance server. The marker is case-insensitive and can be changed with `RANGER_ALLIANCE_PRIVATE_MARKER`. Adding the marker while editing an existing report removes any previously published intel copies; removing the marker allows the message to be captured normally again.
 

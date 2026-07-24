@@ -402,6 +402,7 @@ export interface AllianceHeadquartersRow {
   viewer_role_id: string;
   reports_category_id: string;
   intake_channel_id: string;
+  intake_emoji: string;
   active: boolean;
   all_topics: boolean;
   created_at: string;

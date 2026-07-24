@@ -25,7 +25,7 @@ import {
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
-import { allyReportsChannelName, emojiTitle, intelReportChannelName, intelTopicEmojiName } from "../utils/guildEmojis.js";
+import { allyReportsChannelName, emojiChannelName, emojiTitle, intelReportChannelName, intelTopicEmojiName } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
 import { createTrailmark, deactivateTrailmark } from "./trailmarkService.js";
 import { atlasReportFieldValue } from "./atlasService.js";
@@ -40,6 +40,7 @@ interface HeadquartersDefinition {
   viewerRoleId: string;
   categoryName: string;
   intakeChannelName: string;
+  intakeEmoji: string;
   trailmarkName: string;
   trailmarkHold: string;
   trailmarkDescription: string;
@@ -95,7 +96,7 @@ export async function setupAllianceBridge(client: Client): Promise<AllianceSetup
   const headquarters: AllianceHeadquartersRow[] = [];
   let topicChannels = 0;
   for (const stored of activeHeadquarters) {
-    const hq = await ensureHeadquarters(corpsGuild, allianceGuild, headquartersDefinitionFromRow(stored));
+    const hq = await ensureHeadquarters(corpsGuild, allianceGuild, headquartersDefinitionFromRow(stored, allianceGuild));
     headquarters.push(hq);
     const topics = await listConfiguredHeadquartersTopics(hq);
     for (const topic of topics) {
@@ -146,7 +147,7 @@ export async function syncAllianceTopicMirrors(client: Client): Promise<number> 
     const hq = await ensureHeadquarters(
       corpsGuild,
       allianceGuild,
-      headquartersDefinitionFromRow(stored)
+      headquartersDefinitionFromRow(stored, allianceGuild)
     );
     const topics = await listConfiguredHeadquartersTopics(hq);
     for (const topic of topics) {
@@ -166,6 +167,7 @@ export async function addAllianceGroup(params: {
   hold: string;
   description: string;
   topicNames: string;
+  submissionEmoji?: string | undefined;
 }): Promise<AllianceGroupSetupResult> {
   requireAllianceConfiguration();
   const [corpsGuild, allianceGuild] = await fetchBridgeGuilds(params.client);
@@ -187,6 +189,7 @@ export async function addAllianceGroup(params: {
   const headquartersName = params.headquartersName.trim();
   const hold = params.hold.trim();
   const description = params.description.trim();
+  const intakeEmoji = resolveAllianceIntakeEmoji(allianceGuild, params.submissionEmoji ?? "duty");
   if (!sourceOrder || !headquartersName || !hold || !description) {
     throw new UserFacingError("Group name, headquarters, hold, and description cannot be blank.");
   }
@@ -196,7 +199,8 @@ export async function addAllianceGroup(params: {
     sourceOrder,
     viewerRoleId: params.viewerRoleId,
     categoryName: `${slugify(sourceOrder)}-intel`.toUpperCase().slice(0, 100),
-    intakeChannelName: `${slugify(key)}-submit-report`.slice(0, 100),
+    intakeChannelName: emojiChannelName(allianceGuild, intakeEmoji, `${slugify(key)}-submit-report`),
+    intakeEmoji,
     trailmarkName: `${headquartersName} - ${sourceOrder} Headquarters`,
     trailmarkHold: hold,
     trailmarkDescription: description,
@@ -728,6 +732,7 @@ async function ensureHeadquarters(
     viewer_role_id: definition.viewerRoleId,
     reports_category_id: category.id,
     intake_channel_id: intake.id,
+    intake_emoji: definition.intakeEmoji,
     active: true,
     all_topics: definition.allTopics
   }, { onConflict: "headquarters_key" }).select("*").single();
@@ -1208,6 +1213,19 @@ function includesAllTopics(value: string): boolean {
   return value.split(",").some((item) => item.trim().toLocaleLowerCase() === "all");
 }
 
+function resolveAllianceIntakeEmoji(guild: Guild, value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const emojiName = trimmed.replace(/^:|:$/g, "");
+  const namedEmoji = guild.emojis.cache.find((emoji) => emoji.name === emojiName);
+  if (namedEmoji) {
+    return namedEmoji.toString();
+  }
+  return /^[a-z0-9_-]+$/i.test(emojiName) ? "" : trimmed;
+}
+
 async function archiveHeadquartersChannels(guild: Guild, hq: AllianceHeadquartersRow): Promise<void> {
   const category = await guild.channels.fetch(hq.reports_category_id).catch(() => null);
   if (category?.type !== ChannelType.GuildCategory) {
@@ -1342,14 +1360,21 @@ async function fetchBridgeGuilds(client: Client): Promise<[Guild, Guild]> {
   ]);
 }
 
-function headquartersDefinitionFromRow(headquarters: AllianceHeadquartersRow): HeadquartersDefinition {
+function headquartersDefinitionFromRow(headquarters: AllianceHeadquartersRow, allianceGuild: Guild): HeadquartersDefinition {
   return {
     key: headquarters.headquarters_key,
     name: headquarters.name,
     sourceOrder: headquarters.source_order,
     viewerRoleId: headquarters.viewer_role_id,
     categoryName: `${slugify(headquarters.source_order)}-intel`.toUpperCase().slice(0, 100),
-    intakeChannelName: `${slugify(headquarters.headquarters_key)}-submit-report`.slice(0, 100),
+    intakeChannelName: headquarters.intake_emoji
+      ? emojiChannelName(
+          allianceGuild,
+          headquarters.intake_emoji,
+          `${slugify(headquarters.headquarters_key)}-submit-report`
+        )
+      : `${slugify(headquarters.headquarters_key)}-submit-report`.slice(0, 100),
+    intakeEmoji: headquarters.intake_emoji,
     trailmarkName: `${headquarters.name} - ${headquarters.source_order} Headquarters`,
     trailmarkHold: "Other Ranges",
     trailmarkDescription: `${headquarters.source_order} leave and receive field reports at their headquarters in ${headquarters.name}.`,

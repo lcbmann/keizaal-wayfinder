@@ -84,6 +84,13 @@ export function allyReportsChannelName(guild: Guild): string {
   return emoji ? `${emoji} | ally-reports` : "ally-reports";
 }
 
+export function emojiChannelName(guild: Guild, emojiNameOrValue: string, baseName: string): string {
+  const value = emojiNameOrValue.trim();
+  const namedEmoji = guild.emojis.cache.find((emoji) => emoji.name === value.replace(/^:|:$/g, ""));
+  const emoji = namedEmoji?.toString() ?? value;
+  return emoji ? `${emoji} | ${baseName}`.slice(0, 100) : baseName.slice(0, 100);
+}
+
 export function isStandardIntelReportChannelName(channelName: string, topicName: string): boolean {
   return channelName === intelReportChannelNameWithoutEmoji(topicName);
 }

@@ -169,9 +169,9 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
       {
         name: "Corps Duties",
         value: [
-          "**Ranger+ only:** Quartermaster, Warden, and Detective.",
+          "**Ranger+ only:** Quartermaster, Warden, Detective, and Ambassador.",
           "**Apprentice+:** Craftsman and Courier.",
-          "`/duty volunteer` - Apply for Quartermaster, Craftsman, Warden, Detective, or Courier.",
+          "`/duty volunteer` - Apply for Quartermaster, Craftsman, Warden, Detective, Courier, or Ambassador.",
           "`/duty withdraw` - Withdraw a pending duty application."
         ].join("\n")
       },

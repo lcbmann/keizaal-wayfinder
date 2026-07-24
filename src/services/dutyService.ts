@@ -21,8 +21,8 @@ import { emojiEmbed } from "../utils/guildEmojis.js";
 import { requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 
-export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Detective", "Courier"] as const;
-const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Detective"]);
+export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Detective", "Courier", "Ambassador"] as const;
+const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Detective", "Ambassador"]);
 
 export interface DutyApplicationDetails {
   application: DutyApplicationRow;

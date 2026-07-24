@@ -286,7 +286,7 @@ After deploying the threaded Strongbox update, run `/strongbox setup` once to ad
 
 ## Corps Duties
 
-Run migration `012_create_duties_and_apprenticeships.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Detective, and Courier roles and stores their Discord role IDs in Supabase. The Wayfinder bot role must remain above these roles.
+Run migrations `012_create_duties_and_apprenticeships.sql` and `023_add_ambassador_duty.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Detective, Courier, and Ambassador roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Detective, and Ambassador are Ranger+ duties; Craftsman and Courier are available to Apprentices+. The Wayfinder bot role must remain above these roles.
 
 Apprentice or higher can run `/duty volunteer` in any accessible channel. The application appears as a review card in the Marshal-only Strongbox and receives its own discussion thread. Marshal+ approves or denies it using the card buttons. Approval records the assignment and grants the corresponding Discord role. Quartermaster permits only one active holder. Warden applications and assignments require a free-text Range; this will later be replaced by the Atlas-backed Range model.
 

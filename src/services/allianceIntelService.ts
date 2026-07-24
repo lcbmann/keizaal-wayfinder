@@ -97,7 +97,7 @@ export async function setupAllianceBridge(client: Client): Promise<AllianceSetup
   const headquarters: AllianceHeadquartersRow[] = [];
   let topicChannels = 0;
   for (const stored of activeHeadquarters) {
-    const hq = await ensureHeadquarters(corpsGuild, allianceGuild, headquartersDefinitionFromRow(stored, allianceGuild));
+    const hq = await ensureHeadquarters(corpsGuild, allianceGuild, headquartersDefinitionFromRow(stored));
     headquarters.push(hq);
     const topics = await listConfiguredHeadquartersTopics(hq);
     for (const topic of topics) {
@@ -148,7 +148,7 @@ export async function syncAllianceTopicMirrors(client: Client): Promise<number> 
     const hq = await ensureHeadquarters(
       corpsGuild,
       allianceGuild,
-      headquartersDefinitionFromRow(stored, allianceGuild)
+      headquartersDefinitionFromRow(stored)
     );
     const topics = await listConfiguredHeadquartersTopics(hq);
     for (const topic of topics) {
@@ -190,7 +190,7 @@ export async function addAllianceGroup(params: {
   const headquartersName = params.headquartersName.trim();
   const hold = params.hold.trim();
   const description = params.description.trim();
-  const intakeEmoji = resolveAllianceIntakeEmoji(allianceGuild, params.submissionEmoji ?? "duty");
+  const intakeEmoji = resolveAllianceIntakeEmoji(params.submissionEmoji ?? "duty");
   if (!sourceOrder || !headquartersName || !hold || !description) {
     throw new UserFacingError("Group name, headquarters, hold, and description cannot be blank.");
   }
@@ -200,7 +200,7 @@ export async function addAllianceGroup(params: {
     sourceOrder,
     viewerRoleId: params.viewerRoleId,
     categoryName: `${slugify(sourceOrder)}-intel`.toUpperCase().slice(0, 100),
-    intakeChannelName: emojiChannelName(allianceGuild, intakeEmoji, `${slugify(key)}-submit-report`),
+    intakeChannelName: emojiChannelName(intakeEmoji, `${slugify(key)}-submit-report`),
     intakeEmoji,
     trailmarkName: `${headquartersName} - ${sourceOrder} Headquarters`,
     trailmarkHold: hold,
@@ -1271,17 +1271,15 @@ function includesAllTopics(value: string): boolean {
   return value.split(",").some((item) => item.trim().toLocaleLowerCase() === "all");
 }
 
-function resolveAllianceIntakeEmoji(guild: Guild, value: string): string {
+function resolveAllianceIntakeEmoji(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
-    return "";
+    return "📜";
   }
-  const emojiName = trimmed.replace(/^:|:$/g, "");
-  const namedEmoji = guild.emojis.cache.find((emoji) => emoji.name === emojiName);
-  if (namedEmoji) {
-    return namedEmoji.toString();
+  if (/^<a?:[a-z0-9_]+:\d+>$/i.test(trimmed) || /^:?[a-z0-9_-]+:?$/i.test(trimmed)) {
+    return "📜";
   }
-  return /^[a-z0-9_-]+$/i.test(emojiName) ? "" : trimmed;
+  return trimmed;
 }
 
 async function archiveHeadquartersChannels(guild: Guild, hq: AllianceHeadquartersRow): Promise<void> {
@@ -1418,7 +1416,7 @@ async function fetchBridgeGuilds(client: Client): Promise<[Guild, Guild]> {
   ]);
 }
 
-function headquartersDefinitionFromRow(headquarters: AllianceHeadquartersRow, allianceGuild: Guild): HeadquartersDefinition {
+function headquartersDefinitionFromRow(headquarters: AllianceHeadquartersRow): HeadquartersDefinition {
   return {
     key: headquarters.headquarters_key,
     name: headquarters.name,
@@ -1427,7 +1425,6 @@ function headquartersDefinitionFromRow(headquarters: AllianceHeadquartersRow, al
     categoryName: `${slugify(headquarters.source_order)}-intel`.toUpperCase().slice(0, 100),
     intakeChannelName: headquarters.intake_emoji
       ? emojiChannelName(
-          allianceGuild,
           headquarters.intake_emoji,
           `${slugify(headquarters.headquarters_key)}-submit-report`
         )

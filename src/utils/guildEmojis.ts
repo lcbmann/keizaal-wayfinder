@@ -72,10 +72,9 @@ export function emojiTitle(
   return emojiText(guild, name, title, style);
 }
 
-export function intelReportChannelName(guild: Guild, topicName: string): string {
+export function intelReportChannelName(_guild: Guild, topicName: string): string {
   const baseName = `${slugify(topicName)}-reports`.slice(0, 78);
-  const emojiName = intelTopicEmojiName(topicName);
-  const emoji = emojiName ? guildEmoji(guild, emojiName) : "";
+  const emoji = intelTopicEmojiCharacter(topicName);
   return emoji ? `${emoji} | ${baseName}`.slice(0, 100) : baseName;
 }
 
@@ -84,10 +83,8 @@ export function allyReportsChannelName(guild: Guild): string {
   return emoji ? `${emoji} | ally-reports` : "ally-reports";
 }
 
-export function emojiChannelName(guild: Guild, emojiNameOrValue: string, baseName: string): string {
-  const value = emojiNameOrValue.trim();
-  const namedEmoji = guild.emojis.cache.find((emoji) => emoji.name === value.replace(/^:|:$/g, ""));
-  const emoji = namedEmoji?.toString() ?? value;
+export function emojiChannelName(emojiValue: string, baseName: string): string {
+  const emoji = emojiValue.trim();
   return emoji ? `${emoji} | ${baseName}`.slice(0, 100) : baseName.slice(0, 100);
 }
 
@@ -117,4 +114,27 @@ export function intelTopicEmojiName(topicName: string): WayfinderEmojiName | nul
     return "vampire";
   }
   return null;
+}
+
+export function intelTopicEmojiCharacter(topicName: string): string {
+  const topic = slugify(topicName);
+  if (topic === "war") {
+    return "⚔️";
+  }
+  if (topic === "cultist" || topic === "cultists") {
+    return "🕯️";
+  }
+  if (topic === "bandit" || topic === "bandits") {
+    return "🏴";
+  }
+  if (topic === "werewolf" || topic === "werewolves") {
+    return "🐺";
+  }
+  if (topic === "vampire" || topic === "vampires") {
+    return "🧛";
+  }
+  if (topic === "other") {
+    return "📁";
+  }
+  return "";
 }

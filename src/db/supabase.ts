@@ -405,6 +405,7 @@ export interface AllianceHeadquartersRow {
   intake_emoji: string;
   active: boolean;
   all_topics: boolean;
+  report_delivery_start_at: string;
   created_at: string;
   updated_at: string;
 }
@@ -722,7 +723,8 @@ export interface Database {
       };
       alliance_headquarters: {
         Row: AllianceHeadquartersRow;
-        Insert: Omit<AllianceHeadquartersRow, "id" | "created_at" | "updated_at"> & { id?: string };
+        Insert: Omit<AllianceHeadquartersRow, "id" | "created_at" | "updated_at" | "report_delivery_start_at">
+          & { id?: string; report_delivery_start_at?: string };
         Update: Partial<AllianceHeadquartersRow>;
       };
       alliance_headquarters_topic_channels: {

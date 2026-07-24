@@ -31,6 +31,8 @@ import { createTrailmark, deactivateTrailmark } from "./trailmarkService.js";
 import { atlasReportFieldValue } from "./atlasService.js";
 
 const MAX_DESCRIPTION_LENGTH = 4000;
+const ALLIANCE_REPORT_BACKFILL_DAYS = 7;
+const ALLIANCE_REPORT_BACKFILL_MS = ALLIANCE_REPORT_BACKFILL_DAYS * 24 * 60 * 60 * 1000;
 type ReportChannel = TextChannel | NewsChannel;
 
 interface HeadquartersDefinition {
@@ -296,12 +298,11 @@ async function backfillAllianceGroupReports(params: {
   headquarters: AllianceHeadquartersRow;
   topics: IntelTopicRow[];
 }): Promise<number> {
-  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: reports, error } = await supabase
     .from("intel_reports")
     .select("*")
     .in("topic_id", params.topics.map((topic) => topic.id))
-    .gte("created_at", cutoff)
+    .gte("created_at", params.headquarters.report_delivery_start_at)
     .order("created_at", { ascending: true });
   assertNoDbError(error, "list recent intel reports for Alliance group backfill");
 
@@ -484,6 +485,7 @@ export async function deliverReportsOriginatingAtAllianceHeadquarters(params: {
   trailmark: TrailmarkRow;
   deliveredByDiscordUserId: string;
   discordMessageId?: string;
+  createdAfter?: string;
 }): Promise<number> {
   const hq = await getHeadquartersByTrailmarkId(params.trailmark.id);
   if (!hq) {
@@ -493,6 +495,9 @@ export async function deliverReportsOriginatingAtAllianceHeadquarters(params: {
   let query = supabase.from("intel_reports").select("*").eq("trailmark_id", params.trailmark.id);
   if (params.discordMessageId) {
     query = query.eq("discord_message_id", params.discordMessageId);
+  }
+  if (params.createdAfter) {
+    query = query.gte("created_at", params.createdAfter);
   }
   const { data: reports, error } = await query;
   assertNoDbError(error, "list reports originating at allied headquarters");
@@ -519,7 +524,8 @@ export async function deliverCarriedReportsToAllianceHeadquarters(params: {
   let delivered = await deliverReportsOriginatingAtAllianceHeadquarters({
     guild: params.guild,
     trailmark: params.trailmark,
-    deliveredByDiscordUserId: params.discordUserId
+    deliveredByDiscordUserId: params.discordUserId,
+    createdAfter: hq.report_delivery_start_at
   });
 
   const { data: sessions, error: sessionsError } = await supabase
@@ -538,6 +544,7 @@ export async function deliverCarriedReportsToAllianceHeadquarters(params: {
     .from("intel_reports")
     .select("*")
     .in("trailmark_id", sourceIds)
+    .gte("created_at", hq.report_delivery_start_at)
     .order("created_at", { ascending: true });
   assertNoDbError(reportsError, "list reports carried to allied headquarters");
 
@@ -792,7 +799,9 @@ async function ensureHeadquarters(
     intake_channel_id: intake.id,
     intake_emoji: definition.intakeEmoji,
     active: true,
-    all_topics: definition.allTopics
+    all_topics: definition.allTopics,
+    report_delivery_start_at: stored?.report_delivery_start_at
+      ?? new Date(Date.now() - ALLIANCE_REPORT_BACKFILL_MS).toISOString()
   }, { onConflict: "headquarters_key" }).select("*").single();
   assertNoDbError(error, `store ${definition.name} headquarters configuration`);
   return data;

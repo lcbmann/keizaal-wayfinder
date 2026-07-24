@@ -55,6 +55,7 @@ export interface AllianceSetupResult {
 export interface AllianceGroupSetupResult {
   headquarters: AllianceHeadquartersRow;
   topicChannels: number;
+  backfilledReports: number;
 }
 
 export interface AllianceStatus {
@@ -210,7 +211,13 @@ export async function addAllianceGroup(params: {
   for (const topic of topics) {
     await ensureHeadquartersTopicChannel(allianceGuild, headquarters, topic, true);
   }
-  return { headquarters, topicChannels: topics.length };
+  const backfilledReports = await backfillAllianceGroupReports({
+    client: params.client,
+    corpsGuild,
+    headquarters,
+    topics
+  });
+  return { headquarters, topicChannels: topics.length, backfilledReports };
 }
 
 export async function setAllianceGroupTopics(params: {
@@ -281,6 +288,57 @@ export async function removeAllianceGroup(params: { client: Client; key: string 
   }
   const corpsGuild = await params.client.guilds.fetch(env.DISCORD_GUILD_ID);
   await deactivateTrailmark(headquarters.trailmark_id, corpsGuild);
+}
+
+async function backfillAllianceGroupReports(params: {
+  client: Client;
+  corpsGuild: Guild;
+  headquarters: AllianceHeadquartersRow;
+  topics: IntelTopicRow[];
+}): Promise<number> {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: reports, error } = await supabase
+    .from("intel_reports")
+    .select("*")
+    .in("topic_id", params.topics.map((topic) => topic.id))
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: true });
+  assertNoDbError(error, "list recent intel reports for Alliance group backfill");
+
+  const eligible = (reports ?? []).filter((report) =>
+    (Boolean(report.delivered_at) || Boolean(report.source_alliance_report_id))
+    && !isCorpsOnlyReport(report.content)
+  );
+  if (eligible.length === 0) {
+    return 0;
+  }
+  const { data: existing, error: existingError } = await supabase
+    .from("alliance_headquarters_deliveries")
+    .select("report_id")
+    .eq("headquarters_id", params.headquarters.id)
+    .in("report_id", eligible.map((report) => report.id));
+  assertNoDbError(existingError, "list existing Alliance group backfill deliveries");
+  const existingIds = new Set((existing ?? []).map((delivery) => delivery.report_id));
+  const deliveredAt = new Date().toISOString();
+  if (!params.client.user) {
+    throw new UserFacingError("Wayfinder is not ready to publish the Alliance backfill.");
+  }
+  const deliveredBy = params.client.user.id;
+  let backfilled = 0;
+  for (const report of eligible) {
+    if (existingIds.has(report.id)) {
+      continue;
+    }
+    const delivery = await upsertHeadquartersDelivery(
+      report.id,
+      params.headquarters.id,
+      report.delivered_by_discord_user_id ?? deliveredBy,
+      deliveredAt
+    );
+    await publishHeadquartersReport(params.corpsGuild, params.headquarters, report, delivery);
+    backfilled += 1;
+  }
+  return backfilled;
 }
 
 export async function handleAllianceReportMessage(message: Message): Promise<boolean> {

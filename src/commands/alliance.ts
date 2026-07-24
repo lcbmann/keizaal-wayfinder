@@ -111,7 +111,8 @@ export const allianceCommand: BotCommand = {
         `Alliance group **${result.headquarters.source_order}** created.`,
         `HQ Trailmark: **${result.headquarters.name}**`,
         `Topic channels created: **${result.topicChannels}**`,
-        "New group channels start empty; future deliveries will appear there."
+        `Reports backfilled from the last 7 days: **${result.backfilledReports}**`,
+        "Future deliveries will continue to appear there automatically."
       ].join("\n"));
       return;
     }

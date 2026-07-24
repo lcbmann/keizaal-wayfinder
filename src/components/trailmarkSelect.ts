@@ -66,17 +66,28 @@ async function processTrailmarkIntel(
     guild: interaction.guild,
     trailmark
   });
-  const deliveredReports = await recordTrailmarkVisitAndDeliver({
+  const delivery = await recordTrailmarkVisitAndDeliver({
     guild: interaction.guild,
     discordUserId: interaction.user.id,
     trailmark
   });
-  if (deliveredReports > 0) {
+  if (delivery.corpsHeadquarters > 0 || delivery.allianceHeadquarters > 0) {
+    const deliveryLines: string[] = [];
+    if (delivery.corpsHeadquarters > 0) {
+      deliveryLines.push(
+        `You deliver ${delivery.corpsHeadquarters} report${delivery.corpsHeadquarters === 1 ? "" : "s"} to Ranger Corps Headquarters.`
+      );
+    }
+    if (delivery.allianceHeadquarters > 0 && delivery.allianceHeadquartersName) {
+      deliveryLines.push(
+        `You deliver ${delivery.allianceHeadquarters} report${delivery.allianceHeadquarters === 1 ? "" : "s"} to ${delivery.allianceHeadquartersName}.`
+      );
+    }
     await interaction.followUp({
       content: emojiText(
         interaction.guild,
         "intel",
-        `You deliver ${deliveredReports} report${deliveredReports === 1 ? "" : "s"} gathered from other Trailmarks to Headquarters. ${deliveredReports === 1 ? "It has" : "They have"} been added to the relevant report channels.`
+        `${deliveryLines.join("\n")} They have been added to the relevant report channels.`
       ),
       ephemeral: true
     }).catch(() => undefined);

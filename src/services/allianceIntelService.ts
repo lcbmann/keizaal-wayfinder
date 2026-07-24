@@ -510,10 +510,10 @@ export async function deliverCarriedReportsToAllianceHeadquarters(params: {
   discordUserId: string;
   trailmark: TrailmarkRow;
   hqVisitedAt: string;
-}): Promise<number> {
+}): Promise<{ headquartersName: string; delivered: number }> {
   const hq = await getHeadquartersByTrailmarkId(params.trailmark.id);
   if (!hq) {
-    return 0;
+    return { headquartersName: "Alliance headquarters", delivered: 0 };
   }
 
   let delivered = await deliverReportsOriginatingAtAllianceHeadquarters({
@@ -530,7 +530,7 @@ export async function deliverCarriedReportsToAllianceHeadquarters(params: {
     .lte("created_at", params.hqVisitedAt);
   assertNoDbError(sessionsError, "list Trailmark sessions carried to allied headquarters");
   if (!sessions?.length) {
-    return delivered;
+    return { headquartersName: hq.name, delivered };
   }
 
   const sourceIds = [...new Set(sessions.map((session) => session.trailmark_id))];
@@ -555,7 +555,7 @@ export async function deliverCarriedReportsToAllianceHeadquarters(params: {
     deliveredByDiscordUserId: params.discordUserId,
     deliveredAt: params.hqVisitedAt
   });
-  return delivered;
+  return { headquartersName: hq.name, delivered };
 }
 
 export async function syncCorpsReportAlliancePrivacyForMessage(message: Message): Promise<number> {

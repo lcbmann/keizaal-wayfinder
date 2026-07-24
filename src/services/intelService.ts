@@ -639,7 +639,11 @@ export async function recordTrailmarkVisitAndDeliver(params: {
   guild: Guild;
   discordUserId: string;
   trailmark: TrailmarkRow;
-}): Promise<number> {
+}): Promise<{
+  corpsHeadquarters: number;
+  allianceHeadquarters: number;
+  allianceHeadquartersName: string | null;
+}> {
   const visitedAt = new Date().toISOString();
   const { error: visitError } = await supabase.from("intel_trailmark_visits").insert({
     discord_user_id: params.discordUserId,
@@ -650,22 +654,26 @@ export async function recordTrailmarkVisitAndDeliver(params: {
   assertNoDbError(visitError, "record Trailmark intel visit");
 
   const settings = await getIntelSettings();
-  let delivered = 0;
+  let corpsHeadquarters = 0;
   if (settings.hq_trailmark_id && settings.hq_trailmark_id === params.trailmark.id) {
-    delivered += await deliverCarriedReportsToHq({
+    corpsHeadquarters = await deliverCarriedReportsToHq({
       guild: params.guild,
       discordUserId: params.discordUserId,
       hqTrailmarkId: params.trailmark.id,
       hqVisitedAt: visitedAt
     });
   }
-  delivered += await deliverCarriedReportsToAllianceHeadquarters({
+  const allianceDelivery = await deliverCarriedReportsToAllianceHeadquarters({
     guild: params.guild,
     discordUserId: params.discordUserId,
     trailmark: params.trailmark,
     hqVisitedAt: visitedAt
   });
-  return delivered;
+  return {
+    corpsHeadquarters,
+    allianceHeadquarters: allianceDelivery.delivered,
+    allianceHeadquartersName: allianceDelivery.delivered > 0 ? allianceDelivery.headquartersName : null
+  };
 }
 
 async function backfillLegacyTrailmarkForum(params: {

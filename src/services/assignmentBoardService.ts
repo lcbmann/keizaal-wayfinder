@@ -60,6 +60,9 @@ function assignmentsEmbeds(
   const detectives = dutyAssignments
     .filter(({ duty }) => duty.name === "Detective")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
+  const ambassadors = dutyAssignments
+    .filter(({ duty }) => duty.name === "Ambassador")
+    .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const leadershipEmbed = emojiEmbed(guild, "corps", "Ranger Corps Leadership")
     .setDescription("The Rangers presently entrusted with command of the Corps.")
     .setColor(0xb08d32)
@@ -110,6 +113,17 @@ function assignmentsEmbeds(
     })
     .setTimestamp(new Date());
 
+  const ambassadorsEmbed = emojiEmbed(guild, "duty", "Ranger Corps Ambassadors")
+    .setDescription("Rangers entrusted with representing the Corps and maintaining relations with other groups.")
+    .setColor(0x8b6f9e)
+    .addFields({
+      name: "Active Ambassadors",
+      value: ambassadors.length
+        ? truncateField(ambassadors.map(formatDutyAssignment).join("\n"))
+        : "None assigned."
+    })
+    .setTimestamp(new Date());
+
   const activeApprenticeships = apprenticeships.filter(({ apprenticeship }) => apprenticeship.status === "Active");
   const seekingMentors = apprenticeshipPreferences.filter((preference) => preference.seeking === "Mentor");
   const seekingApprentices = apprenticeshipPreferences.filter((preference) => preference.seeking === "Apprentice");
@@ -138,7 +152,7 @@ function assignmentsEmbeds(
     )
     .setTimestamp(new Date());
 
-  return [leadershipEmbed, wardensEmbed, detectivesEmbed, apprenticeshipsEmbed];
+  return [leadershipEmbed, wardensEmbed, detectivesEmbed, ambassadorsEmbed, apprenticeshipsEmbed];
 }
 
 function formatApprenticeship({ apprenticeship }: ApprenticeshipDetails): string {

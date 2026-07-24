@@ -36,8 +36,8 @@ export const allianceCommand: BotCommand = {
         .addStringOption((option) => option.setName("headquarters").setDescription("Name of the group's HQ location.").setRequired(true).setMaxLength(80))
         .addStringOption((option) => option.setName("hold").setDescription("Hold where the HQ Trailmark is located.").setRequired(true).setMaxLength(80))
         .addStringOption((option) => option.setName("description").setDescription("In-world description of the HQ cache.").setRequired(true).setMaxLength(1000))
-        .addStringOption((option) => option.setName("submit_emoji").setDescription("Emoji or custom emoji name for the report intake channel.").setMaxLength(100))
         .addStringOption((option) => option.setName("topics").setDescription("Comma-separated topic names, slugs, or all.").setRequired(true).setMaxLength(500))
+        .addStringOption((option) => option.setName("submit_emoji").setDescription("Emoji or custom emoji name for the report intake channel.").setMaxLength(100))
     )
     .addSubcommand((subcommand) =>
       subcommand

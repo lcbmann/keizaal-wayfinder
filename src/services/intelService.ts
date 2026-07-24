@@ -1680,14 +1680,14 @@ async function resolveReportDisplayNames(
   }
 
   for (const userId of userIds) {
-    if (displayNames.has(userId)) {
-      continue;
-    }
-
     const member = guild.members.cache.get(userId)
       ?? await guild.members.fetch(userId).catch(() => null);
     if (member) {
       displayNames.set(userId, member.displayName);
+      continue;
+    }
+
+    if (displayNames.has(userId)) {
       continue;
     }
 

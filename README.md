@@ -324,7 +324,7 @@ Atlas share codes in Trailmark messages get a preview reply when Wayfinder can d
 
 `/intel backfill` scans old Trailmark messages into the current intel topics. It scans current Trailmark channels and the archived legacy `#trailmarks` forum (`1511443716420800673`), mapping forum thread names such as `Morthal Stash` to current Trailmarks where possible. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
-Automatic intel updates append newly delivered reports instead of rebuilding entire report channels. Use `/intel repair-reporters` to update existing posted report embeds in place, including their category emojis, without deleting or reposting them. Use `/intel refresh` only when you intentionally want to delete and rebuild a topic bulletin in strict original report chronology.
+Automatic intel updates append newly delivered reports instead of rebuilding entire report channels. Report embeds resolve the reporter's current Discord nickname when available. Use `/intel repair-reporters` to update existing posted report embeds in place, including current reporter names and category emojis, without deleting or reposting them. Use `/intel refresh` only when you intentionally want to delete and rebuild a topic bulletin in strict original report chronology.
 
 ## Ranger Alliance Intel Bridge
 

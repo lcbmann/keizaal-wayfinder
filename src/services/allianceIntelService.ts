@@ -106,6 +106,7 @@ export async function setupAllianceBridge(client: Client): Promise<AllianceSetup
       await ensureHeadquartersTopicChannel(allianceGuild, hq, topic, true);
       topicChannels += 1;
     }
+    await hideUnconfiguredHeadquartersChannels(allianceGuild, hq);
   }
 
   // Setup repairs configuration only. It deliberately does not replay historical reports.
@@ -157,6 +158,7 @@ export async function syncAllianceTopicMirrors(client: Client): Promise<number> 
       await ensureHeadquartersTopicChannel(allianceGuild, hq, topic, true);
       repaired += 1;
     }
+    await hideUnconfiguredHeadquartersChannels(allianceGuild, hq);
   }
   return repaired;
 }
@@ -249,16 +251,21 @@ export async function setAllianceGroupTopics(params: {
     .eq("headquarters_id", headquarters.id);
   assertNoDbError(error, "list Alliance group topic mappings");
   for (const mapping of mappings ?? []) {
+    const shouldBeActive = desiredIds.has(mapping.topic_id);
     const { error: updateError } = await supabase
       .from("alliance_headquarters_topic_channels")
-      .update({ active: desiredIds.has(mapping.topic_id), updated_at: new Date().toISOString() })
+      .update({ active: shouldBeActive, updated_at: new Date().toISOString() })
       .eq("headquarters_id", headquarters.id)
       .eq("topic_id", mapping.topic_id);
     assertNoDbError(updateError, "update Alliance group topic mapping");
+    if (!shouldBeActive) {
+      await hideHeadquartersTopicChannel(allianceGuild, headquarters, mapping.discord_channel_id);
+    }
   }
   for (const topic of topics) {
     await ensureHeadquartersTopicChannel(allianceGuild, headquarters, topic, true);
   }
+  await hideUnconfiguredHeadquartersChannels(allianceGuild, headquarters);
   return topics.length;
 }
 
@@ -756,6 +763,7 @@ async function publishHeadquartersReport(
   if (!topic) {
     return;
   }
+  // Do not create a channel for a topic this HQ is not configured to receive.
   const channel = await ensureHeadquartersTopicChannel(allianceGuild, hq, topic);
   if (!channel) {
     if (existing) {
@@ -884,6 +892,9 @@ async function ensureIntakeChannel(
   if (storedChannelId) {
     const stored = await guild.channels.fetch(storedChannelId).catch(() => null);
     if (stored?.type === ChannelType.GuildText) {
+      if (stored.name !== definition.intakeChannelName) {
+        await stored.setName(definition.intakeChannelName, "Standardize report intake channel name");
+      }
       await stored.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
       await stored.permissionOverwrites.edit(definition.viewerRoleId, { ViewChannel: true, SendMessages: true });
       await stored.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
@@ -928,6 +939,9 @@ async function ensureHeadquartersTopicChannel(
     .maybeSingle();
   assertNoDbError(error, "get allied headquarters topic channel");
   if (stored?.active === false && !forceCreate) {
+    return null;
+  }
+  if (!stored && !forceCreate && !hq.all_topics) {
     return null;
   }
   if (stored) {
@@ -978,8 +992,54 @@ async function renameIntelTopicChannel(
   desiredName: string,
   standardName: string
 ): Promise<void> {
-  if (channel.name === standardName && channel.name !== desiredName) {
+  if (channel.name !== desiredName && (channel.name === standardName || channel.name.includes("reports"))) {
     await channel.setName(desiredName, "Add report type emoji");
+  }
+}
+
+async function hideHeadquartersTopicChannel(
+  guild: Guild,
+  hq: AllianceHeadquartersRow,
+  channelId: string
+): Promise<void> {
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (channel?.type !== ChannelType.GuildText) {
+    return;
+  }
+  await channel.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false });
+  await channel.permissionOverwrites.edit(hq.viewer_role_id, {
+    ViewChannel: false,
+    ReadMessageHistory: false
+  });
+  await channel.permissionOverwrites.delete(env.RANGER_ALLIANCE_ROLE_LEADERS_ID).catch(() => undefined);
+  await channel.permissionOverwrites.edit(guild.client.user.id, {
+    ViewChannel: true,
+    SendMessages: true,
+    EmbedLinks: true,
+    ReadMessageHistory: true
+  });
+}
+
+async function hideUnconfiguredHeadquartersChannels(
+  guild: Guild,
+  hq: AllianceHeadquartersRow
+): Promise<void> {
+  const { data: mappings, error } = await supabase
+    .from("alliance_headquarters_topic_channels")
+    .select("discord_channel_id, active")
+    .eq("headquarters_id", hq.id);
+  assertNoDbError(error, "list Alliance group topic channels for repair");
+  const configuredChannelIds = new Set(
+    (mappings ?? []).filter((mapping) => mapping.active).map((mapping) => mapping.discord_channel_id)
+  );
+  await guild.channels.fetch();
+  const categoryChannels = guild.channels.cache.filter(
+    (channel) => channel.parentId === hq.reports_category_id && channel.type === ChannelType.GuildText
+  );
+  for (const channel of categoryChannels.values()) {
+    if (channel.id !== hq.intake_channel_id && !configuredChannelIds.has(channel.id)) {
+      await hideHeadquartersTopicChannel(guild, hq, channel.id);
+    }
   }
 }
 

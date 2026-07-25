@@ -75,17 +75,16 @@ export function emojiTitle(
 export function intelReportChannelName(_guild: Guild, topicName: string): string {
   const baseName = `${slugify(topicName)}-reports`.slice(0, 78);
   const emoji = intelTopicEmojiCharacter(topicName);
-  return emoji ? `${emoji} | ${baseName}`.slice(0, 100) : baseName;
+  return emoji ? `${emoji}｜${baseName}`.slice(0, 100) : baseName;
 }
 
-export function allyReportsChannelName(guild: Guild): string {
-  const emoji = guildEmoji(guild, "teamwork");
-  return emoji ? `${emoji} | ally-reports` : "ally-reports";
+export function allyReportsChannelName(_guild: Guild): string {
+  return "🤝｜ally-reports";
 }
 
 export function emojiChannelName(emojiValue: string, baseName: string): string {
   const emoji = emojiValue.trim();
-  return emoji ? `${emoji} | ${baseName}`.slice(0, 100) : baseName.slice(0, 100);
+  return emoji ? `${emoji}｜${baseName}`.slice(0, 100) : baseName.slice(0, 100);
 }
 
 export function isStandardIntelReportChannelName(channelName: string, topicName: string): boolean {

@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import type { MainRank } from "../config/ranks.js";
 
 export type RangerStatus = "Active" | "Inactive" | "On Leave" | "Retired";
+export type PromotionProgress = "In Field Trial" | "On Hold" | null;
 export type PromotionVoteStatus = "Open" | "Closed" | "Approved" | "Denied";
 export type BallotVote = "promote" | "hold" | "abstain";
 export type CorpsFundTransactionType = "Donation" | "Expense" | "Adjustment";
@@ -24,6 +25,7 @@ export interface RangerRow {
   in_game_name: string | null;
   current_rank: MainRank;
   status: RangerStatus;
+  promotion_progress: PromotionProgress;
   join_date: string;
   last_promotion_date: string | null;
   assigned_hold: string | null;

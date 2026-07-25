@@ -14,6 +14,7 @@ import {
   promotionVoteActionRow,
   promotionVoteEmbed,
   refreshPromotionVoteMessage,
+  setPromotionProgress,
   type EligibleRanger,
   type PromotionBallotWithVoter
 } from "../services/promotionService.js";
@@ -28,7 +29,22 @@ export const promotionCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("promotion")
     .setDescription("Promotion eligibility and voting.")
-    .addSubcommand((subcommand) => subcommand.setName("eligible").setDescription("Show eligible Apprentices."))
+    .addSubcommand((subcommand) => subcommand.setName("eligible").setDescription("Show promotion readiness, field-trial, and hold statuses."))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("status")
+        .setDescription("Set an Apprentice's promotion progress.")
+        .addUserOption((option) => option.setName("candidate").setDescription("Apprentice.").setRequired(true))
+        .addStringOption((option) => option
+          .setName("progress")
+          .setDescription("Current promotion progress.")
+          .setRequired(true)
+          .addChoices(
+            { name: "In Field Trial", value: "field_trial" },
+            { name: "On Hold", value: "on_hold" },
+            { name: "Clear status", value: "clear" }
+          ))
+    )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("open")
@@ -100,10 +116,31 @@ export const promotionCommand: BotCommand = {
     }
 
     const subcommand = interaction.options.getSubcommand();
-    if (subcommand === "approve" || subcommand === "eligible") {
-      await interaction.deferReply({ ephemeral: subcommand === "eligible" });
+    if (subcommand === "approve" || subcommand === "eligible" || subcommand === "status") {
+      await interaction.deferReply({ ephemeral: subcommand === "eligible" || subcommand === "status" });
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
+
+    if (subcommand === "status") {
+      if (!canOpenPromotionVotes(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required.");
+      }
+
+      const candidate = interaction.options.getUser("candidate", true);
+      const progressValue = interaction.options.getString("progress", true);
+      const progress = progressValue === "field_trial"
+        ? "In Field Trial"
+        : progressValue === "on_hold"
+          ? "On Hold"
+          : null;
+      await setPromotionProgress({ discordUserId: candidate.id, progress });
+      await interaction.editReply({
+        content: progress
+          ? `Set ${candidate}'s promotion status to **${progress}**.`
+          : `Cleared ${candidate}'s promotion progress status.`
+      });
+      return;
+    }
 
     if (subcommand === "eligible") {
       if (!canOpenPromotionVotes(actor)) {
@@ -229,13 +266,15 @@ const mentionRoleOptionNames = ["mentions", "mentions_2", "mentions_3", "mention
 function promotionEligibilityEmbed(guild: Guild, candidates: EligibleRanger[]): EmbedBuilder {
   const sortedCandidates = [...candidates].sort(compareEligibilityDisplayOrder);
   const visibleCandidates = sortedCandidates.slice(0, 20);
-  const eligible = candidates.filter((candidate) => candidate.eligible).length;
-  const blocked = candidates.length - eligible;
+  const ready = candidates.filter((candidate) => eligibilityBucket(candidate) === "ready").length;
+  const fieldTrial = candidates.filter((candidate) => eligibilityBucket(candidate) === "field-trial").length;
+  const onHold = candidates.filter((candidate) => eligibilityBucket(candidate) === "on-hold").length;
+  const notReady = candidates.filter((candidate) => eligibilityBucket(candidate) === "not-ready").length;
 
   const embed = emojiEmbed(guild, "promotion", "Apprentice Promotion Eligibility")
     .setDescription(
       candidates.length
-        ? `${eligible} eligible / ${blocked} not eligible. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
+        ? `${ready} ready / ${fieldTrial} in field trial / ${onHold} on hold / ${notReady} not ready. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
         : "No Apprentices found."
     )
     .setColor(0x587c4a);
@@ -244,21 +283,19 @@ function promotionEligibilityEmbed(guild: Guild, candidates: EligibleRanger[]): 
     return embed;
   }
 
-  const eligibleLines = visibleCandidates.filter((candidate) => candidate.eligible).map(formatEligibilityLine);
-  const blockedLines = visibleCandidates.filter((candidate) => !candidate.eligible).map(formatEligibilityLine);
-
-  if (eligibleLines.length > 0) {
-    embed.addFields({
-      name: `Ready for Review (${eligibleLines.length})`,
-      value: truncateField(eligibleLines.join("\n"))
-    });
-  }
-
-  if (blockedLines.length > 0) {
-    embed.addFields({
-      name: `Not Yet Ready (${blockedLines.length})`,
-      value: truncateField(blockedLines.join("\n"))
-    });
+  const sections = [
+    ["ready", "Ready for Review"],
+    ["field-trial", "In Field Trial"],
+    ["on-hold", "On Hold"],
+    ["not-ready", "Not Yet Ready"]
+  ] as const;
+  for (const [bucket, label] of sections) {
+    const lines = visibleCandidates
+      .filter((candidate) => eligibilityBucket(candidate) === bucket)
+      .map(formatEligibilityLine);
+    if (lines.length > 0) {
+      embed.addFields({ name: `${label} (${lines.length})`, value: truncateField(lines.join("\n")) });
+    }
   }
 
   if (candidates.length > visibleCandidates.length) {
@@ -286,13 +323,40 @@ async function editPromotionVoteMessage(guild: Guild, voteId: string): Promise<v
 function formatEligibilityLine(candidate: EligibleRanger): string {
   const r = candidate.ranger;
   const name = r.discord_display_name ?? r.discord_username ?? "Unknown";
-  const reason = candidate.eligible ? "meets current checks" : candidate.reasons.join("; ");
-  return `${candidate.eligible ? "Ready" : "Hold"} <@${r.discord_user_id}> - ${name} - ${candidate.daysInCorps}d - ${r.status} - ${reason}`;
+  const bucket = eligibilityBucket(candidate);
+  const label = bucket === "ready" ? "Ready" : bucket === "field-trial" ? "Trial" : bucket === "on-hold" ? "On hold" : "Not ready";
+  const reason = bucket === "ready"
+    ? "meets current checks"
+    : bucket === "field-trial"
+      ? "field trial in progress"
+      : bucket === "on-hold"
+        ? "promotion currently on hold"
+        : candidate.reasons.join("; ");
+  return `${label} <@${r.discord_user_id}> - ${name} - ${candidate.daysInCorps}d - ${r.status} - ${reason}`;
+}
+
+type EligibilityBucket = "ready" | "field-trial" | "on-hold" | "not-ready";
+
+function eligibilityBucket(candidate: EligibleRanger): EligibilityBucket {
+  if (candidate.ranger.promotion_progress === "In Field Trial") {
+    return "field-trial";
+  }
+  if (candidate.ranger.promotion_progress === "On Hold") {
+    return "on-hold";
+  }
+  return candidate.eligible ? "ready" : "not-ready";
 }
 
 function compareEligibilityDisplayOrder(a: EligibleRanger, b: EligibleRanger): number {
-  if (a.eligible !== b.eligible) {
-    return a.eligible ? -1 : 1;
+  const bucketOrder: Record<EligibilityBucket, number> = {
+    ready: 0,
+    "field-trial": 1,
+    "on-hold": 2,
+    "not-ready": 3
+  };
+  const bucketDiff = bucketOrder[eligibilityBucket(a)] - bucketOrder[eligibilityBucket(b)];
+  if (bucketDiff !== 0) {
+    return bucketDiff;
   }
 
   const aActive = a.ranger.status === "Active";

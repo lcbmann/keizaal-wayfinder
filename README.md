@@ -360,6 +360,8 @@ When a rostered member leaves the Discord, Wayfinder marks their roster entry Re
 
 Ranger Marshal or higher can open and close promotion votes. Ranger or higher can vote on Apprentice to Ranger votes. Higher target ranks require Ranger Marshal or higher to vote. Votes stay open until manually closed, and final approval or denial is manual.
 
+Marshal+ can use `/promotion status` to mark an Apprentice as `In Field Trial`, `On Hold`, or clear the progress status. `/promotion eligible` shows these as separate sections alongside Ready for Review and Not Yet Ready. Promotion approval clears the progress status automatically.
+
 Approving a vote promotes the candidate through the same service used by `/ranger promote`, writes rank history, updates Supabase, syncs Discord roles, refreshes the assignments board, and posts a promotion announcement embed.
 
 ## Assignment Board

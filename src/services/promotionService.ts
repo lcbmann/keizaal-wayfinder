@@ -6,6 +6,7 @@ import {
   supabase,
   type BallotVote,
   type PromotionBallotRow,
+  type PromotionProgress,
   type PromotionVoteRow,
   type RangerRow
 } from "../db/supabase.js";
@@ -26,6 +27,28 @@ export interface EligibleRanger {
 export interface PromotionBallotWithVoter {
   ballot: PromotionBallotRow;
   voter: RangerRow | null;
+}
+
+export async function setPromotionProgress(params: {
+  discordUserId: string;
+  progress: PromotionProgress;
+}): Promise<RangerRow> {
+  const ranger = await getRangerByDiscordId(params.discordUserId);
+  if (!ranger) {
+    throw new UserFacingError("That Apprentice is not in the roster.");
+  }
+  if (ranger.current_rank !== "Apprentice") {
+    throw new UserFacingError("Promotion progress can only be set for Apprentices.");
+  }
+
+  const { data, error } = await supabase
+    .from("rangers")
+    .update({ promotion_progress: params.progress, updated_at: new Date().toISOString() })
+    .eq("id", ranger.id)
+    .select("*")
+    .single();
+  assertNoDbError(error, "set promotion progress");
+  return data;
 }
 
 export async function listApprenticePromotionEligibility(): Promise<EligibleRanger[]> {

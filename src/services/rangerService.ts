@@ -113,6 +113,7 @@ export async function promoteRanger(params: {
     .from("rangers")
     .update({
       current_rank: params.targetRank,
+      promotion_progress: null,
       last_promotion_date: today,
       discord_username: params.member.user.username,
       discord_display_name: params.member.displayName,

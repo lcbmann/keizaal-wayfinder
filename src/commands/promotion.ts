@@ -148,9 +148,9 @@ export const promotionCommand: BotCommand = {
       }
 
       const candidates = await listApprenticePromotionEligibility();
-      const embed = promotionEligibilityEmbed(interaction.guild, candidates);
+      const embeds = promotionEligibilityEmbeds(interaction.guild, candidates);
 
-      await interaction.editReply({ embeds: [embed] });
+      await interaction.editReply({ embeds });
       return;
     }
 
@@ -263,25 +263,12 @@ export const promotionCommand: BotCommand = {
 
 const mentionRoleOptionNames = ["mentions", "mentions_2", "mentions_3", "mentions_4", "mentions_5"] as const;
 
-function promotionEligibilityEmbed(guild: Guild, candidates: EligibleRanger[]): EmbedBuilder {
+function promotionEligibilityEmbeds(guild: Guild, candidates: EligibleRanger[]): EmbedBuilder[] {
   const sortedCandidates = [...candidates].sort(compareEligibilityDisplayOrder);
-  const visibleCandidates = sortedCandidates.slice(0, 20);
   const ready = candidates.filter((candidate) => eligibilityBucket(candidate) === "ready").length;
   const fieldTrial = candidates.filter((candidate) => eligibilityBucket(candidate) === "field-trial").length;
   const onHold = candidates.filter((candidate) => eligibilityBucket(candidate) === "on-hold").length;
   const notReady = candidates.filter((candidate) => eligibilityBucket(candidate) === "not-ready").length;
-
-  const embed = emojiEmbed(guild, "promotion", "Apprentice Promotion Eligibility")
-    .setDescription(
-      candidates.length
-        ? `${ready} ready / ${fieldTrial} in field trial / ${onHold} on hold / ${notReady} not ready. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
-        : "No Apprentices found."
-    )
-    .setColor(0x587c4a);
-
-  if (visibleCandidates.length === 0) {
-    return embed;
-  }
 
   const sections = [
     ["ready", "Ready for Review"],
@@ -289,20 +276,80 @@ function promotionEligibilityEmbed(guild: Guild, candidates: EligibleRanger[]): 
     ["on-hold", "On Hold"],
     ["not-ready", "Not Yet Ready"]
   ] as const;
+  const fields: Array<{ name: string; value: string }> = [];
   for (const [bucket, label] of sections) {
-    const lines = visibleCandidates
+    const lines = sortedCandidates
       .filter((candidate) => eligibilityBucket(candidate) === bucket)
       .map(formatEligibilityLine);
-    if (lines.length > 0) {
-      embed.addFields({ name: `${label} (${lines.length})`, value: truncateField(lines.join("\n")) });
+    const chunks = splitEligibilityLines(lines);
+    chunks.forEach((chunk, index) => {
+      fields.push({
+        name: index === 0 ? `${label} (${lines.length})` : `${label} (continued)`,
+        value: chunk
+      });
+    });
+  }
+
+  const description = candidates.length
+    ? `${ready} ready / ${fieldTrial} in field trial / ${onHold} on hold / ${notReady} not ready. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
+    : "No Apprentices found.";
+  const embeds: EmbedBuilder[] = [];
+  let current = createEligibilityEmbed(guild, false, description);
+  let currentCharacters = description.length + "Apprentice Promotion Eligibility".length;
+  let currentFields = 0;
+
+  for (const field of fields) {
+    const fieldCharacters = field.name.length + field.value.length;
+    if (currentFields > 0 && (currentFields >= 25 || currentCharacters + fieldCharacters > 5500)) {
+      embeds.push(current);
+      current = createEligibilityEmbed(guild, true, description);
+      currentCharacters = description.length + "Apprentice Promotion Eligibility (continued)".length;
+      currentFields = 0;
     }
+    current.addFields(field);
+    currentCharacters += fieldCharacters;
+    currentFields += 1;
   }
 
-  if (candidates.length > visibleCandidates.length) {
-    embed.setFooter({ text: `Showing first ${visibleCandidates.length} of ${candidates.length} Apprentices.` });
+  if (currentFields > 0 || embeds.length === 0) {
+    embeds.push(current);
+  }
+  const lastEmbed = embeds.at(-1);
+  lastEmbed?.setFooter({ text: `Showing all ${candidates.length} Apprentices.` });
+  return embeds;
+}
+
+function createEligibilityEmbed(guild: Guild, continued: boolean, description: string): EmbedBuilder {
+  return emojiEmbed(
+    guild,
+    "promotion",
+    continued ? "Apprentice Promotion Eligibility (continued)" : "Apprentice Promotion Eligibility"
+  )
+    .setDescription(description)
+    .setColor(0x587c4a);
+}
+
+function splitEligibilityLines(lines: string[]): string[] {
+  if (lines.length === 0) {
+    return [];
   }
 
-  return embed;
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let currentLength = 0;
+  for (const line of lines) {
+    if (current.length > 0 && currentLength + line.length + 1 > 1000) {
+      chunks.push(current.join("\n"));
+      current = [];
+      currentLength = 0;
+    }
+    current.push(line);
+    currentLength += line.length + 1;
+  }
+  if (current.length > 0) {
+    chunks.push(current.join("\n"));
+  }
+  return chunks;
 }
 
 async function editPromotionVoteMessage(guild: Guild, voteId: string): Promise<void> {

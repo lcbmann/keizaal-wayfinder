@@ -34,7 +34,6 @@ import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
 import {
   captureTrailmarkIntelReports,
-  removeCorpsOnlyIntelReports,
   removeIntelReportsForDiscordMessage,
   synchronizeEditedTrailmarkIntelReports,
   syncIntelReportChannelNames
@@ -51,7 +50,6 @@ import {
 import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
   handleAllianceReportMessage,
-  isCorpsOnlyReport,
   isAllianceGuildId,
   removeAllianceReportForDiscordMessage,
   syncCorpsReportAlliancePrivacyForMessage,
@@ -95,13 +93,6 @@ client.once("ready", (readyClient) => {
   startTrailmarkSessionExpirationJob(readyClient);
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
-    void removeCorpsOnlyIntelReports(corpsGuild)
-      .then((removed) => {
-        if (removed > 0) {
-          console.log(`Removed ${removed} Corps-only intel report record${removed === 1 ? "" : "s"}.`);
-        }
-      })
-      .catch((error) => console.warn("Failed to clean up Corps-only intel reports:", error));
     void syncApprenticeshipPreferenceNotices(corpsGuild)
       .then((synchronized) => {
         if (synchronized > 0) {
@@ -267,16 +258,8 @@ client.on("messageUpdate", (_oldMessage, newMessage) => {
       return;
     }
     if (message.guildId === env.DISCORD_GUILD_ID) {
-      if (isCorpsOnlyReport(message.content)) {
-        await removeIntelReportsForDiscordMessage({
-          guild: message.guild!,
-          channelId: message.channelId,
-          messageId: message.id
-        });
-      } else {
-        await synchronizeEditedTrailmarkIntelReports(message);
-        await syncCorpsReportAlliancePrivacyForMessage(message);
-      }
+      await synchronizeEditedTrailmarkIntelReports(message);
+      await syncCorpsReportAlliancePrivacyForMessage(message);
     }
   })().catch((error) => {
     console.warn(`Failed to synchronize edited intel report ${newMessage.id}:`, error);

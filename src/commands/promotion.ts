@@ -150,7 +150,13 @@ export const promotionCommand: BotCommand = {
       const candidates = await listApprenticePromotionEligibility();
       const embeds = promotionEligibilityEmbeds(interaction.guild, candidates);
 
-      await interaction.editReply({ embeds });
+      const [firstEmbed, ...remainingEmbeds] = embeds;
+      if (firstEmbed) {
+        await interaction.editReply({ embeds: [firstEmbed] });
+      }
+      for (const embed of remainingEmbeds) {
+        await interaction.followUp({ embeds: [embed], ephemeral: true });
+      }
       return;
     }
 

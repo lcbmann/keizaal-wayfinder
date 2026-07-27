@@ -375,17 +375,12 @@ async function editPromotionVoteMessage(guild: Guild, voteId: string): Promise<v
 
 function formatEligibilityLine(candidate: EligibleRanger): string {
   const r = candidate.ranger;
-  const name = r.discord_display_name ?? r.discord_username ?? "Unknown";
   const bucket = eligibilityBucket(candidate);
-  const label = bucket === "ready" ? "Ready" : bucket === "field-trial" ? "Trial" : bucket === "on-hold" ? "On hold" : "Not ready";
-  const reason = bucket === "ready"
-    ? "meets current checks"
-    : bucket === "field-trial"
-      ? "field trial in progress"
-      : bucket === "on-hold"
-        ? "promotion currently on hold"
-        : candidate.reasons.join("; ");
-  return `${label} <@${r.discord_user_id}> - ${name} - ${candidate.daysInCorps}d - ${r.status} - ${reason}`;
+  const summary = `<@${r.discord_user_id}> - ${candidate.daysInCorps}d - ${r.status}`;
+  if (bucket === "not-ready" && candidate.reasons.length > 0) {
+    return `${summary} - ${candidate.reasons.join("; ")}`;
+  }
+  return summary;
 }
 
 type EligibilityBucket = "ready" | "field-trial" | "on-hold" | "not-ready";

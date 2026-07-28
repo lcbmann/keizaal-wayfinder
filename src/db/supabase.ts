@@ -26,6 +26,7 @@ export interface RangerRow {
   current_rank: MainRank;
   status: RangerStatus;
   promotion_progress: PromotionProgress;
+  promotion_progress_started_at: string | null;
   join_date: string;
   last_promotion_date: string | null;
   assigned_hold: string | null;

@@ -21,6 +21,7 @@ import {
 import { getRangerByDiscordId, getRangerById } from "../services/rangerService.js";
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { UserFacingError } from "../utils/errors.js";
+import { formatElapsedSince } from "../utils/dates.js";
 import { canApprovePromotions, canOpenPromotionVotes } from "../utils/permissions.js";
 import { emojiEmbed } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
@@ -378,7 +379,14 @@ async function editPromotionVoteMessage(guild: Guild, voteId: string): Promise<v
 function formatEligibilityLine(candidate: EligibleRanger): string {
   const r = candidate.ranger;
   const bucket = eligibilityBucket(candidate);
-  const summary = `<@${r.discord_user_id}> - ${candidate.daysInCorps}d - ${r.status}`;
+  const duration = bucket === "promotion-vote"
+    ? `vote open ${formatElapsedSince(candidate.openVoteCreatedAt)}`
+    : bucket === "field-trial"
+      ? `field trial ${formatElapsedSince(r.promotion_progress_started_at)}`
+      : bucket === "on-hold"
+        ? `on hold ${formatElapsedSince(r.promotion_progress_started_at)}`
+      : null;
+  const summary = `<@${r.discord_user_id}> - ${candidate.daysInCorps}d in Corps - ${r.status}${duration ? ` - ${duration}` : ""}`;
   if (bucket === "not-ready" && candidate.reasons.length > 0) {
     return `${summary} - ${candidate.reasons.join("; ")}`;
   }

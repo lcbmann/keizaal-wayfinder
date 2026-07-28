@@ -20,6 +20,7 @@ export interface EligibleRanger {
   ranger: RangerRow;
   daysInCorps: number;
   hasOpenVote: boolean;
+  openVoteCreatedAt: string | null;
   eligible: boolean;
   reasons: string[];
 }
@@ -43,7 +44,15 @@ export async function setPromotionProgress(params: {
 
   const { data, error } = await supabase
     .from("rangers")
-    .update({ promotion_progress: params.progress, updated_at: new Date().toISOString() })
+    .update({
+      promotion_progress: params.progress,
+      promotion_progress_started_at: params.progress === null
+        ? null
+        : ranger.promotion_progress === params.progress
+          ? ranger.promotion_progress_started_at
+          : new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
     .eq("id", ranger.id)
     .select("*")
     .single();
@@ -67,15 +76,22 @@ export async function listApprenticePromotionEligibility(): Promise<EligibleRang
 
   const { data: openVotes, error: openVotesError } = await supabase
     .from("promotion_votes")
-    .select("candidate_ranger_id")
+    .select("candidate_ranger_id, created_at")
     .in("candidate_ranger_id", apprentices.map((ranger) => ranger.id))
-    .eq("status", "Open");
+    .eq("status", "Open")
+    .order("created_at", { ascending: true });
   assertNoDbError(openVotesError, "list open apprentice promotion votes");
-  const openVoteCandidateIds = new Set((openVotes ?? []).map((vote) => vote.candidate_ranger_id));
+  const openVoteCreatedAt = new Map<string, string>();
+  for (const vote of openVotes ?? []) {
+    if (!openVoteCreatedAt.has(vote.candidate_ranger_id)) {
+      openVoteCreatedAt.set(vote.candidate_ranger_id, vote.created_at);
+    }
+  }
 
   const results: EligibleRanger[] = [];
   for (const ranger of apprentices) {
-    const openVote = openVoteCandidateIds.has(ranger.id);
+    const openVoteAt = openVoteCreatedAt.get(ranger.id) ?? null;
+    const openVote = openVoteAt !== null;
     const days = daysBetween(ranger.join_date);
     const reasons: string[] = [];
 
@@ -93,6 +109,7 @@ export async function listApprenticePromotionEligibility(): Promise<EligibleRang
       ranger,
       daysInCorps: days,
       hasOpenVote: openVote,
+      openVoteCreatedAt: openVoteAt,
       eligible: reasons.length === 0,
       reasons
     });

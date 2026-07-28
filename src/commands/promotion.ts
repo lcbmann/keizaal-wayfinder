@@ -271,12 +271,14 @@ const mentionRoleOptionNames = ["mentions", "mentions_2", "mentions_3", "mention
 
 function promotionEligibilityEmbeds(guild: Guild, candidates: EligibleRanger[]): EmbedBuilder[] {
   const sortedCandidates = [...candidates].sort(compareEligibilityDisplayOrder);
+  const promotionVoteOpen = candidates.filter((candidate) => eligibilityBucket(candidate) === "promotion-vote").length;
   const ready = candidates.filter((candidate) => eligibilityBucket(candidate) === "ready").length;
   const fieldTrial = candidates.filter((candidate) => eligibilityBucket(candidate) === "field-trial").length;
   const onHold = candidates.filter((candidate) => eligibilityBucket(candidate) === "on-hold").length;
   const notReady = candidates.filter((candidate) => eligibilityBucket(candidate) === "not-ready").length;
 
   const sections = [
+    ["promotion-vote", "Promotion Vote Open"],
     ["ready", "Ready for Review"],
     ["field-trial", "In Field Trial"],
     ["on-hold", "On Hold"],
@@ -297,7 +299,7 @@ function promotionEligibilityEmbeds(guild: Guild, candidates: EligibleRanger[]):
   }
 
   const description = candidates.length
-    ? `${ready} ready / ${fieldTrial} in field trial / ${onHold} on hold / ${notReady} not ready. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
+    ? `${promotionVoteOpen} promotion vote open / ${ready} ready / ${fieldTrial} in field trial / ${onHold} on hold / ${notReady} not ready. Minimum time in Corps: ${env.PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER} days.`
     : "No Apprentices found.";
   const embeds: EmbedBuilder[] = [];
   let current = createEligibilityEmbed(guild, false, description);
@@ -383,9 +385,12 @@ function formatEligibilityLine(candidate: EligibleRanger): string {
   return summary;
 }
 
-type EligibilityBucket = "ready" | "field-trial" | "on-hold" | "not-ready";
+type EligibilityBucket = "promotion-vote" | "ready" | "field-trial" | "on-hold" | "not-ready";
 
 function eligibilityBucket(candidate: EligibleRanger): EligibilityBucket {
+  if (candidate.hasOpenVote) {
+    return "promotion-vote";
+  }
   if (candidate.ranger.promotion_progress === "In Field Trial") {
     return "field-trial";
   }
@@ -397,10 +402,11 @@ function eligibilityBucket(candidate: EligibleRanger): EligibilityBucket {
 
 function compareEligibilityDisplayOrder(a: EligibleRanger, b: EligibleRanger): number {
   const bucketOrder: Record<EligibilityBucket, number> = {
-    ready: 0,
-    "field-trial": 1,
-    "on-hold": 2,
-    "not-ready": 3
+    "promotion-vote": 0,
+    ready: 1,
+    "field-trial": 2,
+    "on-hold": 3,
+    "not-ready": 4
   };
   const bucketDiff = bucketOrder[eligibilityBucket(a)] - bucketOrder[eligibilityBucket(b)];
   if (bucketDiff !== 0) {

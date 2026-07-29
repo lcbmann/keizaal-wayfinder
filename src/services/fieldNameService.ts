@@ -769,7 +769,7 @@ async function getOpenFieldNameContestForTarget(targetId: string): Promise<Field
   return data;
 }
 
-async function listOpenFieldNameContests(): Promise<FieldNameContestRow[]> {
+export async function listOpenFieldNameContests(): Promise<FieldNameContestRow[]> {
   const { data, error } = await supabase.from("field_name_contests").select("*").eq("status", "Open").order("closes_at", { ascending: true });
   assertNoDbError(error, "list open field name contests");
   return data ?? [];

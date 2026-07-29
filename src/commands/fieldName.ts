@@ -3,6 +3,7 @@ import {
   cancelFieldNameContest,
   closeFieldNameContest,
   listFieldNames,
+  listOpenFieldNameContests,
   openFieldNameContest,
   refreshFieldNamesBulletin,
   removeFieldName,
@@ -35,7 +36,11 @@ export const fieldNameCommand: BotCommand = {
     .addSubcommand((subcommand) => subcommand
       .setName("close")
       .setDescription("Marshal+: close a contest and decide its leading field name.")
-      .addStringOption((option) => option.setName("contest").setDescription("Contest UUID from the contest post.").setRequired(true)))
+      .addStringOption((option) => option
+        .setName("contest")
+        .setDescription("Select the open contest to close.")
+        .setRequired(true)
+        .setAutocomplete(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("list")
       .setDescription("Ranger+: list assigned field names."))
@@ -47,8 +52,28 @@ export const fieldNameCommand: BotCommand = {
     .addSubcommand((subcommand) => subcommand
       .setName("cancel")
       .setDescription("Marshal+: cancel an open field name contest.")
-      .addStringOption((option) => option.setName("contest").setDescription("Contest UUID from the contest post.").setRequired(true))
+      .addStringOption((option) => option
+        .setName("contest")
+        .setDescription("Select the open contest to cancel.")
+        .setRequired(true)
+        .setAutocomplete(true))
       .addStringOption((option) => option.setName("reason").setDescription("Why the contest is being cancelled.").setMaxLength(500))),
+
+  async autocomplete(interaction) {
+    const focused = interaction.options.getFocused().toLowerCase();
+    const contests = await listOpenFieldNameContests();
+    const choices = await Promise.all(contests.map(async (contest) => {
+      const nominee = interaction.guild
+        ? await interaction.guild.members.fetch(contest.target_discord_user_id).catch(() => null)
+        : null;
+      const label = nominee?.displayName ?? `<@${contest.target_discord_user_id}>`;
+      return {
+        name: `${label} - ${contest.id.slice(0, 8)}`.slice(0, 100),
+        value: contest.id
+      };
+    }));
+    await interaction.respond(choices.filter((choice) => choice.name.toLowerCase().includes(focused)).slice(0, 25));
+  },
 
   async execute(interaction) {
     if (!interaction.inCachedGuild()) {

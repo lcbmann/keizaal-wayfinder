@@ -116,7 +116,14 @@ export async function processAtlasTrailmarkAccessRequest(
       trailmark,
       minutes: env.DEFAULT_TRAILMARK_ACCESS_MINUTES
     });
-    await dependencies.captureIntel({ guild, trailmark });
+    // Discord history capture is useful, but it must not block the visit
+    // record: that record is what delivers reports when the Ranger later
+    // reaches Headquarters.
+    try {
+      await dependencies.captureIntel({ guild, trailmark });
+    } catch (error) {
+      console.error(`Could not capture Trailmark history for Atlas access request ${request.id}:`, error);
+    }
     await dependencies.recordVisit({
       guild,
       discordUserId: request.discord_user_id,

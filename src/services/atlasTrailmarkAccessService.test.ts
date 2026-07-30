@@ -139,15 +139,43 @@ test("grants access, processes Intel, and completes the request", async () => {
   });
 });
 
-test("records a safe failed completion when processing fails", async () => {
+test("records the visit when Trailmark history capture fails", async () => {
   const completions: AtlasAccessRequestCompletion[] = [];
+  const calls: string[] = [];
   const originalConsoleError = console.error;
   console.error = () => undefined;
   let result;
   try {
     result = await processAtlasTrailmarkAccessRequest(guild, request, createDependencies({
       captureIntel: async () => {
-        throw new Error("internal database failure");
+        throw new Error("history unavailable");
+      },
+      recordVisit: async () => {
+        calls.push("visit");
+      },
+      completeRequest: async (completion) => {
+        completions.push(completion);
+        return true;
+      }
+    }));
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.deepEqual(result, { status: "granted" });
+  assert.deepEqual(calls, ["visit"]);
+  assert.equal(completions[0]?.request_status, "granted");
+});
+
+test("records a safe failed completion when access processing fails", async () => {
+  const completions: AtlasAccessRequestCompletion[] = [];
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  let result;
+  try {
+    result = await processAtlasTrailmarkAccessRequest(guild, request, createDependencies({
+      grantAccess: async () => {
+        throw new Error("internal access failure");
       },
       completeRequest: async (completion) => {
         completions.push(completion);

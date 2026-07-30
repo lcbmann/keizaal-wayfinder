@@ -117,7 +117,14 @@ test("posts a visible drop and preserves the Atlas reporter identity for Intel",
   const result = await processAtlasTrailmarkDrop(guild, drop, dependencies);
 
   assert.deepEqual(result, { status: "posted" });
-  assert.equal(postedOptions?.content, drop.message);
+  assert.equal(postedOptions?.content, undefined);
+  assert.equal(postedOptions?.embeds?.length, 1);
+  const embed = postedOptions?.embeds?.[0];
+  assert.ok(embed);
+  const embedData = "toJSON" in embed ? embed.toJSON() : embed;
+  assert.equal(embedData.author?.name, member.displayName);
+  assert.equal(embedData.title, `${trailmark.name} Field Drop`);
+  assert.equal(embedData.description, drop.message);
   assert.deepEqual(postedOptions?.allowedMentions, { parse: [] });
   assert.deepEqual(calls, ["capture", "complete"]);
 });

@@ -76,11 +76,10 @@ export async function processAtlasTrailmarkDrop(
         iconURL: member.displayAvatarURL()
       })
       .setTitle(`${trailmark.name} Field Drop`)
-      .setDescription("Submitted through the Ranger Atlas.")
+      .setDescription(drop.message)
       .setFooter({ text: "Submitted through the Ranger Atlas" })
       .setTimestamp(new Date(drop.requested_at));
     const posted = await dependencies.postMessage(channel, {
-      content: drop.message,
       embeds: [embed],
       allowedMentions: { parse: [] }
     });

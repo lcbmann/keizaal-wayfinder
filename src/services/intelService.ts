@@ -64,6 +64,30 @@ export interface IntelReporterRepairResult {
   messagesMissing: number;
 }
 
+export interface IntelRoutingResult {
+  topics: IntelTopicRow[];
+  isCatchall: boolean;
+  isHqReport: boolean;
+}
+
+export function classifyTrailmarkIntelContent(params: {
+  content: string;
+  topics: IntelTopicRow[];
+  catchallTopic: IntelTopicRow | null;
+  trailmarkId: string;
+  hqTrailmarkId: string | null;
+}): IntelRoutingResult {
+  const routed = routeIntelContent({
+    content: params.content,
+    topics: params.topics,
+    catchallTopic: params.catchallTopic
+  });
+  return {
+    ...routed,
+    isHqReport: params.hqTrailmarkId === params.trailmarkId
+  };
+}
+
 export async function getIntelSettings(): Promise<IntelSettingsRow> {
   const { data, error } = await supabase.from("intel_settings").select("*").eq("id", true).maybeSingle();
   assertNoDbError(error, "get intel settings");
@@ -273,48 +297,87 @@ export async function captureTrailmarkIntelReports(message: Message): Promise<nu
     return 0;
   }
 
+  return captureTrailmarkIntelContent({
+    guild: message.guild,
+    trailmark,
+    message,
+    content,
+    authorDiscordUserId: message.author.id,
+    authorDisplayName: reportAuthorDisplayName(message)
+  });
+}
+
+export async function captureAtlasTrailmarkDropForIntel(params: {
+  guild: Guild;
+  trailmark: TrailmarkRow;
+  message: Message;
+  content: string;
+  authorDiscordUserId: string;
+  authorDisplayName: string;
+}): Promise<number> {
+  return captureTrailmarkIntelContent(params);
+}
+
+async function captureTrailmarkIntelContent(params: {
+  guild: Guild;
+  trailmark: TrailmarkRow;
+  message: Message;
+  content: string;
+  authorDiscordUserId: string;
+  authorDisplayName: string;
+}): Promise<number> {
+  const content = params.content.trim();
+  if (!content) {
+    return 0;
+  }
+
   const settings = await getIntelSettings();
   const topics = await listIntelTopics();
   const catchallTopic = catchallTopicFromSettings(settings, topics);
-  const routed = routeIntelContent({
+  const routed = classifyTrailmarkIntelContent({
     content,
     topics,
-    catchallTopic
+    catchallTopic,
+    trailmarkId: params.trailmark.id,
+    hqTrailmarkId: settings.hq_trailmark_id
   });
   if (routed.topics.length === 0) {
     return 0;
   }
 
-  const isHqReport = settings.hq_trailmark_id === trailmark.id;
+  const isHqReport = routed.isHqReport;
   const deliveredTopicIds = new Set<string>();
 
   if (!routed.isCatchall && catchallTopic) {
     await removeCatchallReportForDiscordMessage({
-      guild: message.guild,
+      guild: params.guild,
       catchallTopicId: catchallTopic.id,
-      channelId: message.channelId,
-      messageId: message.id
+      channelId: params.message.channelId,
+      messageId: params.message.id
     });
   }
 
   for (const topic of routed.topics) {
     await upsertIntelReport({
       topic,
-      trailmark,
-      message,
-      isHqReport
+      trailmark: params.trailmark,
+      message: params.message,
+      isHqReport,
+      content,
+      authorDiscordUserId: params.authorDiscordUserId,
+      authorDisplayName: params.authorDisplayName
     });
     if (isHqReport) {
       deliveredTopicIds.add(topic.id);
     }
   }
 
-  await refreshDeliveredTopics(message.guild, deliveredTopicIds);
+  await refreshDeliveredTopics(params.guild, deliveredTopicIds);
   await deliverReportsOriginatingAtAllianceHeadquarters({
-    guild: message.guild,
-    trailmark,
-    deliveredByDiscordUserId: message.author.id,
-    discordMessageId: message.id
+    guild: params.guild,
+    trailmark: params.trailmark,
+    deliveredByDiscordUserId: params.authorDiscordUserId,
+    discordMessageId: params.message.id
   });
   return routed.topics.length;
 }
@@ -900,17 +963,22 @@ async function upsertIntelReport(params: {
   trailmark: TrailmarkRow;
   message: Message;
   isHqReport: boolean;
+  content?: string;
+  authorDiscordUserId?: string;
+  authorDisplayName?: string;
 }): Promise<boolean> {
-  const atlasPreview = await resolveAtlasSharePreviewFromContent(params.message.content);
-  const authorDisplayName = reportAuthorDisplayName(params.message);
+  const content = (params.content ?? params.message.content).trim();
+  const authorDiscordUserId = params.authorDiscordUserId ?? params.message.author.id;
+  const authorDisplayName = params.authorDisplayName ?? reportAuthorDisplayName(params.message);
+  const atlasPreview = await resolveAtlasSharePreviewFromContent(content);
   const basePayload = {
     topic_id: params.topic.id,
     trailmark_id: params.trailmark.id,
     discord_message_id: params.message.id,
     discord_channel_id: params.message.channelId,
-    author_discord_user_id: params.message.author.id,
-    content: params.message.content.trim(),
-    delivered_by_discord_user_id: params.isHqReport ? params.message.author.id : null,
+    author_discord_user_id: authorDiscordUserId,
+    content,
+    delivered_by_discord_user_id: params.isHqReport ? authorDiscordUserId : null,
     delivered_to_trailmark_id: params.isHqReport ? params.trailmark.id : null,
     delivered_at: params.isHqReport ? params.message.createdAt.toISOString() : null,
     created_at: params.message.createdAt.toISOString()

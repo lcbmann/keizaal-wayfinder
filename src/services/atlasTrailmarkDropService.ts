@@ -1,7 +1,9 @@
-import { ChannelType, EmbedBuilder, type Guild } from "discord.js";
+import { ChannelType, EmbedBuilder, type Guild, type GuildMember, type Message, type MessageCreateOptions, type TextChannel } from "discord.js";
 import { assertNoDbError, supabase, type Json } from "../db/supabase.js";
 import { canUseTrailmarks } from "../utils/permissions.js";
+import { captureAtlasTrailmarkDropForIntel } from "./intelService.js";
 import { getActiveTrailmarkByAtlasLocationId } from "./trailmarkService.js";
+import type { TrailmarkRow } from "../db/supabase.js";
 
 export interface AtlasTrailmarkDrop {
   id: string;
@@ -10,6 +12,29 @@ export interface AtlasTrailmarkDrop {
   atlas_location_id: string;
   message: string;
   requested_at: string;
+}
+
+export interface AtlasTrailmarkDropDependencies {
+  findTrailmark: (atlasLocationId: string) => Promise<TrailmarkRow | null>;
+  fetchMember: (guild: Guild, discordUserId: string) => Promise<GuildMember | null>;
+  canUseTrailmarks: (member: GuildMember) => boolean;
+  fetchChannel: (guild: Guild, channelId: string) => Promise<TextChannel | null>;
+  postMessage: (channel: TextChannel, options: MessageCreateOptions) => Promise<Message>;
+  captureIntel: (params: {
+    guild: Guild;
+    trailmark: TrailmarkRow;
+    message: Message;
+    content: string;
+    authorDiscordUserId: string;
+    authorDisplayName: string;
+  }) => Promise<number>;
+  completeDrop: (params: {
+    id: string;
+    status: "posted" | "failed";
+    channelId: string | null;
+    messageId: string | null;
+    errorMessage: string | null;
+  }) => Promise<void>;
 }
 
 export async function claimPendingAtlasTrailmarkDrops(requestLimit = 10): Promise<AtlasTrailmarkDrop[]> {
@@ -22,24 +47,25 @@ export async function claimPendingAtlasTrailmarkDrops(requestLimit = 10): Promis
 
 export async function processAtlasTrailmarkDrop(
   guild: Guild,
-  drop: AtlasTrailmarkDrop
+  drop: AtlasTrailmarkDrop,
+  dependencies: AtlasTrailmarkDropDependencies = defaultDependencies()
 ): Promise<{ status: "posted" | "failed"; errorMessage?: string }> {
   try {
-    const trailmark = await getActiveTrailmarkByAtlasLocationId(drop.atlas_location_id);
+    const trailmark = await dependencies.findTrailmark(drop.atlas_location_id);
     if (!trailmark) {
       throw new TrailmarkDropFailure("No active Trailmark is linked to this Atlas location.");
     }
 
-    const member = await guild.members.fetch(drop.discord_user_id).catch(() => null);
+    const member = await dependencies.fetchMember(guild, drop.discord_user_id);
     if (!member) {
       throw new TrailmarkDropFailure("The linked Discord member could not be found.");
     }
-    if (!canUseTrailmarks(member)) {
+    if (!dependencies.canUseTrailmarks(member)) {
       throw new TrailmarkDropFailure("The linked Discord member cannot use Trailmarks.");
     }
 
-    const channel = await guild.channels.fetch(trailmark.discord_channel_id).catch(() => null);
-    if (!channel || channel.type !== ChannelType.GuildText) {
+    const channel = await dependencies.fetchChannel(guild, trailmark.discord_channel_id);
+    if (!channel) {
       throw new TrailmarkDropFailure("The Trailmark channel could not be found.");
     }
 
@@ -50,15 +76,34 @@ export async function processAtlasTrailmarkDrop(
         iconURL: member.displayAvatarURL()
       })
       .setTitle(`${trailmark.name} Field Drop`)
-      .setDescription(drop.message)
+      .setDescription("Submitted through the Ranger Atlas.")
       .setFooter({ text: "Submitted through the Ranger Atlas" })
       .setTimestamp(new Date(drop.requested_at));
-    const posted = await channel.send({
+    const posted = await dependencies.postMessage(channel, {
+      content: drop.message,
       embeds: [embed],
       allowedMentions: { parse: [] }
     });
 
-    await completeDrop({
+    try {
+      const routedTopics = await dependencies.captureIntel({
+        guild,
+        trailmark,
+        message: posted,
+        content: drop.message,
+        authorDiscordUserId: drop.discord_user_id,
+        authorDisplayName: drop.ranger_name
+      });
+      if (routedTopics === 0) {
+        console.warn(
+          `Atlas Trailmark drop ${drop.id} had no Intel route. Add a matching keyword or configure an Intel catchall topic.`
+        );
+      }
+    } catch (error) {
+      console.error(`Could not route Atlas Trailmark drop ${drop.id} into Intel:`, error);
+    }
+
+    await dependencies.completeDrop({
       id: drop.id,
       status: "posted",
       channelId: channel.id,
@@ -74,7 +119,7 @@ export async function processAtlasTrailmarkDrop(
       console.error(`Failed to process Atlas Trailmark drop ${drop.id}:`, error);
     }
     try {
-      await completeDrop({
+      await dependencies.completeDrop({
         id: drop.id,
         status: "failed",
         channelId: null,
@@ -88,7 +133,7 @@ export async function processAtlasTrailmarkDrop(
   }
 }
 
-async function completeDrop(params: {
+async function completeAtlasTrailmarkDrop(params: {
   id: string;
   status: "posted" | "failed";
   channelId: string | null;
@@ -106,6 +151,21 @@ async function completeDrop(params: {
   if (data !== true) {
     throw new Error(`Atlas Trailmark drop ${params.id} completion returned false.`);
   }
+}
+
+function defaultDependencies(): AtlasTrailmarkDropDependencies {
+  return {
+    findTrailmark: getActiveTrailmarkByAtlasLocationId,
+    fetchMember: async (guild, discordUserId) => guild.members.fetch(discordUserId).catch(() => null),
+    canUseTrailmarks,
+    fetchChannel: async (guild, channelId) => {
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      return channel?.type === ChannelType.GuildText ? channel : null;
+    },
+    postMessage: (channel, options) => channel.send(options),
+    captureIntel: captureAtlasTrailmarkDropForIntel,
+    completeDrop: completeAtlasTrailmarkDrop
+  };
 }
 
 function parseDrops(value: Json | null): AtlasTrailmarkDrop[] {

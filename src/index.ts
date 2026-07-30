@@ -11,6 +11,7 @@ import { pingCommand } from "./commands/ping.js";
 import { rangerCommand } from "./commands/ranger.js";
 import { promotionCommand } from "./commands/promotion.js";
 import { trailmarkCommand } from "./commands/trailmark.js";
+import { atlasCommand } from "./commands/atlas.js";
 import { rosterCommand } from "./commands/roster.js";
 import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
@@ -29,6 +30,7 @@ import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.j
 import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./components/fieldNameButtons.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
+import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
@@ -64,6 +66,7 @@ for (const command of [
   rangerCommand,
   promotionCommand,
   trailmarkCommand,
+  atlasCommand,
   rosterCommand,
   recruitCommand,
   fundsCommand,
@@ -92,6 +95,7 @@ const client = new Client({
 client.once("ready", (readyClient) => {
   console.log(`Keizaal Wayfinder logged in as ${readyClient.user.tag}`);
   startTrailmarkSessionExpirationJob(readyClient);
+  startAtlasTrailmarkAccessPollingJob(readyClient);
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
     void syncApprenticeshipPreferenceNotices(corpsGuild)

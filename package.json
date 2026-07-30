@@ -10,7 +10,8 @@
     "start:tsx": "tsx src/index.ts",
     "deploy-commands": "tsx src/deploy-commands.ts",
     "check": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "tsx --test src/services/atlasTrailmarkAccessService.test.ts"
   },
   "overrides": {
     "undici": "6.27.0"

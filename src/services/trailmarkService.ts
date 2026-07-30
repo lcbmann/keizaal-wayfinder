@@ -93,6 +93,18 @@ export async function getActiveTrailmarkByChannelId(channelId: string): Promise<
   return data;
 }
 
+export async function getActiveTrailmarkByAtlasLocationId(atlasLocationId: string): Promise<TrailmarkRow | null> {
+  const { data, error } = await supabase
+    .from("trailmarks")
+    .select("*")
+    .eq("atlas_location_id", atlasLocationId)
+    .eq("active", true)
+    .maybeSingle();
+
+  assertNoDbError(error, "get active Trailmark by Atlas location");
+  return data;
+}
+
 export async function createTrailmark(params: {
   guild: Guild;
   name: string;

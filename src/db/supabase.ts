@@ -752,6 +752,28 @@ export interface Database {
         Args: { share_code: string };
         Returns: Json;
       };
+      create_atlas_discord_link_code: {
+        Args: {
+          discord_user_id_input: string;
+          discord_display_name_input: string;
+        };
+        Returns: string;
+      };
+      claim_pending_atlas_trailmark_access_requests: {
+        Args: { request_limit: number };
+        Returns: Json;
+      };
+      complete_atlas_trailmark_access_request: {
+        Args: {
+          access_request_id: string;
+          request_status: string;
+          request_discord_guild_id: string | null;
+          request_discord_channel_id: string | null;
+          request_access_expires_at: string | null;
+          request_error_message: string | null;
+        };
+        Returns: boolean;
+      };
     };
   };
 }

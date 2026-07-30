@@ -164,6 +164,12 @@ Build:
 npm run build
 ```
 
+Tests:
+
+```bash
+npm run test
+```
+
 Implemented commands:
 
 - `/ping`
@@ -189,6 +195,7 @@ Implemented commands:
 - `/trailmark deactivate`
 - `/trailmark set-atlas`
 - `/trailmark clear-atlas`
+- `/atlas link`
 - `/promotion eligible`
 - `/promotion open`
 - `/promotion close`
@@ -277,6 +284,8 @@ Each Trailmark is a private text channel under `TRAILMARK_CATEGORY_ID`. Everyone
 Users visit Trailmarks by selecting one from the bot message posted by `/trailmark panel`. When a user selects a Trailmark, any previous active Trailmark session is revoked, the selected channel is opened for the configured duration, and the session is stored in Supabase. The dropdown also includes `No Trailmark`, which revokes current access and clears the user's selection path. A background job runs every minute and also runs on startup, so expired access is revoked after bot restarts. The stored panel refreshes automatically when Trailmarks are created, edited, or deactivated.
 
 `/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, or pinned status. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
+
+`/atlas link` creates a ten-minute code for the member to enter under **Link Discord** in the Atlas. After the Atlas device is linked, opening an Atlas location that has a matching active Trailmark creates a pending Discord access request. Wayfinder polls those requests every five seconds, verifies the linked Discord member still has Apprentice-or-higher Trailmark access, opens the matching Trailmark channel for the configured duration, and runs the same Intel capture and HQ delivery flow as the Discord dropdown. Apply `202607300001_create_atlas_trailmark_visits.sql` from the Ranger Map repository to the shared Supabase project before using this bridge.
 
 ## HQ Strongbox
 
@@ -377,5 +386,4 @@ Local development is fine initially. For production, run the bot on an always-ru
 - Career roles are preserved but not stored in a separate table yet.
 - Nickname enforcement is intentionally left as a TODO.
 - Promotion eligibility warns through displayed reasons, but `/promotion open` still allows Marshal judgment for edge cases.
-- The Atlas site is not implemented here; `trailmarks.atlas_location_id` is reserved for future integration.
 - Trailmark intel captures new messages while the bot is online. Use `/intel backfill` for historical Trailmark posts.

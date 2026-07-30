@@ -4,6 +4,7 @@ import { pingCommand } from "./commands/ping.js";
 import { rangerCommand } from "./commands/ranger.js";
 import { promotionCommand } from "./commands/promotion.js";
 import { trailmarkCommand } from "./commands/trailmark.js";
+import { atlasCommand } from "./commands/atlas.js";
 import { rosterCommand } from "./commands/roster.js";
 import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
@@ -20,6 +21,7 @@ const corpsCommands = [
   rangerCommand,
   promotionCommand,
   trailmarkCommand,
+  atlasCommand,
   rosterCommand,
   recruitCommand,
   fundsCommand,

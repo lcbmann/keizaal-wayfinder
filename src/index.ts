@@ -32,6 +32,7 @@ import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessio
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
+import { refreshOpenPromotionVoteMessages } from "./services/promotionService.js";
 import {
   captureTrailmarkIntelReports,
   removeIntelReportsForDiscordMessage,
@@ -102,6 +103,13 @@ client.once("ready", (readyClient) => {
       .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
     void refreshFieldNamesBulletin(corpsGuild)
       .catch((error) => console.warn("Failed to refresh Field Names bulletin:", error));
+    void refreshOpenPromotionVoteMessages(corpsGuild)
+      .then((refreshed) => {
+        if (refreshed > 0) {
+          console.log(`Refreshed ${refreshed} open promotion vote${refreshed === 1 ? "" : "s"}.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to refresh open promotion votes:", error));
     void refreshOpenFieldNameContestMessages(corpsGuild)
       .then((refreshed) => {
         if (refreshed > 0) {

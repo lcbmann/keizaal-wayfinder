@@ -376,6 +376,32 @@ export async function refreshPromotionVoteMessage(guild: Guild, voteId: string):
   };
 }
 
+export async function refreshOpenPromotionVoteMessages(guild: Guild): Promise<number> {
+  const votes = await findOpenPromotionVotes();
+  let refreshed = 0;
+
+  for (const vote of votes) {
+    if (!vote.channel_id || !vote.message_id) {
+      continue;
+    }
+
+    const channel = await guild.channels.fetch(vote.channel_id).catch(() => null);
+    if (!channel?.isTextBased()) {
+      continue;
+    }
+
+    const message = await channel.messages.fetch(vote.message_id).catch(() => null);
+    if (!message) {
+      continue;
+    }
+
+    await message.edit(await refreshPromotionVoteMessage(guild, vote.id));
+    refreshed += 1;
+  }
+
+  return refreshed;
+}
+
 function canVoteOnTarget(voterRank: MainRank, targetRank: MainRank): boolean {
   if (targetRank === "Ranger") {
     return rankAtLeast(voterRank, "Ranger");

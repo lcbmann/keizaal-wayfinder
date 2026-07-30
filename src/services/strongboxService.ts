@@ -147,7 +147,7 @@ function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
   return emojiEmbed(guild, "strongbox", "Strongbox Drop")
     .setDescription([
       "Use this channel for private submissions to Ranger Marshal or higher.",
-      "You cannot read previous submissions. Wayfinder forwards each entry to the private Strongbox, creates a Marshal discussion thread, and removes any public copy."
+      "Wayfinder forwards ordinary submissions to the private Strongbox, creates a Marshal discussion thread, and removes the public copy. The pinned instructions remain available here."
     ].join("\n"))
     .addFields(
       {
@@ -349,8 +349,12 @@ function strongboxDropPermissionOverwrites(guild: Guild) {
   return [
     {
       id: guild.roles.everyone.id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
-      deny: [PermissionFlagsBits.ReadMessageHistory]
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.AttachFiles,
+        PermissionFlagsBits.ReadMessageHistory
+      ]
     },
     {
       id: guild.client.user.id,

@@ -180,13 +180,15 @@ export const rangerCommand: BotCommand = {
         throw new UserFacingError("Ranger Marshal or higher is required to post assignments.");
       }
 
+      await interaction.deferReply({ ephemeral: true });
+
       const channel = interaction.channel;
       if (!channel || channel.type !== ChannelType.GuildText) {
         throw new UserFacingError("Assignments can only be posted in a text channel.");
       }
 
       await postAssignmentsBoard(channel);
-      await interaction.reply({ content: "Ranger assignments board posted.", ephemeral: true });
+      await interaction.editReply({ content: "Ranger assignments board posted." });
       return;
     }
 
@@ -256,6 +258,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "retire-left") {
       requireMarshal(actor);
+      await interaction.deferReply({ ephemeral: true });
       const discordUserId = interaction.options.getString("discord_user_id", true).trim();
       if (!/^\d{17,20}$/.test(discordUserId)) {
         throw new UserFacingError("Discord user ID must be a numeric snowflake.");
@@ -263,14 +266,13 @@ export const rangerCommand: BotCommand = {
 
       const ranger = await retireDepartedRanger(discordUserId);
       if (!ranger) {
-        await interaction.reply({ content: "No roster entry exists for that Discord user ID.", ephemeral: true });
+        await interaction.editReply({ content: "No roster entry exists for that Discord user ID." });
         return;
       }
 
       await refreshStoredAssignmentsBoard(interaction.guild);
-      await interaction.reply({
-        content: `Set ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} to Retired.`,
-        ephemeral: true
+      await interaction.editReply({
+        content: `Set ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} to Retired.`
       });
       return;
     }

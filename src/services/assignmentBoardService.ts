@@ -69,7 +69,7 @@ function assignmentsEmbeds(
     .setTimestamp(new Date());
 
   for (const rank of leadershipRanks) {
-    const ranked = sortedRangers.filter((ranger) => ranger.current_rank === rank);
+    const ranked = sortedRangers.filter((ranger) => ranger.current_rank === rank && ranger.status === "Active");
     leadershipEmbed.addFields({
       name: rank,
       value: ranked.length ? truncateField(ranked.map(formatAssignmentRanger).join("\n")) : "None assigned."

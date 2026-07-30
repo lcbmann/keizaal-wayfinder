@@ -98,7 +98,10 @@ export const promotionCommand: BotCommand = {
     ),
 
   async autocomplete(interaction) {
-    const votes = await findRecentPromotionVotes();
+    const subcommand = interaction.options.getSubcommand();
+    const votes = (await findRecentPromotionVotes()).filter((vote) =>
+      subcommand !== "approve" || vote.status === "Open" || vote.status === "Closed"
+    );
     const choices = await Promise.all(
       votes.map(async (vote) => {
         const candidate = await getPromotionVoteCandidateName(vote.candidate_ranger_id);

@@ -329,15 +329,22 @@ export async function denyPromotionVote(voteId: string, deniedByDiscordUserId: s
 export async function promotionVoteEmbed(guild: Guild, vote: PromotionVoteRow): Promise<EmbedBuilder> {
   const candidate = await getRangerById(vote.candidate_ranger_id);
   const tally = await getPromotionVoteTally(vote.id);
-  const embed = emojiEmbed(guild, "promotion", `Promotion Vote: ${candidate?.discord_display_name ?? "Unknown Ranger"}`)
+  const member = candidate
+    ? await guild.members.fetch(candidate.discord_user_id).catch(() => null)
+    : null;
+  const displayName = member?.displayName ?? candidate?.discord_display_name ?? "Unknown Ranger";
+  const username = member?.user.username ?? candidate?.discord_username ?? "unknown-user";
+  const mention = candidate ? `<@${candidate.discord_user_id}>` : "Unknown Ranger";
+  const embed = emojiEmbed(guild, "promotion", `Promotion Vote: ${displayName}`)
     .setDescription([
       candidate
-        ? `The Corps is considering <@${candidate.discord_user_id}> for promotion to **${vote.target_rank}**. Cast **Yes**, **No**, or **Abstain** below.`
+        ? `The Corps is considering ${mention} (${displayName}, @${username}) for promotion to **${vote.target_rank}**. Cast **Yes**, **No**, or **Abstain** below.`
         : `The Corps is considering this Ranger for promotion to **${vote.target_rank}**. Cast **Yes**, **No**, or **Abstain** below.`,
       `Vote ID: \`${vote.id}\``,
       `Opened by <@${vote.opened_by_discord_user_id}>`
     ].join("\n"))
     .addFields(
+      { name: "Candidate", value: candidate ? `${mention}\nPlain name: ${displayName}\nUsername: @${username}` : "Unknown Ranger", inline: false },
       { name: "Current rank", value: candidate?.current_rank ?? "Unknown", inline: true },
       { name: "Status", value: candidate?.status ?? "Unknown", inline: true },
       { name: "Last activity", value: formatMaybeDateTime(candidate?.last_discord_activity_at), inline: true }

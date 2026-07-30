@@ -285,7 +285,9 @@ Users visit Trailmarks by selecting one from the bot message posted by `/trailma
 
 `/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, or pinned status. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
 
-`/atlas link` creates a ten-minute code for the member to enter under **Link Discord** in the Atlas. After the Atlas device is linked, opening an Atlas location that has a matching active Trailmark creates a pending Discord access request. Wayfinder polls those requests every five seconds, verifies the linked Discord member still has Apprentice-or-higher Trailmark access, opens the matching Trailmark channel for the configured duration, and runs the same Intel capture and HQ delivery flow as the Discord dropdown. Apply `202607300001_create_atlas_trailmark_visits.sql` from the Ranger Map repository to the shared Supabase project before using this bridge.
+`/atlas link` creates a ten-minute code for the member to enter under **Link Discord** in the Atlas. After the Atlas device is linked, opening an Atlas location that has a matching active Trailmark creates a pending Discord access request. Wayfinder polls those requests every five seconds, verifies the linked Discord member still has Apprentice-or-higher Trailmark access, opens the matching Trailmark channel for the configured duration, and runs the same Intel capture and HQ delivery flow as the Discord dropdown.
+
+After a linked member records a visit, the Atlas can also queue a **Leave Drop** message for that Trailmark. Wayfinder verifies the member and Trailmark again, then posts the message into the matching private channel under an Atlas field-drop embed. Apply Ranger Map migrations `202607300001_create_atlas_trailmark_visits.sql`, `202607300002_fix_atlas_trailmark_visit_conflict.sql`, and `202607300003_create_atlas_overwatch_and_trailmark_drops.sql` to the shared Supabase project before using these bridges.
 
 ## HQ Strongbox
 

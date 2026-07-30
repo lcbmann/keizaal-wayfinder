@@ -31,6 +31,7 @@ import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./compone
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
+import { startAtlasTrailmarkDropPollingJob } from "./jobs/pollAtlasTrailmarkDrops.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
 import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
@@ -96,6 +97,7 @@ client.once("ready", (readyClient) => {
   console.log(`Keizaal Wayfinder logged in as ${readyClient.user.tag}`);
   startTrailmarkSessionExpirationJob(readyClient);
   startAtlasTrailmarkAccessPollingJob(readyClient);
+  startAtlasTrailmarkDropPollingJob(readyClient);
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
     void syncApprenticeshipPreferenceNotices(corpsGuild)

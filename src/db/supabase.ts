@@ -774,6 +774,20 @@ export interface Database {
         };
         Returns: boolean;
       };
+      claim_pending_atlas_trailmark_drops: {
+        Args: { request_limit: number };
+        Returns: Json;
+      };
+      complete_atlas_trailmark_drop: {
+        Args: {
+          drop_id_input: string;
+          drop_status_input: string;
+          discord_channel_id_input: string | null;
+          discord_message_id_input: string | null;
+          error_message_input: string | null;
+        };
+        Returns: boolean;
+      };
     };
   };
 }

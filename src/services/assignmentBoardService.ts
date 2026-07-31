@@ -56,6 +56,9 @@ function assignmentsEmbeds(
   apprenticeshipPreferences: ApprenticeshipPreferenceRow[]
 ): EmbedBuilder[] {
   const sortedRangers = [...rangers].sort(compareRangersForDisplay);
+  const quartermasters = dutyAssignments
+    .filter(({ duty }) => duty.name === "Quartermaster")
+    .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const wardens = dutyAssignments.filter(({ duty }) => duty.name === "Warden");
   const detectives = dutyAssignments
     .filter(({ duty }) => duty.name === "Detective")
@@ -79,6 +82,17 @@ function assignmentsEmbeds(
   const wardensEmbed = emojiEmbed(guild, "duty", "Ranger Corps Wardens")
     .setDescription("Rangers entrusted with the safety and oversight of a Hold or another designated Range.")
     .setColor(0x587c4a)
+    .setTimestamp(new Date());
+
+  const quartermastersEmbed = emojiEmbed(guild, "duty", "Ranger Corps Quartermasters")
+    .setDescription("Rangers entrusted with stores, supplies, and the material needs of the Corps.")
+    .setColor(0x8b6f9e)
+    .addFields({
+      name: "Active Quartermasters",
+      value: quartermasters.length
+        ? truncateField(quartermasters.map(formatDutyAssignment).join("\n"))
+        : "None assigned."
+    })
     .setTimestamp(new Date());
 
   for (const hold of HOLDS) {
@@ -152,7 +166,7 @@ function assignmentsEmbeds(
     )
     .setTimestamp(new Date());
 
-  return [leadershipEmbed, wardensEmbed, detectivesEmbed, ambassadorsEmbed, apprenticeshipsEmbed];
+  return [leadershipEmbed, quartermastersEmbed, wardensEmbed, ambassadorsEmbed, detectivesEmbed, apprenticeshipsEmbed];
 }
 
 function formatApprenticeship({ apprenticeship }: ApprenticeshipDetails): string {

@@ -15,6 +15,7 @@ export type ApprenticeshipStatus = "Proposed" | "Pending Marshal" | "Active" | "
 export type FieldNameProposalStatus = "Open" | "Approved" | "Denied" | "Cancelled";
 export type FieldNameBallotVote = "yes" | "no" | "abstain";
 export type FieldNameContestStatus = "Open" | "Approved" | "Denied" | "Cancelled";
+export type ContactAssessment = "good" | "cold" | "not_found" | "mia" | "archive";
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface RangerRow {
@@ -313,6 +314,39 @@ export interface RangerFieldNameRow {
   removed_reason: string | null;
 }
 
+export interface RangerContactRow {
+  id: string;
+  name: string;
+  race: string;
+  sex: string;
+  occupation: string;
+  faction: string | null;
+  hold: string;
+  usual_locations: string | null;
+  commentary: string | null;
+  high_priority: boolean;
+  active: boolean;
+  created_by_discord_user_id: string;
+  forum_channel_id: string | null;
+  forum_thread_id: string | null;
+  forum_message_id: string | null;
+  archived_by_discord_user_id: string | null;
+  archived_at: string | null;
+  archive_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactAssessmentRow {
+  id: string;
+  contact_id: string;
+  voter_discord_user_id: string;
+  assessment: ContactAssessment;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SupplyAssignmentRow {
   id: string;
   code: string;
@@ -601,6 +635,27 @@ export interface Database {
           assigned_at?: string;
         };
         Update: Partial<RangerFieldNameRow>;
+      };
+      ranger_contacts: {
+        Row: RangerContactRow;
+        Insert: Omit<RangerContactRow, "id" | "created_at" | "updated_at" | "archived_by_discord_user_id" | "archived_at" | "archive_reason"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          archived_by_discord_user_id?: string | null;
+          archived_at?: string | null;
+          archive_reason?: string | null;
+        };
+        Update: Partial<RangerContactRow>;
+      };
+      contact_assessments: {
+        Row: ContactAssessmentRow;
+        Insert: Omit<ContactAssessmentRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<ContactAssessmentRow>;
       };
       member_activity_events: {
         Row: {

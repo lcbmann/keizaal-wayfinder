@@ -22,12 +22,14 @@ import { supplyCommand } from "./commands/supply.js";
 import { dutyCommand } from "./commands/duty.js";
 import { apprenticeshipCommand } from "./commands/apprenticeship.js";
 import { fieldNameCommand } from "./commands/fieldName.js";
+import { contactCommand } from "./commands/contact.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
 import { handleDutyButton } from "./components/dutyButtons.js";
 import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.js";
 import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./components/fieldNameButtons.js";
+import { handleContactButton } from "./components/contactButtons.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
@@ -77,7 +79,8 @@ for (const command of [
   supplyCommand,
   dutyCommand,
   apprenticeshipCommand,
-  fieldNameCommand
+  fieldNameCommand,
+  contactCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -351,6 +354,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
       await safelyRecordInteraction(interaction.user.id);
     }
     await handleFieldNameButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith("contact:assess:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Contact assessments are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleContactButton(interaction);
     return;
   }
 

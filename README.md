@@ -246,6 +246,11 @@ Implemented commands:
 - `/field-name list`
 - `/field-name remove`
 - `/field-name cancel`
+- `/contact setup`
+- `/contact create`
+- `/contact edit`
+- `/contact list`
+- `/contact archive`
 - `/intel set-hq`
 - `/intel topic-add`
 - `/intel topic-edit`
@@ -302,6 +307,16 @@ Run migrations `012_create_duties_and_apprenticeships.sql` and `023_add_ambassad
 Apprentice or higher can run `/duty volunteer` in any accessible channel. The application appears as a review card in the Marshal-only Strongbox and receives its own discussion thread. Marshal+ approves or denies it using the card buttons. Approval records the assignment and grants the corresponding Discord role. Quartermaster permits only one active holder. Warden applications and assignments require a free-text Range; this will later be replaced by the Atlas-backed Range model.
 
 Marshal+ can use `/duty assign` and `/duty remove` for direct administration, `/duty applications` to find pending review threads, and `/duty setup` to repair missing roles. `/duty list` is available to Corps members, and active duties also appear in `/ranger info`. Applicants can use `/duty withdraw` while an application is still pending.
+
+## Ranger Contacts
+
+Apply `src/db/migrations/026_create_contacts.sql`, redeploy slash commands, and run `/contact setup` once as a Marshal. The command creates or repairs a Ranger-only `contacts` Forum. An optional category can be supplied when setting it up. Rangers can read the Forum and discuss entries in their threads; Wayfinder maintains each opening contact card.
+
+Ranger or higher can use `/contact create` from any accessible channel. The command records the contact's name, race, sex, occupation, faction, Hold or region, usual locations, commentary, and an optional **High Priority** flag. Wayfinder creates one Forum post, assigns region and occupation tags, and adds the High Priority tag for important contacts such as Hold leaders or senior officials.
+
+Full Rangers can use the buttons on each contact card to record **Still good**, **Cold**, **Not found**, **MIA**, or **Propose archive**. Each Ranger has one current assessment per contact and can change it later. The card always shows the current rating, assessment totals, and last confirmation. Archive proposals do not delete anything; Marshal+ uses `/contact archive` to close an entry while preserving its history. `/contact edit` updates the same Forum post, and `/contact list` provides simple Hold, occupation, and High Priority filters.
+
+Discord Forums allow only 20 custom tags, so the built-in tags cover the nine Holds, Cross-Skyrim, Other Region, common occupations, Other Occupation, and High Priority. Factions and detailed locations remain on the contact card.
 
 ## Apprenticeships
 

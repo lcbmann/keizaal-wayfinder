@@ -12,7 +12,7 @@ import {
 } from "../db/supabase.js";
 import { daysBetween, formatMaybeDateTime } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
-import { emojiEmbed } from "../utils/guildEmojis.js";
+import { emojiEmbed, rankEmojiName } from "../utils/guildEmojis.js";
 import { getRangerByDiscordId, getRangerById, promoteRanger } from "./rangerService.js";
 import { refreshFieldNamesBulletin } from "./fieldNameService.js";
 
@@ -335,7 +335,7 @@ export async function promotionVoteEmbed(guild: Guild, vote: PromotionVoteRow): 
   const displayName = member?.displayName ?? candidate?.discord_display_name ?? "Unknown Ranger";
   const username = member?.user.username ?? candidate?.discord_username ?? "unknown-user";
   const mention = candidate ? `<@${candidate.discord_user_id}>` : "Unknown Ranger";
-  const embed = emojiEmbed(guild, "promotion", "Promotion Vote")
+  const embed = emojiEmbed(guild, rankEmojiName(vote.target_rank) ?? "promotion", "Promotion Vote")
     .setDescription([
       candidate
         ? `Candidate: ${mention} - ${displayName} (@${username})\nTarget rank: **${vote.target_rank}**. Cast **Yes**, **No**, or **Abstain** below.`

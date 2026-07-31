@@ -10,7 +10,7 @@ import {
 } from "./apprenticeshipService.js";
 import { listActiveDutyAssignments, type DutyAssignmentDetails } from "./dutyService.js";
 import { listAllRangers } from "./rangerService.js";
-import { emojiEmbed } from "../utils/guildEmojis.js";
+import { emojiEmbed, emojiText } from "../utils/guildEmojis.js";
 
 const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
 const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
@@ -66,7 +66,7 @@ function assignmentsEmbeds(
   const ambassadors = dutyAssignments
     .filter(({ duty }) => duty.name === "Ambassador")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  const leadershipEmbed = emojiEmbed(guild, "corps", "Ranger Corps Leadership")
+  const leadershipEmbed = emojiEmbed(guild, "rangercommander", "Ranger Corps Leadership")
     .setDescription("The Rangers presently entrusted with command of the Corps.")
     .setColor(0xb08d32)
     .setTimestamp(new Date());
@@ -74,17 +74,17 @@ function assignmentsEmbeds(
   for (const rank of leadershipRanks) {
     const ranked = sortedRangers.filter((ranger) => ranger.current_rank === rank && ranger.status === "Active");
     leadershipEmbed.addFields({
-      name: rank,
+      name: emojiText(guild, rankEmojiForBoard(rank), rank),
       value: ranked.length ? truncateField(ranked.map(formatAssignmentRanger).join("\n")) : "None assigned."
     });
   }
 
-  const wardensEmbed = emojiEmbed(guild, "duty", "Ranger Corps Wardens")
+  const wardensEmbed = emojiEmbed(guild, "warden", "Ranger Corps Wardens")
     .setDescription("Rangers entrusted with the safety and oversight of a Hold or another designated Range.")
     .setColor(0x587c4a)
     .setTimestamp(new Date());
 
-  const quartermastersEmbed = emojiEmbed(guild, "duty", "Ranger Corps Quartermasters")
+  const quartermastersEmbed = emojiEmbed(guild, "quartermaster", "Ranger Corps Quartermasters")
     .setDescription("Rangers entrusted with stores, supplies, and the material needs of the Corps.")
     .setColor(0x8b6f9e)
     .addFields({
@@ -116,7 +116,7 @@ function assignmentsEmbeds(
       : "None assigned."
   });
 
-  const detectivesEmbed = emojiEmbed(guild, "duty", "Ranger Corps Detectives")
+  const detectivesEmbed = emojiEmbed(guild, "detective", "Ranger Corps Detectives")
     .setDescription("Rangers tasked with investigations, gathering testimony, and preserving evidence.")
     .setColor(0x4f6d8a)
     .addFields({
@@ -127,7 +127,7 @@ function assignmentsEmbeds(
     })
     .setTimestamp(new Date());
 
-  const ambassadorsEmbed = emojiEmbed(guild, "duty", "Ranger Corps Ambassadors")
+  const ambassadorsEmbed = emojiEmbed(guild, "ambassador", "Ranger Corps Ambassadors")
     .setDescription("Rangers entrusted with representing the Corps and maintaining relations with other groups.")
     .setColor(0x8b6f9e)
     .addFields({
@@ -141,7 +141,7 @@ function assignmentsEmbeds(
   const activeApprenticeships = apprenticeships.filter(({ apprenticeship }) => apprenticeship.status === "Active");
   const seekingMentors = apprenticeshipPreferences.filter((preference) => preference.seeking === "Mentor");
   const seekingApprentices = apprenticeshipPreferences.filter((preference) => preference.seeking === "Apprentice");
-  const apprenticeshipsEmbed = emojiEmbed(guild, "teamwork", "Ranger Corps Apprenticeships")
+  const apprenticeshipsEmbed = emojiEmbed(guild, "apprentice", "Ranger Corps Apprenticeships")
     .setDescription("Rangers can mentor Apprentices and help prepare them for promotion. Use `/apprenticeship looking-for` to find a match.")
     .setColor(0x8b6f9e)
     .addFields(
@@ -167,6 +167,19 @@ function assignmentsEmbeds(
     .setTimestamp(new Date());
 
   return [leadershipEmbed, quartermastersEmbed, wardensEmbed, ambassadorsEmbed, detectivesEmbed, apprenticeshipsEmbed];
+}
+
+function rankEmojiForBoard(rank: MainRank): "rangercommander" | "rangercaptain" | "rangermarshal" {
+  switch (rank) {
+    case "Ranger Commander":
+      return "rangercommander";
+    case "Ranger Captain":
+      return "rangercaptain";
+    case "Ranger Marshal":
+      return "rangermarshal";
+    default:
+      return "rangercommander";
+  }
 }
 
 function formatApprenticeship({ apprenticeship }: ApprenticeshipDetails): string {

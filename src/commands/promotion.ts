@@ -23,7 +23,7 @@ import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardServic
 import { UserFacingError } from "../utils/errors.js";
 import { formatElapsedSince } from "../utils/dates.js";
 import { canApprovePromotions, canOpenPromotionVotes } from "../utils/permissions.js";
-import { emojiEmbed } from "../utils/guildEmojis.js";
+import { emojiEmbed, rankEmojiName } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 
 export const promotionCommand: BotCommand = {
@@ -334,7 +334,7 @@ function promotionEligibilityEmbeds(guild: Guild, candidates: EligibleRanger[]):
 function createEligibilityEmbed(guild: Guild, continued: boolean, description: string): EmbedBuilder {
   return emojiEmbed(
     guild,
-    "promotion",
+    "apprentice",
     continued ? "Apprentice Promotion Eligibility (continued)" : "Apprentice Promotion Eligibility"
   )
     .setDescription(description)
@@ -460,7 +460,7 @@ function promotionBallotsEmbed(
     abstain: ballots.filter((entry) => entry.ballot.vote === "abstain")
   };
 
-  return emojiEmbed(guild, "promotion", `Promotion Ballots: ${vote.target_rank}`)
+  return emojiEmbed(guild, rankEmojiName(vote.target_rank) ?? "promotion", `Promotion Ballots: ${vote.target_rank}`)
     .setDescription(`Vote ID: ${vote.id}`)
     .addFields(
       { name: `Yes (${grouped.promote.length})`, value: formatBallotGroup(grouped.promote), inline: false },
@@ -496,7 +496,7 @@ function promotionApprovalEmbed(
   const yes = ballots.filter((entry) => entry.ballot.vote === "promote").length;
   const no = ballots.filter((entry) => entry.ballot.vote === "hold").length;
   const abstain = ballots.filter((entry) => entry.ballot.vote === "abstain").length;
-  const embed = emojiEmbed(guild, "cape", "Promotion Approved", "symmetric")
+  const embed = emojiEmbed(guild, rankEmojiName(ranger.current_rank) ?? "promotion", "Promotion Approved", "symmetric")
     .setDescription(`<@${ranger.discord_user_id}> has been promoted from **${previousRank}** to **${ranger.current_rank}**. Their new rank has been entered on the Corps roster.`)
     .addFields(
       { name: "Previous Rank", value: previousRank, inline: true },

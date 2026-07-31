@@ -163,7 +163,7 @@ function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
 }
 
 function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
-  return emojiEmbed(guild, "corps", "Strongbox Commands")
+  return emojiEmbed(guild, "wayfinder", "Strongbox Commands")
     .setDescription("Application and apprenticeship commands available in any channel where you can use them. Results are filed in the appropriate Corps records, notice board, or Strongbox thread.")
     .addFields(
       {

@@ -3,17 +3,37 @@ import { slugify } from "./slugs.js";
 
 export type WayfinderEmojiName =
   | "atlas"
+  | "aedragm"
+  | "allies"
+  | "ambassador"
+  | "apprentice"
+  | "craftsman"
   | "cape"
   | "corps"
+  | "courier"
+  | "dawnguard"
+  | "deceased"
+  | "detective"
   | "duty"
   | "funds"
+  | "guest"
   | "intel"
   | "promotion"
+  | "quartermaster"
+  | "ranger"
+  | "rangercaptain"
+  | "rangercommander"
+  | "rangermarshal"
+  | "rangerorders"
+  | "retiredranger"
+  | "seniorranger"
+  | "silverdawn"
   | "strongbox"
   | "supplies"
   | "teamwork"
   | "trailmark"
   | "wayfinder"
+  | "warden"
   | "war"
   | "cultists"
   | "bandits"
@@ -70,6 +90,44 @@ export function emojiTitle(
   style: EmojiTextStyle = "dash"
 ): string {
   return emojiText(guild, name, title, style);
+}
+
+export function rankEmojiName(rank: string): WayfinderEmojiName | null {
+  switch (rank) {
+    case "Ranger Commander":
+      return "rangercommander";
+    case "Ranger Captain":
+      return "rangercaptain";
+    case "Ranger Marshal":
+      return "rangermarshal";
+    case "Senior Ranger":
+      return "seniorranger";
+    case "Ranger":
+      return "ranger";
+    case "Apprentice":
+      return "apprentice";
+    default:
+      return null;
+  }
+}
+
+export function dutyEmojiName(dutyName: string): WayfinderEmojiName | null {
+  switch (dutyName) {
+    case "Quartermaster":
+      return "quartermaster";
+    case "Craftsman":
+      return "craftsman";
+    case "Warden":
+      return "warden";
+    case "Detective":
+      return "detective";
+    case "Courier":
+      return "courier";
+    case "Ambassador":
+      return "ambassador";
+    default:
+      return null;
+  }
 }
 
 export function intelReportChannelName(_guild: Guild, topicName: string): string {

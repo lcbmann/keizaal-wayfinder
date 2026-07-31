@@ -111,6 +111,13 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
+    void refreshStoredAssignmentsBoard(corpsGuild)
+      .then((refreshed) => {
+        if (refreshed) {
+          console.log("Refreshed the Ranger assignments board with current role badges.");
+        }
+      })
+      .catch((error) => console.warn("Failed to refresh the Ranger assignments board:", error));
     void refreshActiveContactForumPosts(corpsGuild)
       .then((refreshed) => {
         if (refreshed > 0) {

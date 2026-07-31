@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contactTagNames, summarizeContactAssessments } from "./contactService.js";
+import type { ButtonInteraction } from "discord.js";
+import { contactTagNames, handleContactButton, summarizeContactAssessments } from "./contactService.js";
 
 test("summarizes contact assessments and tracks the latest confirmation", () => {
   const summary = summarizeContactAssessments([
@@ -46,4 +47,38 @@ test("assigns region, occupation, and high-priority Forum tags", () => {
     occupation: "General Merchant",
     high_priority: false
   }), ["Cross-Skyrim", "Other Occupation"]);
+});
+
+test("keeps a contact record intact when a non-Ranger clicks an assessment button", async () => {
+  const replies: Array<{ content: string; ephemeral: boolean }> = [];
+  let deferred = false;
+  let edited = false;
+  const interaction = {
+    inCachedGuild: () => true,
+    customId: "contact:assess:contact-id:good",
+    user: { id: "guest-user" },
+    guild: {
+      members: {
+        fetch: async () => ({
+          id: "guest-user",
+          roles: { cache: { has: () => false } }
+        })
+      }
+    },
+    reply: async (payload: { content: string; ephemeral: boolean }) => {
+      replies.push(payload);
+    },
+    deferUpdate: async () => {
+      deferred = true;
+    },
+    editReply: async () => {
+      edited = true;
+    }
+  } as unknown as ButtonInteraction;
+
+  await handleContactButton(interaction);
+
+  assert.deepEqual(replies, [{ content: "Ranger or higher is required for contact records.", ephemeral: true }]);
+  assert.equal(deferred, false);
+  assert.equal(edited, false);
 });

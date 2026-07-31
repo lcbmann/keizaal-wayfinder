@@ -46,6 +46,7 @@ import {
 } from "./services/intelService.js";
 import { handleStrongboxDropMessage } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
+import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import {
   backfillFieldNameContestVetoNotices,
   cleanupResolvedFieldNameContestMessages,
@@ -110,6 +111,13 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
+    void refreshActiveContactForumPosts(corpsGuild)
+      .then((refreshed) => {
+        if (refreshed > 0) {
+          console.log(`Restored ${refreshed} active contact record${refreshed === 1 ? "" : "s"}.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to restore active contact records:", error));
     void refreshFieldNamesBulletin(corpsGuild)
       .catch((error) => console.warn("Failed to refresh Field Names bulletin:", error));
     void refreshOpenPromotionVoteMessages(corpsGuild)

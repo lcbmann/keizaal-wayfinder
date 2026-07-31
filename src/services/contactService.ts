@@ -320,6 +320,18 @@ export async function refreshContactForumPost(guild: Guild, contactId: string): 
   }
 }
 
+export async function refreshActiveContactForumPosts(guild: Guild): Promise<number> {
+  const contacts = await listContacts();
+  let refreshed = 0;
+
+  for (const { contact } of contacts) {
+    await refreshContactForumPost(guild, contact.id);
+    refreshed += 1;
+  }
+
+  return refreshed;
+}
+
 export async function handleContactButton(interaction: ButtonInteraction): Promise<void> {
   if (!interaction.inCachedGuild()) {
     throw new UserFacingError("Contact assessments are only available in the Ranger Corps server.");
@@ -330,18 +342,35 @@ export async function handleContactButton(interaction: ButtonInteraction): Promi
   }
 
   const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (!memberRankAtLeast(member, "Ranger")) {
+    await interaction.reply({
+      content: "Ranger or higher is required for contact records.",
+      ephemeral: true
+    });
+    return;
+  }
+
   await interaction.deferUpdate();
-  await recordContactAssessment({
-    guild: interaction.guild,
-    contactId,
-    voter: member,
-    assessment
-  });
-  await interaction.editReply(await contactMessagePayload(interaction.guild, contactId));
-  await interaction.followUp({
-    content: `Your assessment is recorded as **${ASSESSMENT_LABELS[assessment]}**. You can change it later.`,
-    ephemeral: true
-  });
+  try {
+    await recordContactAssessment({
+      guild: interaction.guild,
+      contactId,
+      voter: member,
+      assessment
+    });
+    await interaction.followUp({
+      content: `Your assessment is recorded as **${ASSESSMENT_LABELS[assessment]}**. You can change it later.`,
+      ephemeral: true
+    });
+  } catch (error) {
+    console.error(`Failed to record contact assessment for ${contactId}:`, error);
+    await interaction.followUp({
+      content: error instanceof UserFacingError
+        ? error.message
+        : "Something went wrong while recording that assessment. The contact record was left unchanged.",
+      ephemeral: true
+    });
+  }
 }
 
 export function summarizeContactAssessments(assessments: ReadonlyArray<Pick<ContactAssessmentRow, "assessment" | "updated_at">>): ContactAssessmentSummary {

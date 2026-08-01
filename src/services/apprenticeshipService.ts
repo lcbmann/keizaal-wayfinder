@@ -23,6 +23,7 @@ import { UserFacingError } from "../utils/errors.js";
 import { emojiEmbed } from "../utils/guildEmojis.js";
 import { syncMemberToRoster, requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
+import { awardMentorMedal } from "./medalService.js";
 
 export interface ApprenticeshipDetails {
   apprenticeship: ApprenticeshipRow;
@@ -238,6 +239,9 @@ export async function respondToApprenticeshipProposal(params: {
   assertNoDbError(error, "respond to apprenticeship proposal");
 
   if (params.accept) {
+    await awardMentorMedal(params.guild, row.mentor_discord_user_id, params.respondingDiscordUserId).catch((error) => {
+      console.warn(`Could not award the Mentor medal to ${row.mentor_discord_user_id}:`, error);
+    });
     await clearPairPreferences(row, params.guild);
     const entry = await postApprenticeshipRecord(params.guild, updated, details.mentor, details.apprentice, "Apprenticeship Accepted");
     const { data: attached, error: attachError } = await supabase
@@ -384,6 +388,9 @@ export async function reviewApprenticeSponsorship(params: {
     .single();
   assertNoDbError(error, "review apprentice sponsorship");
   if (params.approve) {
+    await awardMentorMedal(params.guild, updated.mentor_discord_user_id, params.reviewerDiscordUserId).catch((error) => {
+      console.warn(`Could not award the Mentor medal to ${updated.mentor_discord_user_id}:`, error);
+    });
     await clearPairPreferences(updated, params.guild);
     await notifyActiveApprenticeshipParticipants(params.guild, updated);
   }
@@ -425,6 +432,9 @@ export async function assignApprenticeship(params: {
     .select("*")
     .single();
   assertNoDbError(error, "assign apprenticeship");
+  await awardMentorMedal(params.guild, apprenticeship.mentor_discord_user_id, params.assignedByDiscordUserId).catch((error) => {
+    console.warn(`Could not award the Mentor medal to ${apprenticeship.mentor_discord_user_id}:`, error);
+  });
   await clearPairPreferences(apprenticeship, params.guild);
   const entry = await postApprenticeshipRecord(params.guild, apprenticeship, mentor, apprentice, "Apprenticeship Assigned");
   const { data: attached, error: attachError } = await supabase

@@ -48,7 +48,7 @@ export async function syncMemberToRoster(member: GuildMember, createdByDiscordUs
   const payload = {
     discord_username: member.user.username,
     discord_display_name: member.displayName,
-    in_game_name: existing?.in_game_name ?? member.displayName,
+    in_game_name: member.displayName,
     current_rank: mainRank,
     status: existing?.status ?? "Active",
     join_date: joinDate,
@@ -117,7 +117,7 @@ export async function promoteRanger(params: {
       last_promotion_date: today,
       discord_username: params.member.user.username,
       discord_display_name: params.member.displayName,
-      in_game_name: existing.in_game_name ?? params.member.displayName,
+      in_game_name: params.member.displayName,
       updated_at: now
     })
     .eq("id", existing.id)
@@ -209,12 +209,19 @@ export interface RangerProfileStats {
 }
 
 export async function getRangerProfileStats(ranger: RangerRow): Promise<RangerProfileStats> {
-  const [rosterResult, intelReportsResult, allianceReportsResult] = await Promise.all([
+  const [rosterResult, historicalResult, intelReportsResult, allianceReportsResult] = await Promise.all([
     supabase
       .from("rangers")
-      .select("id, join_date, created_at")
+      .select("id, discord_username, join_date, created_at")
       .order("join_date", { ascending: true })
-      .order("created_at", { ascending: true }),
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }),
+    supabase
+      .from("historical_corps_members")
+      .select("id, discord_username, join_date, created_at")
+      .order("join_date", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true }),
     supabase
       .from("intel_reports")
       .select("discord_message_id")
@@ -227,19 +234,33 @@ export async function getRangerProfileStats(ranger: RangerRow): Promise<RangerPr
   ]);
 
   assertNoDbError(rosterResult.error, "get Ranger profile roster position");
+  assertNoDbError(historicalResult.error, "get historical Corps members");
   assertNoDbError(intelReportsResult.error, "count Ranger Intel reports");
   assertNoDbError(allianceReportsResult.error, "count Ranger Alliance reports");
 
   const rosterRows = rosterResult.data ?? [];
-  const rosterIndex = rosterRows.findIndex((row) => row.id === ranger.id);
+  const currentUsernames = new Set(rosterRows
+    .map((row) => row.discord_username?.toLowerCase())
+    .filter((username): username is string => Boolean(username)));
+  const historicalRows = (historicalResult.data ?? [])
+    .filter((row) => !row.discord_username || !currentUsernames.has(row.discord_username.toLowerCase()));
+  const corpsHistory = [
+    ...rosterRows.map((row) => ({ ...row, currentRangerId: row.id })),
+    ...historicalRows.map((row) => ({ ...row, currentRangerId: null }))
+  ].sort((a, b) =>
+    a.join_date.localeCompare(b.join_date)
+    || a.created_at.localeCompare(b.created_at)
+    || a.id.localeCompare(b.id)
+  );
+  const rosterIndex = corpsHistory.findIndex((row) => row.currentRangerId === ranger.id);
   const reportMessageIds = new Set([
     ...(intelReportsResult.data ?? []).map((report) => report.discord_message_id),
     ...(allianceReportsResult.data ?? []).map((report) => report.discord_message_id)
   ]);
 
   return {
-    rosterNumber: rosterIndex >= 0 ? rosterIndex + 1 : rosterRows.length,
-    rosterTotal: rosterRows.length,
+    rosterNumber: rosterIndex >= 0 ? rosterIndex + 1 : corpsHistory.length,
+    rosterTotal: corpsHistory.length,
     reportCount: reportMessageIds.size
   };
 }

@@ -1,7 +1,9 @@
 import type { GuildMember } from "discord.js";
 import { assertNoDbError, supabase, type Json } from "../db/supabase.js";
 import { mainRankFromMember } from "../utils/permissions.js";
-import type { WayfinderEmojiName } from "../utils/guildEmojis.js";
+import { MAIN_RANKS } from "../config/ranks.js";
+import { roleIdForRank } from "../config/roles.js";
+import { rankEmojiName, type WayfinderEmojiName } from "../utils/guildEmojis.js";
 
 const rankBadgeIds = {
   "Ranger Commander": "ranger-commander",
@@ -32,12 +34,30 @@ const medalRoleIds = new Map([
 export type DiscordRoleMedal = {
   label: string;
   emojiName: WayfinderEmojiName;
+  roleName: string;
+  rolePosition: number;
 };
 
 export function listDiscordRoleMedals(member: GuildMember): DiscordRoleMedal[] {
-  return [...medalRoleIds.entries()]
-    .filter(([roleName]) => member.roles.cache.some((role) => role.name === roleName))
-    .map(([label, { emojiName }]) => ({ label, emojiName }));
+  const rankMedals = MAIN_RANKS.flatMap((rank) => {
+    const role = member.roles.cache.get(roleIdForRank(rank));
+    const emojiName = rankEmojiName(rank);
+    return role && emojiName
+      ? [{ label: rank, emojiName, roleName: role.name, rolePosition: role.position }]
+      : [];
+  });
+  const additionalMedals = [...medalRoleIds.entries()].flatMap(([label, { emojiName }]) => {
+    const role = member.roles.cache.find((candidate) => candidate.name === label);
+    return role ? [{ label, emojiName, roleName: role.name, rolePosition: role.position }] : [];
+  });
+
+  return [...rankMedals, ...additionalMedals]
+    .sort((a, b) => b.rolePosition - a.rolePosition || a.label.localeCompare(b.label));
+}
+
+export function highestCorpsTitle(member: GuildMember): string | null {
+  const badge = listDiscordRoleMedals(member).find(({ roleName }) => titleRoleNames.has(roleName));
+  return badge ? displayTitle(badge.label) : null;
 }
 
 export function buildAtlasDiscordProfile(member: GuildMember): Json {
@@ -64,4 +84,29 @@ export async function syncAtlasDiscordProfile(member: GuildMember): Promise<numb
   });
   assertNoDbError(error, "update linked Atlas Discord profile");
   return typeof data === "number" ? data : 0;
+}
+
+const titleRoleNames = new Set([
+  ...Object.keys(rankBadgeIds),
+  "Senior Ranger",
+  "Quartermaster",
+  "Ambassador",
+  "Warden",
+  "Detective",
+  "Craftsman",
+  "Courier",
+  "Retired Ranger"
+]);
+
+function displayTitle(roleName: string): string {
+  switch (roleName) {
+    case "Ranger Commander":
+      return "Commander";
+    case "Ranger Captain":
+      return "Captain";
+    case "Ranger Marshal":
+      return "Marshal";
+    default:
+      return roleName;
+  }
 }

@@ -33,9 +33,11 @@ import {
   syncHoldWardenAssignments
 } from "../services/dutyService.js";
 import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
-import { listDiscordRoleMedals } from "../services/atlasDiscordProfileService.js";
-import { emojiText, rankEmojiName } from "../utils/guildEmojis.js";
+import { highestCorpsTitle, listDiscordRoleMedals } from "../services/atlasDiscordProfileService.js";
+import { emojiText } from "../utils/guildEmojis.js";
 import { env } from "../config/env.js";
+import { getActiveFieldName } from "../services/fieldNameService.js";
+import { listRangerMedalAwards, medalEmoji } from "../services/medalService.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -177,23 +179,37 @@ export const rangerCommand: BotCommand = {
 
       await interaction.deferReply();
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-      const [dutyEntries, stats] = await Promise.all([listActiveDutyAssignments(), getRangerProfileStats(ranger)]);
+      const [dutyEntries, stats, fieldName, medalAwards] = await Promise.all([
+        listActiveDutyAssignments(),
+        getRangerProfileStats(ranger),
+        getActiveFieldName(ranger.discord_user_id),
+        listRangerMedalAwards(ranger.id)
+      ]);
       const duties = dutyEntries
         .filter((entry) => entry.ranger.id === ranger.id)
         .map((entry) => `${entry.duty.name}${entry.assignment.assignment_detail ? ` (${entry.assignment.assignment_detail})` : ""}`);
-      const rankMedals = member
-        ? MAIN_RANKS
-            .filter((rank) => member.roles.cache.has(roleIdForRank(rank)))
-            .map((rank) => {
-              const emojiName = rankEmojiName(rank);
-              return emojiName ? emojiText(interaction.guild, emojiName, rank) : rank;
-            })
-        : [];
       const roleMedals = member
         ? listDiscordRoleMedals(member).map(({ label, emojiName }) => emojiText(interaction.guild, emojiName, label))
         : [];
+      const awardedMedals = medalAwards.map(({ medal }) => {
+        const emoji = medalEmoji(interaction.guild, medal);
+        return `${emoji ? `${emoji} - ` : ""}${medal.name}`;
+      });
       const avatarUrl = member?.displayAvatarURL({ extension: "png", size: 256 }) ?? user.displayAvatarURL({ extension: "png", size: 256 });
-      await interaction.editReply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties, [...rankMedals, ...roleMedals], stats, avatarUrl)] });
+      await interaction.editReply({
+        embeds: [rangerEmbed({
+          discordUserId: ranger.discord_user_id,
+          ranger,
+          duties,
+          roleMedals,
+          awardedMedals,
+          stats,
+          avatarUrl,
+          displayName: member?.displayName ?? ranger.discord_display_name ?? ranger.discord_username ?? "Ranger",
+          title: member ? highestCorpsTitle(member) : rangerTitle(ranger.current_rank),
+          fieldName: fieldName?.field_name ?? null
+        })]
+      });
       return;
     }
 
@@ -445,31 +461,49 @@ function requireMarshal(member: GuildMember): void {
   }
 }
 
-function rangerEmbed(
-  discordUserId: string,
-  ranger: Awaited<ReturnType<typeof getRangerByDiscordId>>,
-  duties: string[] = [],
-  medals: string[] = [],
-  stats: Awaited<ReturnType<typeof getRangerProfileStats>> = { rosterNumber: 0, rosterTotal: 0, reportCount: 0 },
-  avatarUrl?: string
-): EmbedBuilder {
+function rangerEmbed(params: {
+  discordUserId: string;
+  ranger: Awaited<ReturnType<typeof getRangerByDiscordId>>;
+  duties?: string[];
+  roleMedals?: string[];
+  awardedMedals?: string[];
+  stats?: Awaited<ReturnType<typeof getRangerProfileStats>>;
+  avatarUrl?: string;
+  displayName: string;
+  title: string | null;
+  fieldName: string | null;
+}): EmbedBuilder {
+  const {
+    discordUserId,
+    ranger,
+    duties = [],
+    roleMedals = [],
+    awardedMedals = [],
+    stats = { rosterNumber: 0, rosterTotal: 0, reportCount: 0 },
+    avatarUrl,
+    displayName,
+    title,
+    fieldName
+  } = params;
   if (!ranger) {
     throw new UserFacingError("No roster entry found.");
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(ranger.discord_display_name ?? ranger.discord_username ?? "Ranger")
+    .setTitle(`${title ? `${title} ` : ""}${displayName}`)
     .setDescription(`<@${discordUserId}>`)
     .addFields(
       { name: "Rank", value: ranger.current_rank, inline: true },
       { name: "Status", value: ranger.status, inline: true },
       { name: "Join Date", value: `${ranger.join_date} (${daysBetween(ranger.join_date)} days)`, inline: true },
       { name: "Assigned Hold", value: ranger.assigned_hold ?? "Unassigned", inline: true },
-      { name: "In-Game Name", value: ranger.in_game_name ?? "Unknown", inline: true },
+      { name: "In-Game Name", value: displayName, inline: true },
+      { name: "Field Name", value: fieldName ?? "None assigned", inline: true },
       { name: "Corps Standing", value: `Ranger #${stats.rosterNumber} of ${stats.rosterTotal}`, inline: true },
       { name: "Reports Filed", value: String(stats.reportCount), inline: true },
       { name: "Last Activity", value: ranger.last_discord_activity_at ? `<t:${Math.floor(new Date(ranger.last_discord_activity_at).getTime() / 1000)}:R>` : "Unknown", inline: true },
-      { name: "Medals", value: medals.join("\n") || "None", inline: false },
+      { name: "Ranks & Roles", value: roleMedals.join("\n") || "None", inline: false },
+      { name: "Medals", value: awardedMedals.join("\n") || "None awarded", inline: false },
       { name: "Corps Duties", value: duties.join("\n") || "None", inline: false },
       { name: "Notes", value: ranger.notes?.slice(0, 1024) || "None" }
     )
@@ -480,6 +514,19 @@ function rangerEmbed(
   }
 
   return embed;
+}
+
+function rangerTitle(rank: string): string {
+  switch (rank) {
+    case "Ranger Commander":
+      return "Commander";
+    case "Ranger Captain":
+      return "Captain";
+    case "Ranger Marshal":
+      return "Marshal";
+    default:
+      return rank;
+  }
 }
 
 export function csvAttachment(csv: string): AttachmentBuilder {

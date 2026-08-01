@@ -23,6 +23,7 @@ import { dutyCommand } from "./commands/duty.js";
 import { apprenticeshipCommand } from "./commands/apprenticeship.js";
 import { fieldNameCommand } from "./commands/fieldName.js";
 import { contactCommand } from "./commands/contact.js";
+import { medalCommand } from "./commands/medal.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
@@ -81,7 +82,8 @@ for (const command of [
   dutyCommand,
   apprenticeshipCommand,
   fieldNameCommand,
-  contactCommand
+  contactCommand,
+  medalCommand
 ]) {
   commands.set(command.data.name, command);
 }

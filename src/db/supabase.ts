@@ -205,6 +205,37 @@ export interface RangerDutyAssignmentRow {
   updated_at: string;
 }
 
+export interface CorpsMedalRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  emoji: string | null;
+  discord_role_id: string | null;
+  active: boolean;
+  created_by_discord_user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RangerMedalAwardRow {
+  id: string;
+  medal_id: string;
+  ranger_id: string;
+  awarded_by_discord_user_id: string;
+  reason: string | null;
+  awarded_at: string;
+}
+
+export interface HistoricalCorpsMemberRow {
+  id: string;
+  display_name: string;
+  discord_username: string | null;
+  join_date: string;
+  source: string;
+  created_at: string;
+}
+
 export interface ApprenticeshipPreferenceRow {
   discord_user_id: string;
   seeking: ApprenticeshipSeekingType;
@@ -555,6 +586,32 @@ export interface Database {
           updated_at?: string;
         };
         Update: Partial<RangerDutyAssignmentRow>;
+      };
+      corps_medals: {
+        Row: CorpsMedalRow;
+        Insert: Omit<CorpsMedalRow, "id" | "created_at" | "updated_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<CorpsMedalRow>;
+      };
+      ranger_medal_awards: {
+        Row: RangerMedalAwardRow;
+        Insert: Omit<RangerMedalAwardRow, "id" | "awarded_at"> & {
+          id?: string;
+          awarded_at?: string;
+        };
+        Update: Partial<RangerMedalAwardRow>;
+      };
+      historical_corps_members: {
+        Row: HistoricalCorpsMemberRow;
+        Insert: Omit<HistoricalCorpsMemberRow, "id" | "source" | "created_at"> & {
+          id?: string;
+          source?: string;
+          created_at?: string;
+        };
+        Update: Partial<HistoricalCorpsMemberRow>;
       };
       apprenticeship_preferences: {
         Row: ApprenticeshipPreferenceRow;

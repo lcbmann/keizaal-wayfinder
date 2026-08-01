@@ -113,6 +113,9 @@ The migration creates:
 - `corps_duties`
 - `duty_applications`
 - `ranger_duty_assignments`
+- `corps_medals`
+- `ranger_medal_awards`
+- `historical_corps_members`
 - `apprenticeship_preferences`
 - `apprenticeships`
 - `field_name_proposals`
@@ -250,6 +253,11 @@ Implemented commands:
 - `/contact edit`
 - `/contact list`
 - `/contact archive`
+- `/medal setup`
+- `/medal create`
+- `/medal award`
+- `/medal revoke`
+- `/medal list`
 - `/intel set-hq`
 - `/intel topic-add`
 - `/intel topic-edit`
@@ -328,6 +336,14 @@ Apprenticeships are voluntary and do not replace the promotion vote system. Appr
 `/apprenticeship sponsor` is for a new recruit who has already joined the Discord but does not yet have a Ranger roster entry. The sponsorship reason goes to a dedicated Strongbox review thread. Marshal approval gives the recruit the Apprentice role, removes Guest, creates the roster entry, and activates the pairing. Marshal+ can also use `/apprenticeship assign` to pair existing roster members directly.
 
 Either participant may use `/apprenticeship end` to end their current pairing. Marshal+ may select another member to end that pairing. `/apprenticeship info` shows the current pairing for a selected member.
+
+## Corps Medals
+
+Apply migrations `027_create_ranger_medals.sql` and `028_create_historical_corps_members.sql`, redeploy slash commands, then run `/medal setup` once as a Marshal. Wayfinder creates one non-hoisted Discord role for each medal and backfills the built-in **Mentor** medal from active and completed apprenticeship history. New active apprenticeships award it automatically.
+
+Marshal+ can use `/medal create` to define additional honors and `/medal award` or `/medal revoke` to manage recipients. The optional emoji accepts Unicode, a custom emoji, or a server emoji name; Wayfinder uses it on profiles and attempts to use it as the medal role icon. `/medal list` is available to Corps members. Awarded medals appear separately from the member's hierarchy-sorted ranks and duty roles in `/ranger info`.
+
+Historical Corps standing includes Retired roster rows and the pre-Wayfinder members recorded in `historical_corps_members`. Migration 028 seeds the three original-roster entries that were absent from Supabase. A historical row is ignored automatically if a normal roster member with the same Discord username later exists.
 
 ## Ranger Field Names
 

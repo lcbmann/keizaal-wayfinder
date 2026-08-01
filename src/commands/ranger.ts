@@ -162,6 +162,10 @@ export const rangerCommand: BotCommand = {
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "info") {
+      if (interaction.channel?.type !== ChannelType.GuildText || interaction.channel.name.toLowerCase() !== "general") {
+        throw new UserFacingError("/ranger info can only be used in #general.");
+      }
+
       const user = interaction.options.getUser("user") ?? interaction.user;
       const ranger = await getRangerByDiscordId(user.id);
       if (!ranger) {
@@ -176,7 +180,7 @@ export const rangerCommand: BotCommand = {
       const medals = member
         ? listDiscordRoleMedals(member).map(({ label, emojiName }) => emojiText(interaction.guild, emojiName, label))
         : [];
-      await interaction.reply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties, medals)], ephemeral: true });
+      await interaction.reply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties, medals)] });
       return;
     }
 

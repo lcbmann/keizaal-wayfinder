@@ -373,7 +373,9 @@ async function notifyMedalRecipient(guild: Guild, discordUserId: string, medal: 
   const emoji = medalEmoji(guild, medal);
   const medalLabel = `${emoji ? `${emoji} ` : ""}**${medal.name}**`;
   await user.send(
-    `${medalLabel} has been added to your Ranger record. View your medals with \`/ranger info\` in <#${env.GENERAL_CHANNEL_ID}>.`
+    `${medalLabel} has been added to your Ranger record.\n`
+      + `**What it recognizes:** ${medal.description}\n`
+      + `View your medals with \`/ranger info\` in <#${env.GENERAL_CHANNEL_ID}>.`
   ).catch((error) => {
     console.warn(`Could not notify ${discordUserId} about the ${medal.name} medal:`, error);
   });

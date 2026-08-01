@@ -19,7 +19,7 @@ export const medalCommand: BotCommand = {
     .setDescription("Create and award Ranger Corps honors.")
     .addSubcommand((subcommand) => subcommand
       .setName("setup")
-      .setDescription("Marshal+: create medal roles and backfill Mentor medals."))
+      .setDescription("Marshal+: create medal roles and backfill apprenticeship medals."))
     .addSubcommand((subcommand) => subcommand
       .setName("create")
       .setDescription("Marshal+: create a new Corps medal.")
@@ -79,7 +79,7 @@ export const medalCommand: BotCommand = {
       await interaction.deferReply({ ephemeral: true });
       const result = await setupMedals(interaction.guild, actor.id);
       await interaction.editReply({
-        content: `Medal roles are ready. Checked **${result.medals}** medal${result.medals === 1 ? "" : "s"} and awarded the Mentor medal to **${result.mentors}** recorded mentor${result.mentors === 1 ? "" : "s"}.`
+        content: `Medal roles are ready. Checked **${result.medals}** medal${result.medals === 1 ? "" : "s"}, restored Mentor medals for **${result.mentors}** recorded mentor${result.mentors === 1 ? "" : "s"}, and Apprenticeship medals for **${result.apprentices}** recorded apprentice${result.apprentices === 1 ? "" : "s"}.`
       });
       return;
     }

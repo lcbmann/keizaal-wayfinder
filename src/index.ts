@@ -48,6 +48,7 @@ import {
 import { handleStrongboxDropMessage, refreshStrongboxDropInstructions } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import { refreshActiveContactForumPosts } from "./services/contactService.js";
+import { setupMedals } from "./services/medalService.js";
 import {
   backfillFieldNameContestVetoNotices,
   cleanupResolvedFieldNameContestMessages,
@@ -106,6 +107,13 @@ client.once("ready", (readyClient) => {
   startAtlasTrailmarkDropPollingJob(readyClient);
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
+    void setupMedals(corpsGuild, "system")
+      .then(({ medals, mentors, apprentices }) => {
+        console.log(
+          `Synchronized ${medals} Corps medal${medals === 1 ? "" : "s"}, ${mentors} mentor${mentors === 1 ? "" : "s"}, and ${apprentices} apprentice${apprentices === 1 ? "" : "s"}.`
+        );
+      })
+      .catch((error) => console.warn("Failed to synchronize Corps medals:", error));
     void syncApprenticeshipPreferenceNotices(corpsGuild)
       .then((synchronized) => {
         if (synchronized > 0) {

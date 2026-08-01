@@ -23,7 +23,7 @@ import { UserFacingError } from "../utils/errors.js";
 import { emojiEmbed } from "../utils/guildEmojis.js";
 import { syncMemberToRoster, requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
-import { awardMentorMedal } from "./medalService.js";
+import { awardActiveApprenticeshipMedals } from "./medalService.js";
 
 export interface ApprenticeshipDetails {
   apprenticeship: ApprenticeshipRow;
@@ -239,8 +239,13 @@ export async function respondToApprenticeshipProposal(params: {
   assertNoDbError(error, "respond to apprenticeship proposal");
 
   if (params.accept) {
-    await awardMentorMedal(params.guild, row.mentor_discord_user_id, params.respondingDiscordUserId).catch((error) => {
-      console.warn(`Could not award the Mentor medal to ${row.mentor_discord_user_id}:`, error);
+    await awardActiveApprenticeshipMedals({
+      guild: params.guild,
+      mentorDiscordUserId: row.mentor_discord_user_id,
+      apprenticeDiscordUserId: row.apprentice_discord_user_id,
+      awardedByDiscordUserId: params.respondingDiscordUserId
+    }).catch((error) => {
+      console.warn(`Could not award every medal for apprenticeship ${row.id}:`, error);
     });
     await clearPairPreferences(row, params.guild);
     const entry = await postApprenticeshipRecord(params.guild, updated, details.mentor, details.apprentice, "Apprenticeship Accepted");
@@ -388,8 +393,13 @@ export async function reviewApprenticeSponsorship(params: {
     .single();
   assertNoDbError(error, "review apprentice sponsorship");
   if (params.approve) {
-    await awardMentorMedal(params.guild, updated.mentor_discord_user_id, params.reviewerDiscordUserId).catch((error) => {
-      console.warn(`Could not award the Mentor medal to ${updated.mentor_discord_user_id}:`, error);
+    await awardActiveApprenticeshipMedals({
+      guild: params.guild,
+      mentorDiscordUserId: updated.mentor_discord_user_id,
+      apprenticeDiscordUserId: updated.apprentice_discord_user_id,
+      awardedByDiscordUserId: params.reviewerDiscordUserId
+    }).catch((error) => {
+      console.warn(`Could not award every medal for apprenticeship ${updated.id}:`, error);
     });
     await clearPairPreferences(updated, params.guild);
     await notifyActiveApprenticeshipParticipants(params.guild, updated);
@@ -432,8 +442,13 @@ export async function assignApprenticeship(params: {
     .select("*")
     .single();
   assertNoDbError(error, "assign apprenticeship");
-  await awardMentorMedal(params.guild, apprenticeship.mentor_discord_user_id, params.assignedByDiscordUserId).catch((error) => {
-    console.warn(`Could not award the Mentor medal to ${apprenticeship.mentor_discord_user_id}:`, error);
+  await awardActiveApprenticeshipMedals({
+    guild: params.guild,
+    mentorDiscordUserId: apprenticeship.mentor_discord_user_id,
+    apprenticeDiscordUserId: apprenticeship.apprentice_discord_user_id,
+    awardedByDiscordUserId: params.assignedByDiscordUserId
+  }).catch((error) => {
+    console.warn(`Could not award every medal for apprenticeship ${apprenticeship.id}:`, error);
   });
   await clearPairPreferences(apprenticeship, params.guild);
   const entry = await postApprenticeshipRecord(params.guild, apprenticeship, mentor, apprentice, "Apprenticeship Assigned");

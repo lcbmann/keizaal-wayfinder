@@ -1,4 +1,5 @@
 import type { Guild, GuildMember, Role } from "discord.js";
+import { env } from "../config/env.js";
 import {
   assertNoDbError,
   supabase,
@@ -13,6 +14,7 @@ import { requireRangerByDiscordId } from "./rangerService.js";
 export interface RangerMedalAwardDetails {
   medal: CorpsMedalRow;
   award: RangerMedalAwardRow;
+  newlyAwarded: boolean;
 }
 
 export async function listMedals(): Promise<CorpsMedalRow[]> {
@@ -48,7 +50,7 @@ export async function listRangerMedalAwards(rangerId: string): Promise<RangerMed
 
   return awards.flatMap((award) => {
     const medal = medalById.get(award.medal_id);
-    return medal ? [{ medal, award }] : [];
+    return medal ? [{ medal, award, newlyAwarded: false }] : [];
   });
 }
 
@@ -88,6 +90,7 @@ export async function awardMedal(params: {
   medalId: string;
   awardedByDiscordUserId: string;
   reason: string | null;
+  notifyRecipient?: boolean;
 }): Promise<RangerMedalAwardDetails> {
   const [ranger, medal] = await Promise.all([
     requireRangerByDiscordId(params.rangerDiscordUserId),
@@ -104,6 +107,7 @@ export async function awardMedal(params: {
   assertNoDbError(existingError, "check existing medal award");
 
   let award = existing;
+  let newlyAwarded = false;
   if (!award) {
     const { data, error } = await supabase
       .from("ranger_medal_awards")
@@ -117,10 +121,14 @@ export async function awardMedal(params: {
       .single();
     assertNoDbError(error, "award Corps medal");
     award = data;
+    newlyAwarded = true;
   }
 
   await addMedalRole(params.guild, ranger, roleReadyMedal);
-  return { medal: roleReadyMedal, award };
+  if (newlyAwarded && params.notifyRecipient !== false) {
+    await notifyMedalRecipient(params.guild, ranger.discord_user_id, roleReadyMedal);
+  }
+  return { medal: roleReadyMedal, award, newlyAwarded };
 }
 
 export async function revokeMedal(params: {
@@ -152,7 +160,10 @@ export async function revokeMedal(params: {
   return true;
 }
 
-export async function setupMedals(guild: Guild, actorDiscordUserId: string): Promise<{ medals: number; mentors: number }> {
+export async function setupMedals(
+  guild: Guild,
+  actorDiscordUserId: string
+): Promise<{ medals: number; mentors: number; apprentices: number }> {
   const medals = await listMedals();
   for (const medal of medals) {
     await ensureMedalRole(guild, medal);
@@ -160,45 +171,109 @@ export async function setupMedals(guild: Guild, actorDiscordUserId: string): Pro
 
   const { data: apprenticeships, error } = await supabase
     .from("apprenticeships")
-    .select("mentor_discord_user_id")
+    .select("mentor_discord_user_id, apprentice_discord_user_id")
     .in("status", ["Active", "Ended"]);
-  assertNoDbError(error, "list mentorship history");
+  assertNoDbError(error, "list apprenticeship history");
   const mentors = [...new Set((apprenticeships ?? []).map((row) => row.mentor_discord_user_id))];
+  const apprentices = [...new Set((apprenticeships ?? []).map((row) => row.apprentice_discord_user_id))];
   let mentorAwards = 0;
+  let apprenticeAwards = 0;
   for (const mentorDiscordUserId of mentors) {
     try {
-      if (await awardMentorMedal(guild, mentorDiscordUserId, actorDiscordUserId)) {
+      if (await awardMentorMedal(guild, mentorDiscordUserId, actorDiscordUserId, false)) {
         mentorAwards += 1;
       }
     } catch (error) {
       console.warn(`Could not backfill the Mentor medal for ${mentorDiscordUserId}:`, error);
     }
   }
+  for (const apprenticeDiscordUserId of apprentices) {
+    try {
+      if (await awardApprenticeshipMedal(guild, apprenticeDiscordUserId, actorDiscordUserId, false)) {
+        apprenticeAwards += 1;
+      }
+    } catch (error) {
+      console.warn(`Could not backfill the Apprenticeship medal for ${apprenticeDiscordUserId}:`, error);
+    }
+  }
 
-  return { medals: medals.length, mentors: mentorAwards };
+  return { medals: medals.length, mentors: mentorAwards, apprentices: apprenticeAwards };
 }
 
 export async function awardMentorMedal(
   guild: Guild,
   mentorDiscordUserId: string,
-  awardedByDiscordUserId = "system"
+  awardedByDiscordUserId = "system",
+  notifyRecipient = true
 ): Promise<boolean> {
+  return awardBuiltInMedal({
+    guild,
+    rangerDiscordUserId: mentorDiscordUserId,
+    awardedByDiscordUserId,
+    medalSlug: "mentor",
+    reason: "Served as a Ranger Corps mentor.",
+    notifyRecipient
+  });
+}
+
+export async function awardApprenticeshipMedal(
+  guild: Guild,
+  apprenticeDiscordUserId: string,
+  awardedByDiscordUserId = "system",
+  notifyRecipient = true
+): Promise<boolean> {
+  return awardBuiltInMedal({
+    guild,
+    rangerDiscordUserId: apprenticeDiscordUserId,
+    awardedByDiscordUserId,
+    medalSlug: "apprenticeship",
+    reason: "Entered a formal Ranger Corps apprenticeship.",
+    notifyRecipient
+  });
+}
+
+export async function awardActiveApprenticeshipMedals(params: {
+  guild: Guild;
+  mentorDiscordUserId: string;
+  apprenticeDiscordUserId: string;
+  awardedByDiscordUserId: string;
+  notifyRecipient?: boolean;
+}): Promise<void> {
+  const results = await Promise.allSettled([
+    awardMentorMedal(params.guild, params.mentorDiscordUserId, params.awardedByDiscordUserId, params.notifyRecipient),
+    awardApprenticeshipMedal(params.guild, params.apprenticeDiscordUserId, params.awardedByDiscordUserId, params.notifyRecipient)
+  ]);
+  const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failures.length) {
+    throw new AggregateError(failures.map((failure) => failure.reason), "Could not award every apprenticeship medal.");
+  }
+}
+
+async function awardBuiltInMedal(params: {
+  guild: Guild;
+  rangerDiscordUserId: string;
+  awardedByDiscordUserId: string;
+  medalSlug: string;
+  reason: string;
+  notifyRecipient?: boolean;
+}): Promise<boolean> {
   const { data: medal, error } = await supabase
     .from("corps_medals")
     .select("*")
-    .eq("slug", "mentor")
+    .eq("slug", params.medalSlug)
     .eq("active", true)
     .maybeSingle();
-  assertNoDbError(error, "get Mentor medal");
+  assertNoDbError(error, `get ${params.medalSlug} medal`);
   if (!medal) {
     return false;
   }
   await awardMedal({
-    guild,
-    rangerDiscordUserId: mentorDiscordUserId,
+    guild: params.guild,
+    rangerDiscordUserId: params.rangerDiscordUserId,
     medalId: medal.id,
-    awardedByDiscordUserId,
-    reason: "Served as a Ranger Corps mentor."
+    awardedByDiscordUserId: params.awardedByDiscordUserId,
+    reason: params.reason,
+    ...(params.notifyRecipient === undefined ? {} : { notifyRecipient: params.notifyRecipient })
   });
   return true;
 }
@@ -284,6 +359,24 @@ async function addMedalRole(guild: Guild, ranger: RangerRow, medal: CorpsMedalRo
   if (member && !member.roles.cache.has(medal.discord_role_id)) {
     await member.roles.add(medal.discord_role_id, `Awarded Corps medal: ${medal.name}`);
   }
+}
+
+async function notifyMedalRecipient(guild: Guild, discordUserId: string, medal: CorpsMedalRow): Promise<void> {
+  const user = await guild.client.users.fetch(discordUserId).catch((error) => {
+    console.warn(`Could not fetch ${discordUserId} to notify them about the ${medal.name} medal:`, error);
+    return null;
+  });
+  if (!user) {
+    return;
+  }
+
+  const emoji = medalEmoji(guild, medal);
+  const medalLabel = `${emoji ? `${emoji} ` : ""}**${medal.name}**`;
+  await user.send(
+    `${medalLabel} has been added to your Ranger record. View your medals with \`/ranger info\` in <#${env.GENERAL_CHANNEL_ID}>.`
+  ).catch((error) => {
+    console.warn(`Could not notify ${discordUserId} about the ${medal.name} medal:`, error);
+  });
 }
 
 function medalRoleName(name: string): string {

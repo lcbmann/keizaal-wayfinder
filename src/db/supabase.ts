@@ -174,6 +174,16 @@ export interface CorpsDutyRow {
   updated_at: string;
 }
 
+export interface RankHistoryRow {
+  id: string;
+  ranger_id: string;
+  old_rank: MainRank | null;
+  new_rank: MainRank;
+  changed_by_discord_user_id: string;
+  reason: string | null;
+  created_at: string;
+}
+
 export interface DutyApplicationRow {
   id: string;
   duty_id: string;
@@ -225,6 +235,15 @@ export interface RangerMedalAwardRow {
   awarded_by_discord_user_id: string;
   reason: string | null;
   awarded_at: string;
+}
+
+export interface HonorsLedgerEntryRow {
+  id: string;
+  source_type: "medal_award" | "promotion";
+  source_id: string;
+  discord_thread_id: string;
+  discord_message_id: string;
+  created_at: string;
 }
 
 export interface HistoricalCorpsMemberRow {
@@ -522,15 +541,7 @@ export interface Database {
         Update: Partial<RangerRow>;
       };
       rank_history: {
-        Row: {
-          id: string;
-          ranger_id: string;
-          old_rank: MainRank | null;
-          new_rank: MainRank;
-          changed_by_discord_user_id: string;
-          reason: string | null;
-          created_at: string;
-        };
+        Row: RankHistoryRow;
         Insert: {
           ranger_id: string;
           old_rank?: MainRank | null;
@@ -603,6 +614,14 @@ export interface Database {
           awarded_at?: string;
         };
         Update: Partial<RangerMedalAwardRow>;
+      };
+      honors_ledger_entries: {
+        Row: HonorsLedgerEntryRow;
+        Insert: Omit<HonorsLedgerEntryRow, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<HonorsLedgerEntryRow>;
       };
       historical_corps_members: {
         Row: HistoricalCorpsMemberRow;

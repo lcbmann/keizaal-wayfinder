@@ -9,6 +9,7 @@ import {
 } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
 import { slugify } from "../utils/slugs.js";
+import { appendMedalAwardToHonorsLedger } from "./honorsLedgerService.js";
 import { requireRangerByDiscordId } from "./rangerService.js";
 
 export interface RangerMedalAwardDetails {
@@ -127,6 +128,16 @@ export async function awardMedal(params: {
   await addMedalRole(params.guild, ranger, roleReadyMedal);
   if (newlyAwarded && params.notifyRecipient !== false) {
     await notifyMedalRecipient(params.guild, ranger.discord_user_id, roleReadyMedal);
+  }
+  if (newlyAwarded) {
+    await appendMedalAwardToHonorsLedger({
+      guild: params.guild,
+      ranger,
+      medal: roleReadyMedal,
+      award
+    }).catch((error) => {
+      console.warn(`Could not append ${roleReadyMedal.name} for ${ranger.discord_user_id} to the honors ledger:`, error);
+    });
   }
   return { medal: roleReadyMedal, award, newlyAwarded };
 }

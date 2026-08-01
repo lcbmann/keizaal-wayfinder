@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, type GuildMember } from "discord.js";
+import { ChannelType, SlashCommandBuilder, type GuildMember } from "discord.js";
 import {
   awardMedal,
   createMedal,
@@ -9,6 +9,7 @@ import {
   setupMedals
 } from "../services/medalService.js";
 import { getRangerByDiscordId } from "../services/rangerService.js";
+import { setupHonorsLedger } from "../services/honorsLedgerService.js";
 import { canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
@@ -20,6 +21,9 @@ export const medalCommand: BotCommand = {
     .addSubcommand((subcommand) => subcommand
       .setName("setup")
       .setDescription("Marshal+: create medal roles and backfill apprenticeship medals."))
+    .addSubcommand((subcommand) => subcommand
+      .setName("ledger")
+      .setDescription("Marshal+: create or backfill the Corps honors record thread."))
     .addSubcommand((subcommand) => subcommand
       .setName("create")
       .setDescription("Marshal+: create a new Corps medal.")
@@ -75,6 +79,21 @@ export const medalCommand: BotCommand = {
     }
 
     requireMarshal(actor);
+    if (subcommand === "ledger") {
+      const channel = interaction.channel;
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        throw new UserFacingError("Run /medal ledger in the Ranger roster text channel.");
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      const result = await setupHonorsLedger(interaction.guild, channel);
+      const thread = `<#${result.thread.id}>`;
+      await interaction.editReply({
+        content: `${result.created ? "Created" : "Updated"} the Corps honors record in ${thread}. Backfilled **${result.medalsBackfilled}** medal ${result.medalsBackfilled === 1 ? "award" : "awards"} and **${result.promotionsBackfilled}** ${result.promotionsBackfilled === 1 ? "promotion" : "promotions"}.`
+      });
+      return;
+    }
+
     if (subcommand === "setup") {
       await interaction.deferReply({ ephemeral: true });
       const result = await setupMedals(interaction.guild, actor.id);

@@ -5,6 +5,7 @@ import { assertNoDbError, supabase, type RangerRow, type RangerStatus } from "..
 import { todayIsoDate } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
 import { getMemberMainRank, hasGuestOnly, syncCumulativeMainRanks } from "./discordRoleService.js";
+import { appendPromotionToHonorsLedger } from "./honorsLedgerService.js";
 
 export async function getRangerByDiscordId(discordUserId: string): Promise<RangerRow | null> {
   const { data, error } = await supabase
@@ -126,16 +127,27 @@ export async function promoteRanger(params: {
 
   assertNoDbError(error, "promote ranger");
 
-  const { error: historyError } = await supabase.from("rank_history").insert({
-    ranger_id: existing.id,
-    old_rank: existing.current_rank,
-    new_rank: params.targetRank,
-    changed_by_discord_user_id: params.changedByDiscordUserId,
-    reason: params.reason ?? null
-  });
+  const { data: history, error: historyError } = await supabase
+    .from("rank_history")
+    .insert({
+      ranger_id: existing.id,
+      old_rank: existing.current_rank,
+      new_rank: params.targetRank,
+      changed_by_discord_user_id: params.changedByDiscordUserId,
+      reason: params.reason ?? null
+    })
+    .select("*")
+    .single();
 
   assertNoDbError(historyError, "write rank history");
   await syncCumulativeMainRanks(params.member, params.targetRank);
+  await appendPromotionToHonorsLedger({
+    guild: params.member.guild,
+    ranger: data,
+    history
+  }).catch((error) => {
+    console.warn(`Could not append promotion for ${data.discord_user_id} to the honors ledger:`, error);
+  });
   return data;
 }
 

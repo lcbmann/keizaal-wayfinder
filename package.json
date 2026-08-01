@@ -11,7 +11,7 @@
     "deploy-commands": "tsx src/deploy-commands.ts",
     "check": "tsc --noEmit",
     "build": "tsc",
-    "test": "tsx --test src/services/atlasTrailmarkAccessService.test.ts src/services/atlasTrailmarkDropService.test.ts src/services/contactService.test.ts"
+    "test": "tsx --test src/services/assignmentBoardService.test.ts src/services/atlasTrailmarkAccessService.test.ts src/services/atlasTrailmarkDropService.test.ts src/services/contactService.test.ts"
   },
   "overrides": {
     "undici": "6.27.0"

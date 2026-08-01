@@ -7,6 +7,7 @@ import {
   type RangerRow,
   type RankHistoryRow
 } from "../db/supabase.js";
+import { guildEmoji, rankEmojiName } from "../utils/guildEmojis.js";
 import { getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 
 const HONORS_LEDGER_STATE_KEY = "corps_honors_ledger";
@@ -28,7 +29,7 @@ export async function setupHonorsLedger(
 
   if (!thread) {
     const starter = await parentChannel.send({
-      embeds: [honorsLedgerIntroEmbed()]
+      embeds: [honorsLedgerIntroEmbed(guild)]
     });
     thread = await starter.startThread({
       name: HONORS_LEDGER_THREAD_NAME,
@@ -39,6 +40,7 @@ export async function setupHonorsLedger(
     created = true;
   }
 
+  await refreshHonorsLedgerIntro(guild, thread);
   const backfill = await backfillHonorsLedger(guild, thread);
   return {
     thread,
@@ -62,7 +64,7 @@ export async function appendMedalAwardToHonorsLedger(params: {
     thread,
     sourceType: "medal_award",
     sourceId: params.award.id,
-    embed: medalAwardEmbed(params.ranger, params.medal, params.award)
+    embed: medalAwardEmbed(params.guild, params.ranger, params.medal, params.award)
   });
 }
 
@@ -79,7 +81,7 @@ export async function appendPromotionToHonorsLedger(params: {
     thread,
     sourceType: "promotion",
     sourceId: params.history.id,
-    embed: promotionEmbed(params.ranger, params.history)
+    embed: promotionEmbed(params.guild, params.ranger, params.history)
   });
 }
 
@@ -115,7 +117,7 @@ async function backfillHonorsLedger(
         sourceType: "medal_award",
         sourceId: award.id,
         occurredAt: award.awarded_at,
-        embed: medalAwardEmbed(ranger, medal, award)
+        embed: medalAwardEmbed(guild, ranger, medal, award)
       });
     }
   }
@@ -127,7 +129,7 @@ async function backfillHonorsLedger(
         sourceType: "promotion",
         sourceId: history.id,
         occurredAt: history.created_at,
-        embed: promotionEmbed(ranger, history)
+        embed: promotionEmbed(guild, ranger, history)
       });
     }
   }
@@ -180,13 +182,28 @@ async function postHonorsLedgerEntry(params: {
 }): Promise<boolean> {
   const { data: existing, error: existingError } = await supabase
     .from("honors_ledger_entries")
-    .select("id")
+    .select("id, discord_message_id")
     .eq("source_type", params.sourceType)
     .eq("source_id", params.sourceId)
     .maybeSingle();
   assertNoDbError(existingError, "check honors ledger entry");
   if (existing) {
-    return false;
+    const existingMessage = await params.thread.messages.fetch(existing.discord_message_id).catch(() => null);
+    if (existingMessage) {
+      await existingMessage.edit({ embeds: [params.embed] });
+      return false;
+    }
+
+    const message = await params.thread.send({ embeds: [params.embed] });
+    const { error } = await supabase
+      .from("honors_ledger_entries")
+      .update({
+        discord_thread_id: params.thread.id,
+        discord_message_id: message.id
+      })
+      .eq("id", existing.id);
+    assertNoDbError(error, "restore honors ledger entry");
+    return true;
   }
 
   const message = await params.thread.send({ embeds: [params.embed] });
@@ -200,18 +217,34 @@ async function postHonorsLedgerEntry(params: {
   return true;
 }
 
-function honorsLedgerIntroEmbed(): EmbedBuilder {
+async function refreshHonorsLedgerIntro(guild: Guild, thread: PublicThreadChannel): Promise<void> {
+  const state = await getBotMessageState(HONORS_LEDGER_STATE_KEY);
+  const starterMessageId = state?.discord_message_ids[0];
+  const parent = thread.parent;
+  if (!starterMessageId || parent?.type !== ChannelType.GuildText) {
+    return;
+  }
+
+  const starter = await parent.messages.fetch(starterMessageId).catch(() => null);
+  if (starter) {
+    await starter.edit({ embeds: [honorsLedgerIntroEmbed(guild)] });
+  }
+}
+
+function honorsLedgerIntroEmbed(guild: Guild): EmbedBuilder {
+  const emoji = guildEmoji(guild, "corps");
   return new EmbedBuilder()
     .setColor(0x587c4a)
-    .setTitle("Corps Honors Record")
+    .setTitle(`${emoji ? `${emoji} - ` : ""}Corps Honors Record`)
     .setDescription("A permanent record of Ranger promotions and Corps medals. Wayfinder adds new entries here without mentioning members.");
 }
 
-function medalAwardEmbed(ranger: RangerRow, medal: CorpsMedalRow, award: RangerMedalAwardRow): EmbedBuilder {
+function medalAwardEmbed(guild: Guild, ranger: RangerRow, medal: CorpsMedalRow, award: RangerMedalAwardRow): EmbedBuilder {
+  const emoji = medalEmoji(guild, medal);
   return new EmbedBuilder()
     .setColor(0x6d8f5b)
-    .setTitle(`Medal Awarded - ${medal.name}`)
-    .setDescription(`**Recipient**\n${rangerLabel(ranger, ranger.current_rank)}`)
+    .setTitle(`${emoji ? `${emoji} - ` : ""}Medal Awarded: ${medal.name}`)
+    .setDescription(`**Recipient**\n${rangerLabel(guild, ranger, ranger.current_rank)}`)
     .addFields(
       { name: "What it recognizes", value: medal.description.slice(0, 1024) },
       { name: "Reason", value: award.reason?.trim().slice(0, 1024) || "No reason recorded." }
@@ -219,26 +252,45 @@ function medalAwardEmbed(ranger: RangerRow, medal: CorpsMedalRow, award: RangerM
     .setTimestamp(new Date(award.awarded_at));
 }
 
-function promotionEmbed(ranger: RangerRow, history: RankHistoryRow): EmbedBuilder {
+function promotionEmbed(guild: Guild, ranger: RangerRow, history: RankHistoryRow): EmbedBuilder {
   const previousRank = history.old_rank ?? "Unrecorded rank";
+  const targetBadge = rankBadge(guild, history.new_rank);
+  const priorBadge = history.old_rank ? rankBadge(guild, history.old_rank) : "";
   return new EmbedBuilder()
     .setColor(0x7189b1)
-    .setTitle(`Promotion Recorded - ${rangerLabel(ranger, history.new_rank)}`)
-    .setDescription(`Advanced from **${previousRank}** to **${history.new_rank}**.`)
+    .setTitle(`${targetBadge ? `${targetBadge} - ` : ""}Promotion Recorded: ${rangerLabel(guild, ranger, history.new_rank)}`)
+    .setDescription(`Advanced from ${priorBadge ? `${priorBadge} ` : ""}**${previousRank}** to ${targetBadge ? `${targetBadge} ` : ""}**${history.new_rank}**.`)
     .addFields({ name: "Reason", value: history.reason?.trim().slice(0, 1024) || "No reason recorded." })
     .setTimestamp(new Date(history.created_at));
 }
 
-function rangerLabel(ranger: RangerRow, rank: RangerRow["current_rank"]): string {
+function rangerLabel(guild: Guild, ranger: RangerRow, rank: RangerRow["current_rank"]): string {
   const name = ranger.discord_display_name ?? ranger.in_game_name ?? ranger.discord_username ?? "Unknown Ranger";
+  const badge = rankBadge(guild, rank);
+  const prefix = badge ? `${badge} ` : "";
   switch (rank) {
     case "Ranger Commander":
-      return `Commander ${name}`;
+      return `${prefix}Commander ${name}`;
     case "Ranger Captain":
-      return `Captain ${name}`;
+      return `${prefix}Captain ${name}`;
     case "Ranger Marshal":
-      return `Marshal ${name}`;
+      return `${prefix}Marshal ${name}`;
     default:
-      return `${rank} ${name}`;
+      return `${prefix}${rank} ${name}`;
   }
+}
+
+function rankBadge(guild: Guild, rank: string): string {
+  const emojiName = rankEmojiName(rank);
+  return emojiName ? guildEmoji(guild, emojiName) : "";
+}
+
+function medalEmoji(guild: Guild, medal: CorpsMedalRow): string {
+  const value = medal.emoji?.trim();
+  if (!value) {
+    return "";
+  }
+  const emojiName = value.match(/^<a?:([A-Za-z0-9_]+):\d+>$/u)?.[1]
+    ?? value.replace(/^:+|:+$/gu, "").trim();
+  return guild.emojis.cache.find((emoji) => emoji.name === emojiName)?.toString() ?? value;
 }

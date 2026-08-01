@@ -14,8 +14,33 @@ import { emojiEmbed, emojiText, guildEmoji, rankEmojiName } from "../utils/guild
 
 const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
 const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
+const assignmentBoardTitleSuffixes = [
+  "Ranger Corps Leadership",
+  "Ranger Corps Quartermasters",
+  "Ranger Corps Wardens",
+  "Ranger Corps Ambassadors",
+  "Ranger Corps Detectives",
+  "Ranger Corps Apprenticeships"
+];
+const activeBoardRefreshes = new Map<string, Promise<Message[]>>();
 
 export async function postAssignmentsBoard(channel: TextChannel): Promise<Message[]> {
+  const refreshKey = `${channel.guild.id}:${ASSIGNMENTS_BOARD_STATE_KEY}`;
+  const activeRefresh = activeBoardRefreshes.get(refreshKey);
+  if (activeRefresh) {
+    return activeRefresh;
+  }
+
+  const refresh = replaceAssignmentsBoard(channel).finally(() => {
+    if (activeBoardRefreshes.get(refreshKey) === refresh) {
+      activeBoardRefreshes.delete(refreshKey);
+    }
+  });
+  activeBoardRefreshes.set(refreshKey, refresh);
+  return refresh;
+}
+
+async function replaceAssignmentsBoard(channel: TextChannel): Promise<Message[]> {
   const [rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences] = await Promise.all([
     listAllRangers(),
     listActiveDutyAssignments(),
@@ -24,6 +49,7 @@ export async function postAssignmentsBoard(channel: TextChannel): Promise<Messag
   ]);
   const embeds = assignmentsEmbeds(channel.guild, rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences);
   await deleteStoredMessages(channel.guild, ASSIGNMENTS_BOARD_STATE_KEY);
+  await deleteOrphanedAssignmentBoards(channel);
 
   const messages: Message[] = [];
   try {
@@ -218,4 +244,38 @@ function truncateField(value: string): string {
   }
 
   return `${value.slice(0, 1020).trimEnd()}...`;
+}
+
+async function deleteOrphanedAssignmentBoards(channel: TextChannel): Promise<void> {
+  const botUserId = channel.client.user?.id;
+  if (!botUserId) {
+    return;
+  }
+
+  try {
+    let before: string | undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const messages = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+      if (!messages.size) {
+        break;
+      }
+
+      const orphaned = messages.filter((message) => message.author.id === botUserId
+        && message.embeds.some((embed) => isAssignmentsBoardEmbedTitle(embed.title)));
+      await Promise.all([...orphaned.values()].map((message) => message.delete().catch((error) => {
+        console.warn(`Could not remove an orphaned Ranger assignments board message ${message.id}:`, error);
+      })));
+
+      if (messages.size < 100) {
+        break;
+      }
+      before = messages.last()?.id;
+    }
+  } catch (error) {
+    console.warn("Could not scan the Ranger roster channel for orphaned assignment boards:", error);
+  }
+}
+
+export function isAssignmentsBoardEmbedTitle(title: string | null): boolean {
+  return title !== null && assignmentBoardTitleSuffixes.some((suffix) => title.endsWith(suffix));
 }

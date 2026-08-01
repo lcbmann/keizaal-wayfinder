@@ -1,10 +1,11 @@
 import type { Guild, GuildMember } from "discord.js";
-import { assertNoDbError, supabase, type Json } from "../db/supabase.js";
+import { assertNoDbError, supabase, type CorpsMedalRow, type Json } from "../db/supabase.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import { MAIN_RANKS } from "../config/ranks.js";
 import { roleIdForRank } from "../config/roles.js";
 import { rankEmojiName, type WayfinderEmojiName } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
+import { listMedals } from "./medalService.js";
 
 const rankBadgeIds = {
   "Ranger Commander": "ranger-commander",
@@ -63,13 +64,18 @@ type AtlasMedal = {
   rolePosition: number;
 };
 
-function listDiscordAwardMedals(member: GuildMember): AtlasMedal[] {
+function listDiscordAwardMedals(member: GuildMember, corpsMedals: readonly CorpsMedalRow[]): AtlasMedal[] {
+  const medalByRoleId = new Map(
+    corpsMedals.flatMap((medal) => medal.discord_role_id ? [[medal.discord_role_id, medal] as const] : [])
+  );
   return member.roles.cache
     .filter((role) => role.name.startsWith("Medal: "))
     .map((role) => {
-      const label = role.name.slice("Medal: ".length).trim();
+      const medal = medalByRoleId.get(role.id);
+      const label = medal?.name ?? role.name.slice("Medal: ".length).trim();
+      const fallbackSlug = slugify(label.replace(/['\u2019]/gu, "").replace(/^the\s+/iu, ""));
       return {
-        id: `medal-${slugify(label.replace(/['\u2019]/gu, ""))}`,
+        id: `medal-${medal?.slug || fallbackSlug}`,
         label,
         rolePosition: role.position
       };
@@ -82,12 +88,12 @@ export function highestCorpsTitle(member: GuildMember): string | null {
   return badge ? displayTitle(badge.label) : null;
 }
 
-export function buildAtlasDiscordProfile(member: GuildMember): Json {
+export function buildAtlasDiscordProfile(member: GuildMember, corpsMedals: readonly CorpsMedalRow[] = []): Json {
   const rank = mainRankFromMember(member);
   const primaryBadge = rank ? { id: rankBadgeIds[rank], label: rank } : null;
   const medals = [
     ...listDiscordRoleMedals(member).map(({ badgeId: id, label, rolePosition }) => ({ id, label, rolePosition })),
-    ...listDiscordAwardMedals(member)
+    ...listDiscordAwardMedals(member, corpsMedals)
   ]
     .sort((a, b) => b.rolePosition - a.rolePosition || a.label.localeCompare(b.label))
     .filter(({ id }, index, all) => id !== primaryBadge?.id && all.findIndex((candidate) => candidate.id === id) === index)
@@ -100,18 +106,22 @@ export function buildAtlasDiscordProfile(member: GuildMember): Json {
   };
 }
 
-export async function syncAtlasDiscordProfile(member: GuildMember): Promise<number> {
+export async function syncAtlasDiscordProfile(
+  member: GuildMember,
+  corpsMedals: readonly CorpsMedalRow[] | null = null
+): Promise<number> {
+  const availableMedals = corpsMedals ?? await listMedals();
   const { data, error } = await supabase.rpc("update_atlas_discord_profile", {
     discord_user_id_input: member.id,
     discord_display_name_input: member.displayName,
-    discord_profile_input: buildAtlasDiscordProfile(member)
+    discord_profile_input: buildAtlasDiscordProfile(member, availableMedals)
   });
   assertNoDbError(error, "update linked Atlas Discord profile");
   return typeof data === "number" ? data : 0;
 }
 
 export async function syncGuildAtlasDiscordProfiles(guild: Guild): Promise<{ members: number; links: number }> {
-  const members = await guild.members.fetch();
+  const [members, corpsMedals] = await Promise.all([guild.members.fetch(), listMedals()]);
   let syncedMembers = 0;
   let linkedProfiles = 0;
   for (const member of members.values()) {
@@ -120,7 +130,7 @@ export async function syncGuildAtlasDiscordProfiles(guild: Guild): Promise<{ mem
     }
     syncedMembers += 1;
     try {
-      linkedProfiles += await syncAtlasDiscordProfile(member);
+      linkedProfiles += await syncAtlasDiscordProfile(member, corpsMedals);
     } catch (error) {
       console.warn(`Could not refresh linked Atlas profile for ${member.id}:`, error);
     }

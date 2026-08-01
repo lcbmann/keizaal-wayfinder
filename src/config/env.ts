@@ -36,7 +36,6 @@ const envSchema = z.object({
   INVITE_CHANNEL_ID: optionalId,
   CORPS_FUNDS_CHANNEL_ID: optionalId,
   NOTICE_BOARD_CHANNEL_ID: optionalId,
-  RANK_ROLE_SYNC_EXEMPT_USER_IDS: optionalId,
 
   CORPS_INTEL_CATEGORY_ID: optionalId,
   RANGER_ALLIANCE_GUILD_ID: optionalId,

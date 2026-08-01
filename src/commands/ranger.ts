@@ -23,7 +23,6 @@ import {
   updateRangerNotes
 } from "../services/rangerService.js";
 import { clearMemberHoldRole, setMemberHoldRole, syncAssignedHoldRoles } from "../services/holdRoleService.js";
-import { isRankRoleSyncExempt } from "../services/discordRoleService.js";
 import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
@@ -33,6 +32,8 @@ import {
   syncHoldWardenAssignments
 } from "../services/dutyService.js";
 import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
+import { listDiscordRoleMedals } from "../services/atlasDiscordProfileService.js";
+import { emojiText } from "../utils/guildEmojis.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -168,10 +169,14 @@ export const rangerCommand: BotCommand = {
         return;
       }
 
+      const member = await interaction.guild.members.fetch(user.id).catch(() => null);
       const duties = (await listActiveDutyAssignments())
         .filter((entry) => entry.ranger.id === ranger.id)
         .map((entry) => `${entry.duty.name}${entry.assignment.assignment_detail ? ` (${entry.assignment.assignment_detail})` : ""}`);
-      await interaction.reply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties)], ephemeral: true });
+      const medals = member
+        ? listDiscordRoleMedals(member).map(({ label, emojiName }) => emojiText(interaction.guild, emojiName, label))
+        : [];
+      await interaction.reply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties, medals)], ephemeral: true });
       return;
     }
 
@@ -426,7 +431,8 @@ function requireMarshal(member: GuildMember): void {
 function rangerEmbed(
   discordUserId: string,
   ranger: Awaited<ReturnType<typeof getRangerByDiscordId>>,
-  duties: string[] = []
+  duties: string[] = [],
+  medals: string[] = []
 ): EmbedBuilder {
   if (!ranger) {
     throw new UserFacingError("No roster entry found.");
@@ -441,6 +447,7 @@ function rangerEmbed(
       { name: "Join Date", value: `${ranger.join_date} (${daysBetween(ranger.join_date)} days)`, inline: true },
       { name: "Assigned Hold", value: ranger.assigned_hold ?? "Unassigned", inline: true },
       { name: "In-Game Name", value: ranger.in_game_name ?? "Unknown", inline: true },
+      { name: "Medals", value: medals.join("\n") || "None", inline: false },
       { name: "Corps Duties", value: duties.join("\n") || "None", inline: false },
       { name: "Notes", value: ranger.notes?.slice(0, 1024) || "None" }
     )
@@ -484,10 +491,8 @@ function rosterAuditEmbed(members: GuildMember[], rangers: RangerRow[]): EmbedBu
       issues.push(`${member} roster rank is ${ranger.current_rank}, but that Discord role is missing.`);
     }
 
-    const missingLowerRanks = isRankRoleSyncExempt(member.id)
-      ? []
-      : MAIN_RANKS.filter((rank) => rankAtLeast(ranger.current_rank, rank))
-          .filter((rank) => !member.roles.cache.has(roleIdForRank(rank)));
+    const missingLowerRanks = MAIN_RANKS.filter((rank) => rankAtLeast(ranger.current_rank, rank))
+      .filter((rank) => !member.roles.cache.has(roleIdForRank(rank)));
     if (missingLowerRanks.length > 0) {
       issues.push(`${member} is missing cumulative role(s): ${missingLowerRanks.join(", ")}.`);
     }

@@ -16,7 +16,7 @@ import { env } from "../config/env.js";
 import { roleIdForRank } from "../config/roles.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
-import { emojiEmbed } from "../utils/guildEmojis.js";
+import { emojiEmbed, emojiText, guildEmoji, type WayfinderEmojiName } from "../utils/guildEmojis.js";
 import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 
 const STRONGBOX_STATE_KEY = "hq-strongbox-channel";
@@ -36,6 +36,16 @@ export async function setupStrongboxChannels(guild: Guild): Promise<{ privateCha
   const privateChannel = await setupPrivateStrongboxChannel(guild);
   const dropChannel = await setupStrongboxDropChannel(guild);
   return { privateChannel, dropChannel };
+}
+
+export async function refreshStrongboxDropInstructions(guild: Guild): Promise<boolean> {
+  const channel = await getStrongboxDropChannel(guild);
+  if (!channel) {
+    return false;
+  }
+
+  await ensureStrongboxDropInstructions(channel);
+  return true;
 }
 
 async function setupPrivateStrongboxChannel(guild: Guild): Promise<TextChannel> {
@@ -169,14 +179,14 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
       {
         name: "Corps Duties",
         value: [
-          "**Ranger+ only:** Quartermaster, Warden, Detective, and Ambassador.",
-          "**Apprentice+:** Craftsman and Courier.",
+          `**Ranger+ only:** ${roleLabel(guild, "quartermaster", "Quartermaster")}, ${roleLabel(guild, "warden", "Warden")}, ${roleLabel(guild, "detective", "Detective")}, and ${roleLabel(guild, "ambassador", "Ambassador")}.`,
+          `**Apprentice+:** ${roleLabel(guild, "craftsman", "Craftsman")} and ${roleLabel(guild, "courier", "Courier")}.`,
           "`/duty volunteer` - Apply for Quartermaster, Craftsman, Warden, Detective, Courier, or Ambassador.",
           "`/duty withdraw` - Withdraw a pending duty application."
         ].join("\n")
       },
       {
-        name: "Finding a Mentor or Apprentice",
+        name: emojiText(guild, "apprentice", "Finding a Mentor or Apprentice"),
         value: [
           "`/apprenticeship looking-for` - Post on the notice board that you are looking for a mentor or Apprentice.",
           "`/apprenticeship withdraw-looking` - Remove your matching request.",
@@ -184,7 +194,7 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
         ].join("\n")
       },
       {
-        name: "Recruiting and Current Pairings",
+        name: emojiText(guild, "ranger", "Recruiting and Current Pairings"),
         value: [
           "`/apprenticeship sponsor` - Sponsor a new member who has already joined the Discord.",
           "`/apprenticeship info` - View your current pairing.",
@@ -194,6 +204,11 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
     )
     .setColor(0x587c4a)
     .setFooter({ text: "The private /strongbox drop command remains limited to this channel." });
+}
+
+function roleLabel(guild: Guild, emojiName: WayfinderEmojiName, label: string): string {
+  const emoji = guildEmoji(guild, emojiName);
+  return emoji ? `${emoji} ${label}` : label;
 }
 
 export async function dropStrongboxMessage(params: {

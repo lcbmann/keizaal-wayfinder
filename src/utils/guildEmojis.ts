@@ -51,7 +51,7 @@ export function guildEmojiImageUrl(
   name: WayfinderEmojiName,
   size = 128
 ): string | null {
-  return guild.emojis.cache.find((emoji) => emoji.name === name)?.imageURL({ size }) ?? null;
+  return guild.emojis.cache.find((emoji) => emoji.name === name)?.imageURL({ extension: "png", size }) ?? null;
 }
 
 export function emojiEmbed(

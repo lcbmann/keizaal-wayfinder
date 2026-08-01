@@ -44,7 +44,7 @@ import {
   synchronizeEditedTrailmarkIntelReports,
   syncIntelReportChannelNames
 } from "./services/intelService.js";
-import { handleStrongboxDropMessage } from "./services/strongboxService.js";
+import { handleStrongboxDropMessage, refreshStrongboxDropInstructions } from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import {
@@ -118,6 +118,13 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to refresh the Ranger assignments board:", error));
+    void refreshStrongboxDropInstructions(corpsGuild)
+      .then((refreshed) => {
+        if (refreshed) {
+          console.log("Refreshed Strongbox Drop instructions with current role badges.");
+        }
+      })
+      .catch((error) => console.warn("Failed to refresh Strongbox Drop instructions:", error));
     void refreshActiveContactForumPosts(corpsGuild)
       .then((refreshed) => {
         if (refreshed > 0) {

@@ -811,8 +811,17 @@ export interface Database {
         Args: {
           discord_user_id_input: string;
           discord_display_name_input: string;
+          discord_profile_input: Json;
         };
         Returns: string;
+      };
+      update_atlas_discord_profile: {
+        Args: {
+          discord_user_id_input: string;
+          discord_display_name_input: string;
+          discord_profile_input: Json;
+        };
+        Returns: number;
       };
       claim_pending_atlas_trailmark_access_requests: {
         Args: { request_limit: number };

@@ -45,9 +45,10 @@ const request = {
 };
 
 test("creates an Atlas link code with the migration RPC contract", async () => {
-  let received: Record<string, string> | undefined;
+  let received: Record<string, unknown> | undefined;
+  const profile = { version: 1, primary_badge: { id: "ranger", label: "Ranger" }, medals: [] };
   const code = await createAtlasDiscordLinkCode(
-    { discordUserId: "discord-user-id", discordDisplayName: "Current Display Name" },
+    { discordUserId: "discord-user-id", discordDisplayName: "Current Display Name", discordProfile: profile },
     async (args) => {
       received = args;
       return { data: "5W8G46FW", error: null };
@@ -57,7 +58,8 @@ test("creates an Atlas link code with the migration RPC contract", async () => {
   assert.equal(code, "5W8G46FW");
   assert.deepEqual(received, {
     discord_user_id_input: "discord-user-id",
-    discord_display_name_input: "Current Display Name"
+    discord_display_name_input: "Current Display Name",
+    discord_profile_input: profile
   });
 });
 

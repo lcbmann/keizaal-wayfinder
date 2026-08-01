@@ -1,5 +1,6 @@
 import { SlashCommandBuilder } from "discord.js";
 import { createAtlasDiscordLinkCode } from "../services/atlasTrailmarkAccessService.js";
+import { buildAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canUseTrailmarks } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
@@ -25,7 +26,8 @@ export const atlasCommand: BotCommand = {
     await interaction.deferReply({ ephemeral: true });
     const code = await createAtlasDiscordLinkCode({
       discordUserId: member.id,
-      discordDisplayName: member.displayName
+      discordDisplayName: member.displayName,
+      discordProfile: buildAtlasDiscordProfile(member)
     });
     await interaction.editReply({
       content: `Your Atlas link code is **\`${code}\`**. It expires in 10 minutes. Enter it under **Link Discord** in the Atlas.`

@@ -10,7 +10,7 @@ import {
 } from "./apprenticeshipService.js";
 import { listActiveDutyAssignments, type DutyAssignmentDetails } from "./dutyService.js";
 import { listAllRangers } from "./rangerService.js";
-import { emojiEmbed, emojiText } from "../utils/guildEmojis.js";
+import { emojiEmbed, emojiText, guildEmoji, rankEmojiName } from "../utils/guildEmojis.js";
 
 const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
 const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
@@ -75,7 +75,7 @@ function assignmentsEmbeds(
     const ranked = sortedRangers.filter((ranger) => ranger.current_rank === rank && ranger.status === "Active");
     leadershipEmbed.addFields({
       name: emojiText(guild, rankEmojiForBoard(rank), rank),
-      value: ranked.length ? truncateField(ranked.map(formatAssignmentRanger).join("\n")) : "None assigned."
+      value: ranked.length ? truncateField(ranked.map((ranger) => formatAssignmentRanger(guild, ranger)).join("\n")) : "None assigned."
     });
   }
 
@@ -90,7 +90,7 @@ function assignmentsEmbeds(
     .addFields({
       name: "Active Quartermasters",
       value: quartermasters.length
-        ? truncateField(quartermasters.map(formatDutyAssignment).join("\n"))
+        ? truncateField(quartermasters.map((details) => formatDutyAssignment(guild, details)).join("\n"))
         : "None assigned."
     })
     .setTimestamp(new Date());
@@ -99,7 +99,7 @@ function assignmentsEmbeds(
     const assigned = sortedRangers.filter((ranger) => ranger.assigned_hold === hold);
     wardensEmbed.addFields({
       name: hold,
-      value: assigned.length ? truncateField(assigned.map(formatAssignmentRanger).join("\n")) : "None assigned."
+      value: assigned.length ? truncateField(assigned.map((ranger) => formatAssignmentRanger(guild, ranger)).join("\n")) : "None assigned."
     });
   }
 
@@ -112,7 +112,7 @@ function assignmentsEmbeds(
   wardensEmbed.addFields({
     name: "Other Ranges",
     value: otherWardens.length
-      ? truncateField(otherWardens.map(formatDutyAssignment).join("\n"))
+      ? truncateField(otherWardens.map((details) => formatDutyAssignment(guild, details)).join("\n"))
       : "None assigned."
   });
 
@@ -122,7 +122,7 @@ function assignmentsEmbeds(
     .addFields({
       name: "Active Detectives",
       value: detectives.length
-        ? truncateField(detectives.map(formatDutyAssignment).join("\n"))
+        ? truncateField(detectives.map((details) => formatDutyAssignment(guild, details)).join("\n"))
         : "None assigned."
     })
     .setTimestamp(new Date());
@@ -133,7 +133,7 @@ function assignmentsEmbeds(
     .addFields({
       name: "Active Ambassadors",
       value: ambassadors.length
-        ? truncateField(ambassadors.map(formatDutyAssignment).join("\n"))
+        ? truncateField(ambassadors.map((details) => formatDutyAssignment(guild, details)).join("\n"))
         : "None assigned."
     })
     .setTimestamp(new Date());
@@ -186,14 +186,17 @@ function formatApprenticeship({ apprenticeship }: ApprenticeshipDetails): string
   return `<@${apprenticeship.mentor_discord_user_id}> mentoring <@${apprenticeship.apprentice_discord_user_id}>`;
 }
 
-function formatDutyAssignment({ assignment, ranger }: DutyAssignmentDetails): string {
+function formatDutyAssignment(guild: Guild, { assignment, ranger }: DutyAssignmentDetails): string {
   const detail = assignment.assignment_detail ? ` - ${assignment.assignment_detail}` : "";
-  return `${formatAssignmentRanger(ranger)}${detail}`;
+  return `${formatAssignmentRanger(guild, ranger)}${detail}`;
 }
 
-function formatAssignmentRanger(ranger: RangerRow): string {
+function formatAssignmentRanger(guild: Guild, ranger: RangerRow): string {
   const status = ranger.status === "Active" ? "" : ` (${ranger.status})`;
-  return `<@${ranger.discord_user_id}> - ${ranger.discord_display_name ?? ranger.discord_username ?? "Unknown"}${status}`;
+  const name = ranger.discord_display_name ?? ranger.discord_username ?? "Unknown";
+  const emojiName = rankEmojiName(ranger.current_rank);
+  const badge = emojiName ? guildEmoji(guild, emojiName) : "";
+  return `<@${ranger.discord_user_id}> - ${badge ? `${badge} ` : ""}${name}${status}`;
 }
 
 function compareRangersForDisplay(a: RangerRow, b: RangerRow): number {

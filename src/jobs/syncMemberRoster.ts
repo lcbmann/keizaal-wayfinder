@@ -1,4 +1,5 @@
 import type { GuildMember, PartialGuildMember } from "discord.js";
+import { syncAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
 import { dmNewApprentice, retireDepartedRanger, syncMemberToRoster } from "../services/rangerService.js";
 
 export async function handleMemberJoin(member: GuildMember): Promise<void> {
@@ -10,6 +11,9 @@ export async function handleMemberUpdate(oldMember: GuildMember | PartialGuildMe
   void oldMember;
   await dmNewApprentice(newMember);
   await syncMemberToRoster(newMember);
+  await syncAtlasDiscordProfile(newMember).catch((error) => {
+    console.warn(`Could not refresh Atlas profile for ${newMember.id}:`, error);
+  });
 }
 
 export async function handleMemberRemove(member: GuildMember | PartialGuildMember): Promise<boolean> {

@@ -31,6 +31,7 @@ interface AtlasLinkCodeRpcResult {
 export type AtlasLinkCodeRpc = (args: {
   discord_user_id_input: string;
   discord_display_name_input: string;
+  discord_profile_input: Json;
 }) => Promise<AtlasLinkCodeRpcResult>;
 
 export interface AtlasAccessRequestCompletion {
@@ -55,12 +56,13 @@ export interface AtlasTrailmarkAccessDependencies {
 }
 
 export async function createAtlasDiscordLinkCode(
-  params: { discordUserId: string; discordDisplayName: string },
+  params: { discordUserId: string; discordDisplayName: string; discordProfile: Json },
   rpc: AtlasLinkCodeRpc = createAtlasLinkCodeRpc
 ): Promise<string> {
   const { data, error } = await rpc({
     discord_user_id_input: params.discordUserId,
-    discord_display_name_input: params.discordDisplayName
+    discord_display_name_input: params.discordDisplayName,
+    discord_profile_input: params.discordProfile
   });
   assertNoDbError(error, "create Atlas Discord link code");
   if (!data?.trim()) {
@@ -174,6 +176,7 @@ export async function processAtlasTrailmarkAccessRequest(
 async function createAtlasLinkCodeRpc(args: {
   discord_user_id_input: string;
   discord_display_name_input: string;
+  discord_profile_input: Json;
 }): Promise<AtlasLinkCodeRpcResult> {
   return await supabase.rpc("create_atlas_discord_link_code", args);
 }

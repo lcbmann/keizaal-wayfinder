@@ -34,6 +34,7 @@ import {
 import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
 import { listDiscordRoleMedals } from "../services/atlasDiscordProfileService.js";
 import { emojiText } from "../utils/guildEmojis.js";
+import { env } from "../config/env.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -162,7 +163,7 @@ export const rangerCommand: BotCommand = {
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "info") {
-      if (interaction.channel?.type !== ChannelType.GuildText || interaction.channel.name.toLowerCase() !== "general") {
+      if (interaction.channel?.type !== ChannelType.GuildText || interaction.channel.id !== env.GENERAL_CHANNEL_ID) {
         throw new UserFacingError("/ranger info can only be used in #general.");
       }
 

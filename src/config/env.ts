@@ -33,6 +33,7 @@ const envSchema = z.object({
 
   DEFAULT_TRAILMARK_ACCESS_MINUTES: z.coerce.number().int().positive().default(30),
   PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER: z.coerce.number().int().nonnegative().default(7),
+  GENERAL_CHANNEL_ID: z.string().min(1).default("1510362617410097262"),
   INVITE_CHANNEL_ID: optionalId,
   CORPS_FUNDS_CHANNEL_ID: optionalId,
   NOTICE_BOARD_CHANNEL_ID: optionalId,

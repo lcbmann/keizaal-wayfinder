@@ -21,11 +21,11 @@ export const rosterCommand: BotCommand = {
       throw new UserFacingError("Ranger Marshal or higher is required to export the roster.");
     }
 
-    const csv = await exportRosterCsv();
-    await interaction.reply({
-      content: "Roster export generated.",
-      files: [csvAttachment(csv)],
-      ephemeral: true
+    await interaction.deferReply({ ephemeral: true });
+    const csv = await exportRosterCsv(interaction.guild);
+    await interaction.editReply({
+      content: "Full roster export generated.",
+      files: [csvAttachment(csv, "ranger-roster-full.csv")]
     });
   }
 };

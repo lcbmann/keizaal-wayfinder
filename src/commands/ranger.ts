@@ -203,7 +203,10 @@ export const rangerCommand: BotCommand = {
             : -1
         };
       });
-      const medals = [...roleMedals, ...awardedMedals]
+      const ranksAndRoles = roleMedals
+        .sort((a, b) => b.rolePosition - a.rolePosition || a.text.localeCompare(b.text))
+        .map((entry) => entry.text);
+      const corpsMedals = awardedMedals
         .sort((a, b) => b.rolePosition - a.rolePosition || a.text.localeCompare(b.text))
         .map((entry) => entry.text);
       const avatarUrl = member?.displayAvatarURL({ extension: "png", size: 256 }) ?? user.displayAvatarURL({ extension: "png", size: 256 });
@@ -212,7 +215,8 @@ export const rangerCommand: BotCommand = {
           discordUserId: ranger.discord_user_id,
           ranger,
           duties,
-          medals,
+          ranksAndRoles,
+          corpsMedals,
           stats,
           avatarUrl,
           displayName: member?.displayName ?? ranger.discord_display_name ?? ranger.discord_username ?? "Ranger",
@@ -475,7 +479,8 @@ function rangerEmbed(params: {
   discordUserId: string;
   ranger: Awaited<ReturnType<typeof getRangerByDiscordId>>;
   duties?: string[];
-  medals?: string[];
+  ranksAndRoles?: string[];
+  corpsMedals?: string[];
   stats?: Awaited<ReturnType<typeof getRangerProfileStats>>;
   avatarUrl?: string;
   displayName: string;
@@ -486,7 +491,8 @@ function rangerEmbed(params: {
     discordUserId,
     ranger,
     duties = [],
-    medals = [],
+    ranksAndRoles = [],
+    corpsMedals = [],
     stats = { rosterNumber: 0, rosterTotal: 0, reportCount: 0 },
     avatarUrl,
     displayName,
@@ -510,7 +516,8 @@ function rangerEmbed(params: {
       { name: "Corps Standing", value: `Ranger #${stats.rosterNumber} of ${stats.rosterTotal}`, inline: true },
       { name: "Reports Filed", value: String(stats.reportCount), inline: true },
       { name: "Last Activity", value: ranger.last_discord_activity_at ? `<t:${Math.floor(new Date(ranger.last_discord_activity_at).getTime() / 1000)}:R>` : "Unknown", inline: true },
-      { name: "Medals", value: medals.join("\n") || "None", inline: false },
+      { name: "Ranks & Roles", value: embedListValue(ranksAndRoles, "No recorded rank roles"), inline: true },
+      { name: "Corps Medals", value: embedListValue(corpsMedals, "None awarded"), inline: true },
       { name: "Corps Duties", value: duties.join("\n") || "None", inline: false },
       { name: "Notes", value: ranger.notes?.slice(0, 1024) || "None" }
     )
@@ -521,6 +528,11 @@ function rangerEmbed(params: {
   }
 
   return embed;
+}
+
+function embedListValue(entries: string[], emptyValue: string): string {
+  const value = entries.join("\n") || emptyValue;
+  return value.length <= 1024 ? value : `${value.slice(0, 1021)}...`;
 }
 
 function rangerTitle(rank: string): string {
@@ -536,8 +548,8 @@ function rangerTitle(rank: string): string {
   }
 }
 
-export function csvAttachment(csv: string): AttachmentBuilder {
-  return new AttachmentBuilder(Buffer.from(csv, "utf8"), { name: "ranger-roster.csv" });
+export function csvAttachment(csv: string, name = "ranger-roster.csv"): AttachmentBuilder {
+  return new AttachmentBuilder(Buffer.from(`\uFEFF${csv}`, "utf8"), { name });
 }
 
 function rosterAuditEmbed(members: GuildMember[], rangers: RangerRow[]): EmbedBuilder {

@@ -42,6 +42,9 @@ export function listDiscordRoleMedals(member: GuildMember): DiscordRoleMedal[] {
 
 export function buildAtlasDiscordProfile(member: GuildMember): Json {
   const rank = mainRankFromMember(member);
+  const rankBadges = Object.entries(rankBadgeIds)
+    .filter(([roleName]) => roleName !== rank && member.roles.cache.some((role) => role.name === roleName))
+    .map(([label, id]) => ({ id, label }));
   const medals = [...medalRoleIds.entries()]
     .filter(([roleName]) => member.roles.cache.some((role) => role.name === roleName))
     .map(([label, { id }]) => ({ id, label }));
@@ -49,7 +52,7 @@ export function buildAtlasDiscordProfile(member: GuildMember): Json {
   return {
     version: 1,
     primary_badge: rank ? { id: rankBadgeIds[rank], label: rank } : null,
-    medals
+    medals: [...rankBadges, ...medals]
   };
 }
 

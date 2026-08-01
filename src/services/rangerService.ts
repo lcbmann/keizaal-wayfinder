@@ -202,6 +202,48 @@ export async function listAllRangers(): Promise<RangerRow[]> {
   return data ?? [];
 }
 
+export interface RangerProfileStats {
+  rosterNumber: number;
+  rosterTotal: number;
+  reportCount: number;
+}
+
+export async function getRangerProfileStats(ranger: RangerRow): Promise<RangerProfileStats> {
+  const [rosterResult, intelReportsResult, allianceReportsResult] = await Promise.all([
+    supabase
+      .from("rangers")
+      .select("id, join_date, created_at")
+      .order("join_date", { ascending: true })
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("intel_reports")
+      .select("discord_message_id")
+      .eq("author_discord_user_id", ranger.discord_user_id)
+      .is("source_alliance_report_id", null),
+    supabase
+      .from("alliance_reports")
+      .select("discord_message_id")
+      .eq("author_discord_user_id", ranger.discord_user_id)
+  ]);
+
+  assertNoDbError(rosterResult.error, "get Ranger profile roster position");
+  assertNoDbError(intelReportsResult.error, "count Ranger Intel reports");
+  assertNoDbError(allianceReportsResult.error, "count Ranger Alliance reports");
+
+  const rosterRows = rosterResult.data ?? [];
+  const rosterIndex = rosterRows.findIndex((row) => row.id === ranger.id);
+  const reportMessageIds = new Set([
+    ...(intelReportsResult.data ?? []).map((report) => report.discord_message_id),
+    ...(allianceReportsResult.data ?? []).map((report) => report.discord_message_id)
+  ]);
+
+  return {
+    rosterNumber: rosterIndex >= 0 ? rosterIndex + 1 : rosterRows.length,
+    rosterTotal: rosterRows.length,
+    reportCount: reportMessageIds.size
+  };
+}
+
 export async function updateRangerNotes(discordUserId: string, note: string, append: boolean): Promise<RangerRow> {
   const existing = await requireRangerByDiscordId(discordUserId);
   const notes = append && existing.notes ? `${existing.notes}\n${note}` : note;

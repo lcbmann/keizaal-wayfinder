@@ -12,6 +12,7 @@ import { daysBetween } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
 import {
   getRangerByDiscordId,
+  getRangerProfileStats,
   listAllRangers,
   listRangersWithAssignedHolds,
   promoteRanger,
@@ -33,7 +34,7 @@ import {
 } from "../services/dutyService.js";
 import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
 import { listDiscordRoleMedals } from "../services/atlasDiscordProfileService.js";
-import { emojiText } from "../utils/guildEmojis.js";
+import { emojiText, rankEmojiName } from "../utils/guildEmojis.js";
 import { env } from "../config/env.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
@@ -174,14 +175,25 @@ export const rangerCommand: BotCommand = {
         return;
       }
 
+      await interaction.deferReply();
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-      const duties = (await listActiveDutyAssignments())
+      const [dutyEntries, stats] = await Promise.all([listActiveDutyAssignments(), getRangerProfileStats(ranger)]);
+      const duties = dutyEntries
         .filter((entry) => entry.ranger.id === ranger.id)
         .map((entry) => `${entry.duty.name}${entry.assignment.assignment_detail ? ` (${entry.assignment.assignment_detail})` : ""}`);
-      const medals = member
+      const rankMedals = member
+        ? MAIN_RANKS
+            .filter((rank) => member.roles.cache.has(roleIdForRank(rank)))
+            .map((rank) => {
+              const emojiName = rankEmojiName(rank);
+              return emojiName ? emojiText(interaction.guild, emojiName, rank) : rank;
+            })
+        : [];
+      const roleMedals = member
         ? listDiscordRoleMedals(member).map(({ label, emojiName }) => emojiText(interaction.guild, emojiName, label))
         : [];
-      await interaction.reply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties, medals)] });
+      const avatarUrl = member?.displayAvatarURL({ extension: "png", size: 256 }) ?? user.displayAvatarURL({ extension: "png", size: 256 });
+      await interaction.editReply({ embeds: [rangerEmbed(ranger.discord_user_id, ranger, duties, [...rankMedals, ...roleMedals], stats, avatarUrl)] });
       return;
     }
 
@@ -437,13 +449,15 @@ function rangerEmbed(
   discordUserId: string,
   ranger: Awaited<ReturnType<typeof getRangerByDiscordId>>,
   duties: string[] = [],
-  medals: string[] = []
+  medals: string[] = [],
+  stats: Awaited<ReturnType<typeof getRangerProfileStats>> = { rosterNumber: 0, rosterTotal: 0, reportCount: 0 },
+  avatarUrl?: string
 ): EmbedBuilder {
   if (!ranger) {
     throw new UserFacingError("No roster entry found.");
   }
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setTitle(ranger.discord_display_name ?? ranger.discord_username ?? "Ranger")
     .setDescription(`<@${discordUserId}>`)
     .addFields(
@@ -452,11 +466,20 @@ function rangerEmbed(
       { name: "Join Date", value: `${ranger.join_date} (${daysBetween(ranger.join_date)} days)`, inline: true },
       { name: "Assigned Hold", value: ranger.assigned_hold ?? "Unassigned", inline: true },
       { name: "In-Game Name", value: ranger.in_game_name ?? "Unknown", inline: true },
+      { name: "Corps Standing", value: `Ranger #${stats.rosterNumber} of ${stats.rosterTotal}`, inline: true },
+      { name: "Reports Filed", value: String(stats.reportCount), inline: true },
+      { name: "Last Activity", value: ranger.last_discord_activity_at ? `<t:${Math.floor(new Date(ranger.last_discord_activity_at).getTime() / 1000)}:R>` : "Unknown", inline: true },
       { name: "Medals", value: medals.join("\n") || "None", inline: false },
       { name: "Corps Duties", value: duties.join("\n") || "None", inline: false },
       { name: "Notes", value: ranger.notes?.slice(0, 1024) || "None" }
     )
     .setColor(0x587c4a);
+
+  if (avatarUrl) {
+    embed.setThumbnail(avatarUrl);
+  }
+
+  return embed;
 }
 
 export function csvAttachment(csv: string): AttachmentBuilder {

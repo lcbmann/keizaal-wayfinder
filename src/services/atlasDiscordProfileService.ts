@@ -32,6 +32,7 @@ const medalRoleIds = new Map([
 ]) satisfies ReadonlyMap<string, { id: string; emojiName: WayfinderEmojiName }>;
 
 export type DiscordRoleMedal = {
+  badgeId: string;
   label: string;
   emojiName: WayfinderEmojiName;
   roleName: string;
@@ -43,12 +44,12 @@ export function listDiscordRoleMedals(member: GuildMember): DiscordRoleMedal[] {
     const role = member.roles.cache.get(roleIdForRank(rank));
     const emojiName = rankEmojiName(rank);
     return role && emojiName
-      ? [{ label: rank, emojiName, roleName: role.name, rolePosition: role.position }]
+      ? [{ badgeId: rankBadgeIds[rank], label: rank, emojiName, roleName: role.name, rolePosition: role.position }]
       : [];
   });
-  const additionalMedals = [...medalRoleIds.entries()].flatMap(([label, { emojiName }]) => {
+  const additionalMedals = [...medalRoleIds.entries()].flatMap(([label, { id, emojiName }]) => {
     const role = member.roles.cache.find((candidate) => candidate.name === label);
-    return role ? [{ label, emojiName, roleName: role.name, rolePosition: role.position }] : [];
+    return role ? [{ badgeId: id, label, emojiName, roleName: role.name, rolePosition: role.position }] : [];
   });
 
   return [...rankMedals, ...additionalMedals]
@@ -62,17 +63,15 @@ export function highestCorpsTitle(member: GuildMember): string | null {
 
 export function buildAtlasDiscordProfile(member: GuildMember): Json {
   const rank = mainRankFromMember(member);
-  const rankBadges = Object.entries(rankBadgeIds)
-    .filter(([roleName]) => roleName !== rank && member.roles.cache.some((role) => role.name === roleName))
-    .map(([label, id]) => ({ id, label }));
-  const medals = [...medalRoleIds.entries()]
-    .filter(([roleName]) => member.roles.cache.some((role) => role.name === roleName))
-    .map(([label, { id }]) => ({ id, label }));
+  const primaryBadge = rank ? { id: rankBadgeIds[rank], label: rank } : null;
+  const medals = listDiscordRoleMedals(member)
+    .filter(({ badgeId }) => badgeId !== primaryBadge?.id)
+    .map(({ badgeId: id, label }) => ({ id, label }));
 
   return {
     version: 1,
-    primary_badge: rank ? { id: rankBadgeIds[rank], label: rank } : null,
-    medals: [...rankBadges, ...medals]
+    primary_badge: primaryBadge,
+    medals
   };
 }
 

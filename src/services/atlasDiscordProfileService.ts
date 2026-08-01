@@ -69,7 +69,7 @@ function listDiscordAwardMedals(member: GuildMember): AtlasMedal[] {
     .map((role) => {
       const label = role.name.slice("Medal: ".length).trim();
       return {
-        id: `medal-${slugify(label)}`,
+        id: `medal-${slugify(label.replace(/['\u2019]/gu, ""))}`,
         label,
         rolePosition: role.position
       };
@@ -118,8 +118,12 @@ export async function syncGuildAtlasDiscordProfiles(guild: Guild): Promise<{ mem
     if (member.user.bot || !mainRankFromMember(member)) {
       continue;
     }
-    linkedProfiles += await syncAtlasDiscordProfile(member);
     syncedMembers += 1;
+    try {
+      linkedProfiles += await syncAtlasDiscordProfile(member);
+    } catch (error) {
+      console.warn(`Could not refresh linked Atlas profile for ${member.id}:`, error);
+    }
   }
   return { members: syncedMembers, links: linkedProfiles };
 }

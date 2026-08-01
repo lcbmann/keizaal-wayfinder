@@ -1,9 +1,10 @@
-import type { GuildMember } from "discord.js";
+import type { Guild, GuildMember } from "discord.js";
 import { assertNoDbError, supabase, type Json } from "../db/supabase.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import { MAIN_RANKS } from "../config/ranks.js";
 import { roleIdForRank } from "../config/roles.js";
 import { rankEmojiName, type WayfinderEmojiName } from "../utils/guildEmojis.js";
+import { slugify } from "../utils/slugs.js";
 
 const rankBadgeIds = {
   "Ranger Commander": "ranger-commander",
@@ -56,6 +57,26 @@ export function listDiscordRoleMedals(member: GuildMember): DiscordRoleMedal[] {
     .sort((a, b) => b.rolePosition - a.rolePosition || a.label.localeCompare(b.label));
 }
 
+type AtlasMedal = {
+  id: string;
+  label: string;
+  rolePosition: number;
+};
+
+function listDiscordAwardMedals(member: GuildMember): AtlasMedal[] {
+  return member.roles.cache
+    .filter((role) => role.name.startsWith("Medal: "))
+    .map((role) => {
+      const label = role.name.slice("Medal: ".length).trim();
+      return {
+        id: `medal-${slugify(label)}`,
+        label,
+        rolePosition: role.position
+      };
+    })
+    .filter(({ label }) => Boolean(label));
+}
+
 export function highestCorpsTitle(member: GuildMember): string | null {
   const badge = listDiscordRoleMedals(member).find(({ roleName }) => titleRoleNames.has(roleName));
   return badge ? displayTitle(badge.label) : null;
@@ -64,9 +85,13 @@ export function highestCorpsTitle(member: GuildMember): string | null {
 export function buildAtlasDiscordProfile(member: GuildMember): Json {
   const rank = mainRankFromMember(member);
   const primaryBadge = rank ? { id: rankBadgeIds[rank], label: rank } : null;
-  const medals = listDiscordRoleMedals(member)
-    .filter(({ badgeId }) => badgeId !== primaryBadge?.id)
-    .map(({ badgeId: id, label }) => ({ id, label }));
+  const medals = [
+    ...listDiscordRoleMedals(member).map(({ badgeId: id, label, rolePosition }) => ({ id, label, rolePosition })),
+    ...listDiscordAwardMedals(member)
+  ]
+    .sort((a, b) => b.rolePosition - a.rolePosition || a.label.localeCompare(b.label))
+    .filter(({ id }, index, all) => id !== primaryBadge?.id && all.findIndex((candidate) => candidate.id === id) === index)
+    .map(({ id, label }) => ({ id, label }));
 
   return {
     version: 1,
@@ -83,6 +108,20 @@ export async function syncAtlasDiscordProfile(member: GuildMember): Promise<numb
   });
   assertNoDbError(error, "update linked Atlas Discord profile");
   return typeof data === "number" ? data : 0;
+}
+
+export async function syncGuildAtlasDiscordProfiles(guild: Guild): Promise<{ members: number; links: number }> {
+  const members = await guild.members.fetch();
+  let syncedMembers = 0;
+  let linkedProfiles = 0;
+  for (const member of members.values()) {
+    if (member.user.bot || !mainRankFromMember(member)) {
+      continue;
+    }
+    linkedProfiles += await syncAtlasDiscordProfile(member);
+    syncedMembers += 1;
+  }
+  return { members: syncedMembers, links: linkedProfiles };
 }
 
 const titleRoleNames = new Set([

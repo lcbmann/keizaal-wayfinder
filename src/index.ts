@@ -49,6 +49,7 @@ import { handleStrongboxDropMessage, refreshStrongboxDropInstructions } from "./
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import { setupMedals } from "./services/medalService.js";
+import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
 import {
   backfillFieldNameContestVetoNotices,
   cleanupResolvedFieldNameContestMessages,
@@ -108,10 +109,12 @@ client.once("ready", (readyClient) => {
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
     void setupMedals(corpsGuild, "system")
-      .then(({ medals, mentors, apprentices }) => {
+      .then(async ({ medals, mentors, apprentices }) => {
         console.log(
           `Synchronized ${medals} Corps medal${medals === 1 ? "" : "s"}, ${mentors} mentor${mentors === 1 ? "" : "s"}, and ${apprentices} apprentice${apprentices === 1 ? "" : "s"}.`
         );
+        const profiles = await syncGuildAtlasDiscordProfiles(corpsGuild);
+        console.log(`Refreshed ${profiles.links} linked Atlas profile${profiles.links === 1 ? "" : "s"} across ${profiles.members} Corps members.`);
       })
       .catch((error) => console.warn("Failed to synchronize Corps medals:", error));
     void syncApprenticeshipPreferenceNotices(corpsGuild)

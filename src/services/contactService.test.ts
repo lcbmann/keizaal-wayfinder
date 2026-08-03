@@ -49,7 +49,7 @@ test("assigns region, occupation, and high-priority Forum tags", () => {
   }), ["Cross-Skyrim", "Other Occupation"]);
 });
 
-test("keeps a contact record intact when a non-Ranger clicks an assessment button", async () => {
+test("keeps a contact record intact when a non-Apprentice clicks an assessment button", async () => {
   const replies: Array<{ content: string; ephemeral: boolean }> = [];
   let deferred = false;
   let edited = false;
@@ -78,7 +78,7 @@ test("keeps a contact record intact when a non-Ranger clicks an assessment butto
 
   await handleContactButton(interaction);
 
-  assert.deepEqual(replies, [{ content: "Ranger or higher is required for contact records.", ephemeral: true }]);
+  assert.deepEqual(replies, [{ content: "Apprentice or higher is required for contact records.", ephemeral: true }]);
   assert.equal(deferred, false);
   assert.equal(edited, false);
 });

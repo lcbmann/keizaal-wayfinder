@@ -318,9 +318,9 @@ Marshal+ can use `/duty assign` and `/duty remove` for direct administration, `/
 
 ## Ranger Contacts
 
-Apply `src/db/migrations/026_create_contacts.sql`, redeploy slash commands, and run `/contact setup` once as a Marshal. The command creates or repairs a Ranger-only `contacts` Forum. An optional category can be supplied when setting it up. Rangers can read the Forum and discuss entries in their threads; Wayfinder maintains each opening contact card.
+Apply `src/db/migrations/026_create_contacts.sql`, redeploy slash commands, and run `/contact setup` once as a Marshal. The command creates or repairs an Apprentice+ `contacts` Forum. An optional category can be supplied when setting it up. Apprentices can read the Forum and discuss entries in their threads; full Rangers can assess and maintain entries while Wayfinder maintains each opening contact card.
 
-Ranger or higher can use `/contact create` from any accessible channel. The command records the contact's name, race, sex, occupation, faction, Hold or region, usual locations, commentary, and an optional **High Priority** flag. Wayfinder creates one Forum post, assigns region and occupation tags, and adds the High Priority tag for important contacts such as Hold leaders or senior officials.
+Apprentice or higher can use `/contact create`, `/contact edit`, and `/contact list` from any accessible channel, and can use the assessment buttons on contact cards. The command records the contact's name, race, sex, occupation, faction, Hold or region, usual locations, commentary, and an optional **High Priority** flag. Wayfinder creates one Forum post, assigns region and occupation tags, and adds the High Priority tag for important contacts such as Hold leaders or senior officials.
 
 Full Rangers can use the buttons on each contact card to record **Still good**, **Cold**, **Not found**, **MIA**, or **Propose archive**. Each Ranger has one current assessment per contact and can change it later. The card always shows the current rating, assessment totals, and last confirmation. Archive proposals do not delete anything; Marshal+ uses `/contact archive` to close an entry while preserving its history. `/contact edit` updates the same Forum post, and `/contact list` provides simple Hold, occupation, and High Priority filters.
 

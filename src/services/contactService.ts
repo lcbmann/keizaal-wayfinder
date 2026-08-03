@@ -21,7 +21,7 @@ import {
 import { getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
 import { emojiEmbed } from "../utils/guildEmojis.js";
 import { UserFacingError } from "../utils/errors.js";
-import { memberRankAtLeast } from "../utils/permissions.js";
+import { canUseTrailmarks, memberRankAtLeast } from "../utils/permissions.js";
 
 const CONTACT_FORUM_STATE_KEY = "ranger-contacts-forum";
 const CONTACT_FORUM_NAME = "contacts";
@@ -342,9 +342,9 @@ export async function handleContactButton(interaction: ButtonInteraction): Promi
   }
 
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  if (!memberRankAtLeast(member, "Ranger")) {
+  if (!canUseTrailmarks(member)) {
     await interaction.reply({
-      content: "Ranger or higher is required for contact records.",
+      content: "Apprentice or higher is required for contact records.",
       ephemeral: true
     });
     return;
@@ -517,7 +517,7 @@ async function applyContactForumPermissions(forum: ForumChannel): Promise<void> 
     SendMessagesInThreads: false
   }, { reason: "Restrict Ranger contact records" });
 
-  const rankRoleNames = ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"] as const;
+  const rankRoleNames = ["Apprentice", "Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"] as const;
   for (const rank of rankRoleNames) {
     const roleId = roleIdForRank(rank);
     await forum.permissionOverwrites.edit(roleId, {

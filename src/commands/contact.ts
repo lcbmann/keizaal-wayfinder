@@ -7,7 +7,7 @@ import {
   listContacts,
   setupContactsForum
 } from "../services/contactService.js";
-import { memberRankAtLeast } from "../utils/permissions.js";
+import { canUseTrailmarks, memberRankAtLeast } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
 
@@ -26,7 +26,7 @@ export const contactCommand: BotCommand = {
         .addChannelTypes(ChannelType.GuildCategory)))
     .addSubcommand((subcommand) => subcommand
       .setName("create")
-      .setDescription("Ranger+: create a structured contact record.")
+      .setDescription("Apprentice+: create a structured contact record.")
       .addStringOption((option) => option.setName("name").setDescription("The contact's name.").setRequired(true).setMaxLength(100))
       .addStringOption((option) => option.setName("race").setDescription("The contact's race.").setRequired(true).setMaxLength(100))
       .addStringOption((option) => option.setName("sex").setDescription("The contact's sex.").setRequired(true).setMaxLength(100))
@@ -90,9 +90,8 @@ export const contactCommand: BotCommand = {
       return;
     }
 
-    requireRanger(actor);
-
     if (subcommand === "create") {
+      requireContactCreator(actor);
       await interaction.deferReply({ ephemeral: true });
       const created = await createContact({
         guild: interaction.guild,
@@ -110,6 +109,8 @@ export const contactCommand: BotCommand = {
       await interaction.editReply({ content: `Contact created: ${created.thread}.` });
       return;
     }
+
+    requireContactMember(actor);
 
     if (subcommand === "edit") {
       await interaction.deferReply({ ephemeral: true });
@@ -154,9 +155,15 @@ export const contactCommand: BotCommand = {
   }
 };
 
-function requireRanger(member: GuildMember): void {
-  if (!memberRankAtLeast(member, "Ranger")) {
-    throw new UserFacingError("Ranger or higher is required for contact records.");
+function requireContactMember(member: GuildMember): void {
+  if (!canUseTrailmarks(member)) {
+    throw new UserFacingError("Apprentice or higher is required for contact records.");
+  }
+}
+
+function requireContactCreator(member: GuildMember): void {
+  if (!canUseTrailmarks(member)) {
+    throw new UserFacingError("Apprentice or higher is required to create contact records.");
   }
 }
 

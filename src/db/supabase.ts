@@ -29,6 +29,7 @@ export interface RangerRow {
   promotion_progress: PromotionProgress;
   promotion_progress_started_at: string | null;
   join_date: string;
+  joined_at: string | null;
   last_promotion_date: string | null;
   assigned_hold: string | null;
   notes: string | null;
@@ -251,6 +252,7 @@ export interface HistoricalCorpsMemberRow {
   display_name: string;
   discord_username: string | null;
   join_date: string;
+  joined_at: string | null;
   source: string;
   created_at: string;
 }

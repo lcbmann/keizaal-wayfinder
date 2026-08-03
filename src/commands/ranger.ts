@@ -20,6 +20,7 @@ import {
   setRangerHold,
   setRangerStatus,
   syncAllRankedMembers,
+  syncCorpsJoinHistory,
   syncMemberToRoster,
   updateRangerNotes
 } from "../services/rangerService.js";
@@ -70,6 +71,18 @@ export const rangerCommand: BotCommand = {
         .addUserOption((option) => option.setName("user").setDescription("Member to sync."))
     )
     .addSubcommand((subcommand) => subcommand.setName("sync-all").setDescription("Sync all members with Ranger rank roles."))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("sync-join-history")
+        .setDescription("Marshal+: sync exact Corps entry times from a welcome channel.")
+        .addChannelOption((option) =>
+          option
+            .setName("channel")
+            .setDescription("Channel containing Discord member-join messages.")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(true)
+        )
+    )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("status")
@@ -292,6 +305,23 @@ export const rangerCommand: BotCommand = {
       const count = await syncAllRankedMembers(members.values() as Iterable<GuildMember>, interaction.user.id);
       await interaction.editReply({ content: `Synced ${count} ranked members.` });
       await refreshStoredAssignmentsBoard(interaction.guild);
+      return;
+    }
+
+    if (subcommand === "sync-join-history") {
+      requireMarshal(actor);
+      const channel = interaction.options.getChannel("channel", true);
+      if (channel.type !== ChannelType.GuildText) {
+        throw new UserFacingError("Choose a normal text channel containing Discord member-join messages.");
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      const result = await syncCorpsJoinHistory(channel);
+      await interaction.editReply({
+        content: `Scanned **${result.scannedMessages}** messages in ${channel}. ` +
+          `Matched **${result.matchedCurrentRangers}** current roster entries and **${result.matchedHistoricalMembers}** historical members. ` +
+          `Found **${result.unmatchedJoinMessages}** join messages that were not Corps roster members.`
+      });
       return;
     }
 

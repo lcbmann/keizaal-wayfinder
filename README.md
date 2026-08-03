@@ -181,6 +181,7 @@ Implemented commands:
 - `/ranger inactive-review`
 - `/ranger sync-member`
 - `/ranger sync-all`
+- `/ranger sync-join-history`
 - `/ranger status`
 - `/ranger retire-left`
 - `/ranger clear-hold`

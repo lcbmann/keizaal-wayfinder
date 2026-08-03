@@ -1,4 +1,4 @@
-import type { GuildMember } from "discord.js";
+import { MessageType, type GuildMember, type TextChannel } from "discord.js";
 import { env } from "../config/env.js";
 import { isMainRank, type MainRank } from "../config/ranks.js";
 import { assertNoDbError, supabase, type RangerRow, type RangerStatus } from "../db/supabase.js";
@@ -53,6 +53,7 @@ export async function syncMemberToRoster(member: GuildMember, createdByDiscordUs
     current_rank: mainRank,
     status: existing?.status ?? "Active",
     join_date: joinDate,
+    joined_at: existing?.joined_at ?? member.joinedAt?.toISOString() ?? null,
     created_by_discord_user_id: existing?.created_by_discord_user_id ?? createdByDiscordUserId ?? null,
     updated_at: now
   } satisfies Partial<RangerRow>;
@@ -220,19 +221,127 @@ export interface RangerProfileStats {
   reportCount: number;
 }
 
+export interface CorpsJoinHistorySyncResult {
+  scannedMessages: number;
+  joinMessages: number;
+  matchedCurrentRangers: number;
+  matchedHistoricalMembers: number;
+  unmatchedJoinMessages: number;
+}
+
+type CorpsHistoryRow = {
+  id: string;
+  discord_username: string | null;
+  join_date: string;
+  joined_at: string | null;
+  created_at: string;
+  currentRangerId: string | null;
+};
+
+export function sortCorpsHistoryRows<T extends CorpsHistoryRow>(rows: T[]): T[] {
+  return [...rows].sort((left, right) =>
+    historyTimestamp(left).localeCompare(historyTimestamp(right))
+    || left.created_at.localeCompare(right.created_at)
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function historyTimestamp(row: Pick<CorpsHistoryRow, "join_date" | "joined_at">): string {
+  return row.joined_at ?? `${row.join_date}T00:00:00.000Z`;
+}
+
+export async function syncCorpsJoinHistory(channel: TextChannel): Promise<CorpsJoinHistorySyncResult> {
+  const [rangersResult, historicalResult] = await Promise.all([
+    supabase.from("rangers").select("id, discord_user_id, discord_username, joined_at"),
+    supabase.from("historical_corps_members").select("id, discord_username, joined_at")
+  ]);
+  assertNoDbError(rangersResult.error, "load Rangers for join-history sync");
+  assertNoDbError(historicalResult.error, "load historical members for join-history sync");
+
+  const currentByDiscordId = new Map((rangersResult.data ?? []).map((ranger) => [ranger.discord_user_id, ranger]));
+  const historicalByUsername = new Map((historicalResult.data ?? [])
+    .filter((member) => member.discord_username)
+    .map((member) => [member.discord_username!.toLowerCase(), member]));
+  const oldestJoinMessages = new Map<string, { discordUserId: string; username: string; joinedAt: string }>();
+  let scannedMessages = 0;
+  let before: string | undefined;
+
+  while (true) {
+    const messages = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+    if (!messages.size) {
+      break;
+    }
+
+    scannedMessages += messages.size;
+    for (const message of messages.values()) {
+      if (message.type !== MessageType.UserJoin || message.author.bot) {
+        continue;
+      }
+      const event = {
+        discordUserId: message.author.id,
+        username: message.author.username,
+        joinedAt: message.createdAt.toISOString()
+      };
+      const key = event.discordUserId || event.username.toLowerCase();
+      const existing = oldestJoinMessages.get(key);
+      if (!existing || event.joinedAt < existing.joinedAt) {
+        oldestJoinMessages.set(key, event);
+      }
+    }
+
+    if (messages.size < 100) {
+      break;
+    }
+    before = messages.lastKey();
+  }
+
+  let matchedCurrentRangers = 0;
+  let matchedHistoricalMembers = 0;
+  let unmatchedJoinMessages = 0;
+  for (const event of oldestJoinMessages.values()) {
+    const current = currentByDiscordId.get(event.discordUserId);
+    if (current) {
+      const { error } = await supabase
+        .from("rangers")
+        .update({ joined_at: event.joinedAt })
+        .eq("id", current.id);
+      assertNoDbError(error, "update Ranger join timestamp");
+      matchedCurrentRangers += 1;
+      continue;
+    }
+
+    const historical = historicalByUsername.get(event.username.toLowerCase());
+    if (historical) {
+      const { error } = await supabase
+        .from("historical_corps_members")
+        .update({ joined_at: event.joinedAt })
+        .eq("id", historical.id);
+      assertNoDbError(error, "update historical member join timestamp");
+      matchedHistoricalMembers += 1;
+      continue;
+    }
+
+    unmatchedJoinMessages += 1;
+  }
+
+  return {
+    scannedMessages,
+    joinMessages: oldestJoinMessages.size,
+    matchedCurrentRangers,
+    matchedHistoricalMembers,
+    unmatchedJoinMessages
+  };
+}
+
 export async function getRangerProfileStats(ranger: RangerRow): Promise<RangerProfileStats> {
   const [rosterResult, historicalResult, intelReportsResult, allianceReportsResult] = await Promise.all([
     supabase
       .from("rangers")
-      .select("id, discord_username, join_date, created_at")
-      .order("join_date", { ascending: true })
-      .order("created_at", { ascending: true })
+      .select("id, discord_username, join_date, joined_at, created_at")
       .order("id", { ascending: true }),
     supabase
       .from("historical_corps_members")
-      .select("id, discord_username, join_date, created_at")
-      .order("join_date", { ascending: true })
-      .order("created_at", { ascending: true })
+      .select("id, discord_username, join_date, joined_at, created_at")
       .order("id", { ascending: true }),
     supabase
       .from("intel_reports")
@@ -256,14 +365,10 @@ export async function getRangerProfileStats(ranger: RangerRow): Promise<RangerPr
     .filter((username): username is string => Boolean(username)));
   const historicalRows = (historicalResult.data ?? [])
     .filter((row) => !row.discord_username || !currentUsernames.has(row.discord_username.toLowerCase()));
-  const corpsHistory = [
+  const corpsHistory = sortCorpsHistoryRows([
     ...rosterRows.map((row) => ({ ...row, currentRangerId: row.id })),
     ...historicalRows.map((row) => ({ ...row, currentRangerId: null }))
-  ].sort((a, b) =>
-    a.join_date.localeCompare(b.join_date)
-    || a.created_at.localeCompare(b.created_at)
-    || a.id.localeCompare(b.id)
-  );
+  ]);
   const rosterIndex = corpsHistory.findIndex((row) => row.currentRangerId === ranger.id);
   const reportMessageIds = new Set([
     ...(intelReportsResult.data ?? []).map((report) => report.discord_message_id),

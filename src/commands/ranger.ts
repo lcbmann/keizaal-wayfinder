@@ -1,4 +1,4 @@
-import { AttachmentBuilder, ChannelType, EmbedBuilder, SlashCommandBuilder, type GuildMember } from "discord.js";
+import { AttachmentBuilder, ChannelType, EmbedBuilder, PermissionsBitField, SlashCommandBuilder, type GuildMember } from "discord.js";
 import { HOLDS } from "../config/holds.js";
 import { MAIN_RANKS, isMainRank, rankAtLeast } from "../config/ranks.js";
 import { roleIdForRank } from "../config/roles.js";
@@ -179,7 +179,8 @@ export const rangerCommand: BotCommand = {
     const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === "info") {
-      if (interaction.channel?.type !== ChannelType.GuildText || interaction.channel.id !== env.GENERAL_CHANNEL_ID) {
+      const canUseInfoAnywhere = actor.permissions.has(PermissionsBitField.Flags.Administrator) || canManageAll(actor);
+      if (!canUseInfoAnywhere && (interaction.channel?.type !== ChannelType.GuildText || interaction.channel.id !== env.GENERAL_CHANNEL_ID)) {
         throw new UserFacingError("/ranger info can only be used in #general.");
       }
 
@@ -200,7 +201,9 @@ export const rangerCommand: BotCommand = {
       ]);
       const duties = dutyEntries
         .filter((entry) => entry.ranger.id === ranger.id)
-        .map((entry) => `${entry.duty.name}${entry.assignment.assignment_detail ? ` (${entry.assignment.assignment_detail})` : ""}`);
+        .map((entry) => entry.duty.name === "Warden" && entry.assignment.assignment_detail
+          ? formatWardenDuty(entry.assignment.assignment_detail, ranger.assigned_hold)
+          : entry.duty.name);
       const roleMedals = member
         ? listDiscordRoleMedals(member).map(({ label, emojiName, rolePosition }) => ({
             text: emojiText(interaction.guild, emojiName, label),
@@ -563,6 +566,15 @@ function rangerEmbed(params: {
 function embedListValue(entries: string[], emptyValue: string): string {
   const value = entries.join("\n") || emptyValue;
   return value.length <= 1024 ? value : `${value.slice(0, 1021)}...`;
+}
+
+function formatWardenDuty(range: string, assignedHold: string | null): string {
+  const normalizedRange = range.trim();
+  if (/^(?:ranger|warden)\s+of\s+/iu.test(normalizedRange)) {
+    return normalizedRange;
+  }
+
+  return `${normalizedRange === assignedHold ? "Ranger" : "Warden"} of ${normalizedRange}`;
 }
 
 function rangerTitle(rank: string): string {

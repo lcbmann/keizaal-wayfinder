@@ -38,7 +38,7 @@ export const contactCommand: BotCommand = {
       .addBooleanOption((option) => option.setName("high_priority").setDescription("Mark important contacts such as leaders or high-ranking officials.")))
     .addSubcommand((subcommand) => subcommand
       .setName("edit")
-      .setDescription("Ranger+: edit a contact record.")
+      .setDescription("Apprentice+: edit a contact record.")
       .addStringOption((option) => option.setName("contact").setDescription("Contact to edit.").setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option.setName("name").setDescription("Replace the contact's name.").setMaxLength(100))
       .addStringOption((option) => option.setName("race").setDescription("Replace the contact's race.").setMaxLength(100))

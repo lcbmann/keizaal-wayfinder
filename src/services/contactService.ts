@@ -107,7 +107,7 @@ export async function createContact(params: {
   commentary?: string | null;
   highPriority: boolean;
 }): Promise<{ contact: RangerContactRow; thread: ThreadChannel }> {
-  requireRanger(params.creator);
+  requireContactMember(params.creator);
   const forum = await getContactsForum(params.guild);
   if (!forum) {
     throw new UserFacingError("The Contacts Forum has not been set up. Ask a Marshal to run `/contact setup` first.");
@@ -180,7 +180,7 @@ export async function editContact(params: {
   commentary?: string | null;
   highPriority?: boolean;
 }): Promise<ContactDetails> {
-  requireRanger(params.editor);
+  requireContactMember(params.editor);
   const current = await getContactDetails(params.contactId);
   if (!current || !current.contact.active) {
     throw new UserFacingError("That contact is not active.");
@@ -238,7 +238,7 @@ export async function recordContactAssessment(params: {
   assessment: ContactAssessment;
   note?: string | null;
 }): Promise<ContactDetails> {
-  requireRanger(params.voter);
+  requireContactMember(params.voter);
   const current = await getContactDetails(params.contactId);
   if (!current || !current.contact.active) {
     throw new UserFacingError("That contact is no longer active.");
@@ -614,9 +614,9 @@ function normalizeContactChanges(params: {
   return changes;
 }
 
-function requireRanger(member: GuildMember): void {
-  if (!memberRankAtLeast(member, "Ranger")) {
-    throw new UserFacingError("Ranger or higher is required for contact records.");
+function requireContactMember(member: GuildMember): void {
+  if (!canUseTrailmarks(member)) {
+    throw new UserFacingError("Apprentice or higher is required for contact records.");
   }
 }
 

@@ -437,6 +437,20 @@ export interface SupplyContributionRow {
   created_at: string;
 }
 
+export interface SupplyContributionRedistributionRow {
+  id: string;
+  operation_id: string;
+  assignment_id: string;
+  source_contribution_id: string;
+  source_member_discord_user_id: string;
+  allocations: Json;
+  distribution_method: "weighted" | "even";
+  source_cutoff: string;
+  reason: string | null;
+  created_by_discord_user_id: string;
+  created_at: string;
+}
+
 export interface AllianceIntelSettingsRow {
   id: boolean;
   alliance_guild_id: string;
@@ -821,6 +835,11 @@ export interface Database {
       supply_contributions: {
         Row: SupplyContributionRow;
         Insert: Omit<SupplyContributionRow, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: never;
+      };
+      supply_contribution_redistributions: {
+        Row: SupplyContributionRedistributionRow;
+        Insert: Omit<SupplyContributionRedistributionRow, "id" | "created_at"> & { id?: string; created_at?: string };
         Update: never;
       };
       alliance_intel_settings: {

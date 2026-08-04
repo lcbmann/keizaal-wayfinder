@@ -9,6 +9,7 @@ import {
   listSupplyAssignmentItems,
   listSupplyAssignments,
   logSupplyContributions,
+  redistributeSupplyContributions,
   refreshSupplyAssignmentBoard,
   setSupplyAssignmentStatus,
   supplyAssignmentEmbed,
@@ -62,6 +63,18 @@ const builder = new SlashCommandBuilder()
     .setDescription("Undo your latest contribution to an assignment.")
     .addStringOption(assignmentOption)
     .addUserOption((option) => option.setName("member").setDescription("Marshal+: undo another Ranger's latest entry.")))
+  .addSubcommand((subcommand) => subcommand
+    .setName("redistribute")
+    .setDescription("Redistribute one contributor's entries before a cutoff time.")
+    .addStringOption(assignmentOption)
+    .addStringOption((option) => option.setName("source_id").setDescription("Former contributor's Discord ID or mention.").setRequired(true).setMaxLength(30))
+    .addStringOption((option) => option.setName("before").setDescription("ISO cutoff; entries before it are moved.").setRequired(true).setMaxLength(40))
+    .addStringOption((option) => option
+      .setName("method")
+      .setDescription("How the credit is divided among other contributors.")
+      .setRequired(true)
+      .addChoices({ name: "Weighted by contribution", value: "weighted" }, { name: "Evenly", value: "even" }))
+    .addStringOption((option) => option.setName("reason").setDescription("Optional audit reason.").setMaxLength(500)))
   .addSubcommand((subcommand) => subcommand.setName("status").setDescription("View a supply assignment.").addStringOption(assignmentOption))
   .addSubcommand((subcommand) => subcommand.setName("contributors").setDescription("View contribution and payout totals.").addStringOption(assignmentOption))
   .addSubcommand((subcommand) => subcommand.setName("refresh").setDescription("Refresh an assignment board.").addStringOption(assignmentOption))
@@ -183,6 +196,25 @@ export const supplyCommand: BotCommand = {
             ? `You remove your latest delivery of ${undone.contribution.quantity.toLocaleString("en-US")} ${undone.item.item_name} from the assignment record.`
             : `Removed ${undone.contribution.quantity.toLocaleString("en-US")} ${undone.item.item_name} from ${target}'s contribution record.`
           : `No contribution from ${target} was found for that assignment.`
+      });
+      return;
+    }
+
+    if (subcommand === "redistribute") {
+      requireMarshal(actor);
+      await interaction.deferReply({ ephemeral: true });
+      const method = interaction.options.getString("method", true) as "weighted" | "even";
+      const result = await redistributeSupplyContributions({
+        guild: interaction.guild,
+        assignmentCode,
+        sourceMemberDiscordUserId: interaction.options.getString("source_id", true),
+        before: interaction.options.getString("before", true),
+        method,
+        reason: interaction.options.getString("reason")?.trim() || null,
+        redistributedByDiscordUserId: interaction.user.id
+      });
+      await interaction.editReply({
+        content: `Redistributed ${result.quantity.toLocaleString("en-US")} items from ${result.sourceContributions} contribution entries before **${result.cutoff}** to ${result.recipientCount} other contributors using **${method}** distribution. The assignment board was refreshed.`
       });
       return;
     }

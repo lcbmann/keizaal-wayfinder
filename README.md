@@ -215,6 +215,7 @@ Implemented commands:
 - `/supply create`
 - `/supply log`
 - `/supply undo-last`
+- `/supply redistribute`
 - `/supply status`
 - `/supply contributors`
 - `/supply refresh`
@@ -289,6 +290,8 @@ Supply assignments track multi-item collection contracts in an auto-updating Dis
 Ranger Marshal or higher can use `/supply create` in the text channel or assignments forum post where the board should remain. A job supports up to four item quotas, one client price per item, one Ranger payout rate per item, an organizer, and optional instructions. The board shows each quota, overall progress, contract value, expected Ranger payout, Corps margin, current amount owed, and contributor totals.
 
 Apprentice or higher can use `/supply log` to record their own deliveries. One command can include up to four different item and quantity pairs. Marshal+ can select another member when recording or undoing a delivery. Assignment and item fields use autocomplete. Multi-item logs are atomic: if any entry is invalid or exceeds its remaining quota, none of the entries are recorded. Completing every quota automatically marks the assignment Completed. `/supply undo-last` corrects the latest individual item entry and reopens an automatically completed job when necessary. Marshal+ can also refresh, close, reopen, or cancel a job manually.
+
+Marshal+ can use `/supply redistribute` when a character change means that earlier contributions should no longer be credited to the current Discord account. Provide the contributor's Discord ID, an ISO cutoff timestamp, and either weighted or even distribution. Only that account's contributions before the cutoff are moved, and each source entry can be redistributed only once. The original contribution rows remain preserved; the board and payout totals apply the audited redistribution while leaving collected quantities, quotas, and Corps profit unchanged.
 
 ## Trailmarks
 

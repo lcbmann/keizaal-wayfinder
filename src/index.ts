@@ -199,12 +199,52 @@ client.once("ready", (readyClient) => {
   }
 });
 
+client.on("shardReady", (shardId) => {
+  console.log(`Discord gateway shard ${shardId} is ready.`);
+});
+
+client.on("shardReconnecting", (shardId) => {
+  console.warn(`Discord gateway shard ${shardId} is reconnecting.`);
+});
+
+client.on("shardResume", (shardId, replayedEvents) => {
+  console.log(`Discord gateway shard ${shardId} resumed (${replayedEvents} events replayed).`);
+});
+
+client.on("shardDisconnect", (closeEvent, shardId) => {
+  console.warn(`Discord gateway shard ${shardId} disconnected (code ${closeEvent.code}).`);
+});
+
+client.on("error", (error) => {
+  console.error("Discord client error:", error);
+});
+
+client.on("warn", (warning) => {
+  console.warn("Discord client warning:", warning);
+});
+
+client.on("invalidated", () => {
+  console.error("Discord invalidated the bot session; the process must be restarted.");
+});
+
 client.on("interactionCreate", (interaction) => {
-  void handleInteraction(interaction).catch((error) => {
-    void handleInteractionError(interaction, error).catch((replyError) => {
-      console.error("Failed to report interaction error:", replyError);
+  const startedAt = Date.now();
+  if (interaction.isChatInputCommand()) {
+    console.log(`Received /${interaction.commandName} from ${interaction.user.id}.`);
+  }
+
+  void handleInteraction(interaction)
+    .catch((error) => {
+      void handleInteractionError(interaction, error).catch((replyError) => {
+        console.error("Failed to report interaction error:", replyError);
+      });
+    })
+    .finally(() => {
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs >= 2_000) {
+        console.warn(`Interaction ${interaction.id} took ${elapsedMs}ms to finish.`);
+      }
     });
-  });
 });
 
 client.on("guildMemberAdd", (member) => {

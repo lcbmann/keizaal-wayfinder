@@ -21,8 +21,8 @@ import { dutyEmojiName, emojiEmbed } from "../utils/guildEmojis.js";
 import { requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 
-export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Detective", "Courier", "Ambassador"] as const;
-const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Detective", "Ambassador"]);
+export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Agent", "Courier", "Ambassador"] as const;
+const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Agent", "Ambassador"]);
 
 export interface DutyApplicationDetails {
   application: DutyApplicationRow;
@@ -71,6 +71,9 @@ export async function setupDutyRoles(guild: Guild): Promise<CorpsDutyRow[]> {
       mentionable: false,
       reason: "Set up Wayfinder Corps duties"
     });
+    if (role.name !== duty.name) {
+      role = await role.setName(duty.name, `Keep the ${duty.name} duty role synchronized with Wayfinder`);
+    }
 
     const { data, error } = await supabase
       .from("corps_duties")

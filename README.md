@@ -54,6 +54,7 @@ Optional:
 - `RANGER_ALLIANCE_REPORTS_CATEGORY_ID`, optional legacy category to archive
 - `RANGER_ALLIANCE_INTAKE_CHANNEL_ID`, retained only for legacy deployments
 - `RANGER_ALLIANCE_ADMIN_CHANNEL_ID`
+- `RANGER_ALLIANCE_ROLE_ADMIN_ID`, the only role allowed to run `/alliance` management commands
 - `RANGER_ALLIANCE_ROLE_LEADERS_ID`
 - `RANGER_ALLIANCE_ROLE_UNDAUNTED_ID`
 - `RANGER_ALLIANCE_ROLE_NORTH_STAR_ID`
@@ -61,7 +62,8 @@ Optional:
 - `RANGER_ALLIANCE_PRIVATE_MARKER`, defaults to `[CORPS ONLY]`
 
 The bridge requires `CORPS_INTEL_CATEGORY_ID`, `RANGER_ALLIANCE_GUILD_ID`,
-`RANGER_ALLIANCE_ADMIN_CHANNEL_ID`, and `RANGER_ALLIANCE_ROLE_LEADERS_ID`.
+`RANGER_ALLIANCE_ADMIN_CHANNEL_ID`, `RANGER_ALLIANCE_ROLE_ADMIN_ID`, and
+`RANGER_ALLIANCE_ROLE_LEADERS_ID`.
 The old group-role and legacy-category values are retained for compatibility;
 new groups are configured from the Alliance server with `/alliance group-add`.
 
@@ -313,7 +315,7 @@ After deploying the threaded Strongbox update, run `/strongbox setup` once to ad
 
 ## Corps Duties
 
-Run migrations `012_create_duties_and_apprenticeships.sql` and `023_add_ambassador_duty.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Detective, Courier, and Ambassador roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Detective, and Ambassador are Ranger+ duties; Craftsman and Courier are available to Apprentices+. The Wayfinder bot role must remain above these roles.
+Run migrations `012_create_duties_and_apprenticeships.sql`, `023_add_ambassador_duty.sql`, and `033_rename_detective_to_agent.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Agent, Courier, and Ambassador roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Agent, and Ambassador are Ranger+ duties; Craftsman and Courier are available to Apprentices+. The Wayfinder bot role must remain above these roles.
 
 Apprentice or higher can run `/duty volunteer` in any accessible channel. The application appears as a review card in the Marshal-only Strongbox and receives its own discussion thread. Marshal+ approves or denies it using the card buttons. Approval records the assignment and grants the corresponding Discord role. Multiple active Quartermasters are supported. Warden applications and assignments require a free-text Range; this will later be replaced by the Atlas-backed Range model.
 
@@ -373,7 +375,7 @@ Automatic intel updates append newly delivered reports instead of rebuilding ent
 
 ## Ranger Alliance Intel Bridge
 
-The Ranger Alliance bridge uses separate information-delivery points rather than directly mirroring Corps intel. Run migrations `009_create_ranger_alliance_bridge.sql`, `010_create_alliance_headquarters.sql`, `020_dynamic_alliance_groups.sql`, and `021_add_alliance_intake_emoji.sql`, configure the required bridge values and `CORPS_INTEL_CATEGORY_ID`, deploy commands, then run `/alliance setup` in the configured Alliance admin channel as a member with the Leaders role.
+The Ranger Alliance bridge uses separate information-delivery points rather than directly mirroring Corps intel. Run migrations `009_create_ranger_alliance_bridge.sql`, `010_create_alliance_headquarters.sql`, `020_dynamic_alliance_groups.sql`, and `021_add_alliance_intake_emoji.sql`, configure the required bridge values and `CORPS_INTEL_CATEGORY_ID`, deploy commands, then run `/alliance setup` in the configured Alliance admin channel as a member with the dedicated Alliance admin role. The Leaders role is not sufficient to run Alliance management commands.
 
 `/alliance setup` and `/alliance sync` repair active records only. They do not backfill or repost historical reports. The migration deactivates the retired Undaunted group while preserving its records for history.
 
@@ -411,7 +413,7 @@ Approving a vote promotes the candidate through the same service used by `/range
 
 ## Assignment Board
 
-`/ranger assignments` posts six persistent Ranger Corps messages for Leadership, Quartermasters, Wardens, Ambassadors, Detectives, and Apprenticeships. The board includes every Ranger+ duty; Craftsman and Courier assignments are intentionally omitted. The Apprenticeship message shows active pairings and members looking for a mentor or Apprentice. Wayfinder remembers and replaces the set together after relevant roster, duty, or apprenticeship changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
+`/ranger assignments` posts six persistent Ranger Corps messages for Leadership, Quartermasters, Wardens, Ambassadors, Agents, and Apprenticeships. The board includes every Ranger+ duty; Craftsman and Courier assignments are intentionally omitted. The Apprenticeship message shows active pairings and members looking for a mentor or Apprentice. Wayfinder remembers and replaces the set together after relevant roster, duty, or apprenticeship changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
 
 ## Deployment
 

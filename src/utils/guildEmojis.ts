@@ -13,7 +13,7 @@ export type WayfinderEmojiName =
   | "courier"
   | "dawnguard"
   | "deceased"
-  | "detective"
+  | "agent"
   | "duty"
   | "funds"
   | "guest"
@@ -119,8 +119,8 @@ export function dutyEmojiName(dutyName: string): WayfinderEmojiName | null {
       return "craftsman";
     case "Warden":
       return "warden";
-    case "Detective":
-      return "detective";
+    case "Agent":
+      return "agent";
     case "Courier":
       return "courier";
     case "Ambassador":

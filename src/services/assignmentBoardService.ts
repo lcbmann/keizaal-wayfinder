@@ -19,7 +19,7 @@ const assignmentBoardTitleSuffixes = [
   "Ranger Corps Quartermasters",
   "Ranger Corps Wardens",
   "Ranger Corps Ambassadors",
-  "Ranger Corps Detectives",
+  "Ranger Corps Agents",
   "Ranger Corps Apprenticeships"
 ];
 const activeBoardRefreshes = new Map<string, Promise<Message[]>>();
@@ -86,8 +86,8 @@ function assignmentsEmbeds(
     .filter(({ duty }) => duty.name === "Quartermaster")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const wardens = dutyAssignments.filter(({ duty }) => duty.name === "Warden");
-  const detectives = dutyAssignments
-    .filter(({ duty }) => duty.name === "Detective")
+  const agents = dutyAssignments
+    .filter(({ duty }) => duty.name === "Agent")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const ambassadors = dutyAssignments
     .filter(({ duty }) => duty.name === "Ambassador")
@@ -142,13 +142,13 @@ function assignmentsEmbeds(
       : "None assigned."
   });
 
-  const detectivesEmbed = emojiEmbed(guild, "detective", "Ranger Corps Detectives")
+  const agentsEmbed = emojiEmbed(guild, "agent", "Ranger Corps Agents")
     .setDescription("Rangers tasked with investigations, gathering testimony, and preserving evidence.")
     .setColor(0x4f6d8a)
     .addFields({
-      name: "Active Detectives",
-      value: detectives.length
-        ? truncateField(detectives.map((details) => formatDutyAssignment(guild, details)).join("\n"))
+      name: "Active Agents",
+      value: agents.length
+        ? truncateField(agents.map((details) => formatDutyAssignment(guild, details)).join("\n"))
         : "None assigned."
     })
     .setTimestamp(new Date());
@@ -192,7 +192,7 @@ function assignmentsEmbeds(
     )
     .setTimestamp(new Date());
 
-  return [leadershipEmbed, quartermastersEmbed, wardensEmbed, ambassadorsEmbed, detectivesEmbed, apprenticeshipsEmbed];
+  return [leadershipEmbed, quartermastersEmbed, wardensEmbed, ambassadorsEmbed, agentsEmbed, apprenticeshipsEmbed];
 }
 
 function rankEmojiForBoard(rank: MainRank): "rangercommander" | "rangercaptain" | "rangermarshal" {

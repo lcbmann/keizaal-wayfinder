@@ -5,6 +5,7 @@ import {
   addAllianceGroup,
   getAllianceStatus,
   isAllianceGuildId,
+  isAllianceAdmin,
   isAllianceLeader,
   removeAllianceGroup,
   setAllianceGroupTopics,
@@ -68,8 +69,8 @@ export const allianceCommand: BotCommand = {
     }
 
     const member = await interaction.guild.members.fetch(interaction.user.id);
-    if (!isAllianceLeader(member)) {
-      throw new UserFacingError("The Ranger Alliance Leaders role is required.");
+    if (!isAllianceAdmin(member)) {
+      throw new UserFacingError("The Ranger Alliance admin role is required.");
     }
     if (interaction.channelId !== env.RANGER_ALLIANCE_ADMIN_CHANNEL_ID) {
       throw new UserFacingError(`Use this command in <#${env.RANGER_ALLIANCE_ADMIN_CHANNEL_ID}>.`);

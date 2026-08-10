@@ -73,6 +73,7 @@ export function allianceBridgeConfigured(): boolean {
     env.CORPS_INTEL_CATEGORY_ID,
     env.RANGER_ALLIANCE_GUILD_ID,
     env.RANGER_ALLIANCE_ADMIN_CHANNEL_ID,
+    env.RANGER_ALLIANCE_ROLE_ADMIN_ID,
     env.RANGER_ALLIANCE_ROLE_LEADERS_ID
   ].every(Boolean);
 }
@@ -83,6 +84,10 @@ export function isAllianceGuildId(guildId: string | null | undefined): boolean {
 
 export function isAllianceLeader(member: GuildMember): boolean {
   return Boolean(env.RANGER_ALLIANCE_ROLE_LEADERS_ID && member.roles.cache.has(env.RANGER_ALLIANCE_ROLE_LEADERS_ID));
+}
+
+export function isAllianceAdmin(member: GuildMember): boolean {
+  return Boolean(env.RANGER_ALLIANCE_ROLE_ADMIN_ID && member.roles.cache.has(env.RANGER_ALLIANCE_ROLE_ADMIN_ID));
 }
 
 export function isCorpsOnlyReport(content: string): boolean {
@@ -1520,6 +1525,7 @@ async function validateDiscordConfiguration(corpsGuild: Guild, allianceGuild: Gu
   }
   const roleIds = [...new Set([
     ...headquarters.map((hq) => hq.viewer_role_id),
+    env.RANGER_ALLIANCE_ROLE_ADMIN_ID,
     env.RANGER_ALLIANCE_ROLE_LEADERS_ID
   ])];
   for (const roleId of roleIds) {

@@ -65,7 +65,7 @@ const response = (id: string, label: string, required = true): ApplicationFormFi
 });
 
 const availability = response("availability", "Availability and current responsibilities");
-const loyalties = response("loyalties", "Other loyalties or responsibilities");
+const loyalties = response("loyalties", "Other loyalties/responsibilities, or none");
 
 const FORM_DEFINITIONS: Record<ApplicationTarget, ApplicationFormDefinition> = {
   Quartermaster: {
@@ -73,7 +73,7 @@ const FORM_DEFINITIONS: Record<ApplicationTarget, ApplicationFormDefinition> = {
     fields: [
       reason(),
       experience("Relevant logistical experience"),
-      response("plans", "How would you organize Corps supplies?"),
+      response("plans", "Would you change how supplies are organized?"),
       availability
     ]
   },

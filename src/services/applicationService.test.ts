@@ -28,7 +28,7 @@ test("leadership applications ask about loyalties and responsibilities", () => {
   for (const target of ["Ranger Marshal", "Ranger Captain"] as const) {
     const fields = applicationFormDefinition(target).fields;
     assert.equal(fields.length, 5);
-    assert.ok(fields.some((field) => field.label === "Other loyalties or responsibilities"));
+    assert.ok(fields.some((field) => field.label === "Other loyalties/responsibilities, or none"));
     assert.ok(fields.some((field) => field.label === "Availability and potential conflicts"));
   }
 });
@@ -46,7 +46,7 @@ test("Warden application forms collect the correct geography", () => {
 test("duty application forms use position-specific questions", () => {
   const quartermaster = applicationFormDefinition("Quartermaster").fields.map((field) => field.label);
   const agent = applicationFormDefinition("Agent").fields.map((field) => field.label);
-  assert.ok(quartermaster.includes("How would you organize Corps supplies?"));
+  assert.ok(quartermaster.includes("Would you change how supplies are organized?"));
   assert.ok(agent.includes("Approach to evidence and confidentiality"));
   assert.notDeepEqual(quartermaster, agent);
 });

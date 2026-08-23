@@ -216,7 +216,7 @@ export const promotionCommand: BotCommand = {
         throw new UserFacingError("Invalid target rank.");
       }
       if (rankValue === "Ranger Marshal" || rankValue === "Ranger Captain") {
-        throw new UserFacingError("Marshal and Captain votes are opened through `/application apply` in their private leadership channels.");
+        throw new UserFacingError("Marshal and Captain votes are opened after their `/application apply` submission is approved by the relevant leadership reviewers.");
       }
 
       const vote = await createPromotionVote({

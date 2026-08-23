@@ -14,16 +14,22 @@ import { emojiEmbed, emojiText, guildEmoji, rankEmojiName } from "../utils/guild
 
 const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
 const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
-const assignmentBoardTitleSuffixes = [
+const assignmentBoardTitles = new Set([
+  "Leadership",
+  "Quartermasters",
+  "Hold Wardens",
+  "Local Wardens",
+  "Ambassadors",
+  "Agents",
+  "Apprenticeships",
   "Ranger Corps Leadership",
   "Ranger Corps Quartermasters",
   "Rangers of the Holds",
-  "Local Wardens",
   "Ranger Corps Wardens",
   "Ranger Corps Ambassadors",
   "Ranger Corps Agents",
   "Ranger Corps Apprenticeships"
-];
+]);
 const activeBoardRefreshes = new Map<string, Promise<Message[]>>();
 
 export async function postAssignmentsBoard(channel: TextChannel): Promise<Message[]> {
@@ -96,7 +102,7 @@ function assignmentsEmbeds(
   const ambassadors = dutyAssignments
     .filter(({ duty }) => duty.name === "Ambassador")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  const leadershipEmbed = emojiEmbed(guild, "rangercommander", "Ranger Corps Leadership")
+  const leadershipEmbed = emojiEmbed(guild, "rangercommander", "Leadership")
     .setDescription("The Rangers presently entrusted with command of the Corps.")
     .setColor(0xb08d32)
     .setTimestamp(new Date());
@@ -109,7 +115,7 @@ function assignmentsEmbeds(
     });
   }
 
-  const holdRangersEmbed = emojiEmbed(guild, "warden", "Rangers of the Holds")
+  const holdRangersEmbed = emojiEmbed(guild, "warden", "Hold Wardens")
     .setDescription(
       "The primary Ranger representatives entrusted to know their Hold, coordinate its operations, and serve as the Corps' first point of contact there."
     )
@@ -123,7 +129,7 @@ function assignmentsEmbeds(
     .setColor(0x456b50)
     .setTimestamp(new Date());
 
-  const quartermastersEmbed = emojiEmbed(guild, "quartermaster", "Ranger Corps Quartermasters")
+  const quartermastersEmbed = emojiEmbed(guild, "quartermaster", "Quartermasters")
     .setDescription("Rangers entrusted with stores, supplies, and the material needs of the Corps.")
     .setColor(0x8b6f9e)
     .addFields({
@@ -166,7 +172,7 @@ function assignmentsEmbeds(
     localWardensEmbed.addFields({ name: "Current appointments", value: "None appointed." });
   }
 
-  const agentsEmbed = emojiEmbed(guild, "agent", "Ranger Corps Agents")
+  const agentsEmbed = emojiEmbed(guild, "agent", "Agents")
     .setDescription("Rangers tasked with investigations, gathering testimony, and preserving evidence.")
     .setColor(0x4f6d8a)
     .addFields({
@@ -177,7 +183,7 @@ function assignmentsEmbeds(
     })
     .setTimestamp(new Date());
 
-  const ambassadorsEmbed = emojiEmbed(guild, "ambassador", "Ranger Corps Ambassadors")
+  const ambassadorsEmbed = emojiEmbed(guild, "ambassador", "Ambassadors")
     .setDescription("Rangers entrusted with representing the Corps and maintaining relations with other groups.")
     .setColor(0x8b6f9e)
     .addFields({
@@ -191,7 +197,7 @@ function assignmentsEmbeds(
   const activeApprenticeships = apprenticeships.filter(({ apprenticeship }) => apprenticeship.status === "Active");
   const seekingMentors = apprenticeshipPreferences.filter((preference) => preference.seeking === "Mentor");
   const seekingApprentices = apprenticeshipPreferences.filter((preference) => preference.seeking === "Apprentice");
-  const apprenticeshipsEmbed = emojiEmbed(guild, "apprentice", "Ranger Corps Apprenticeships")
+  const apprenticeshipsEmbed = emojiEmbed(guild, "apprentice", "Apprenticeships")
     .setDescription("Rangers can mentor Apprentices and help prepare them for promotion. Use `/apprenticeship looking-for` to find a match.")
     .setColor(0x8b6f9e)
     .addFields(
@@ -314,5 +320,10 @@ async function deleteOrphanedAssignmentBoards(channel: TextChannel): Promise<voi
 }
 
 export function isAssignmentsBoardEmbedTitle(title: string | null): boolean {
-  return title !== null && assignmentBoardTitleSuffixes.some((suffix) => title.endsWith(suffix));
+  if (title === null) {
+    return false;
+  }
+  const separatorIndex = title.lastIndexOf(" - ");
+  const plainTitle = separatorIndex >= 0 ? title.slice(separatorIndex + 3) : title;
+  return assignmentBoardTitles.has(plainTitle);
 }

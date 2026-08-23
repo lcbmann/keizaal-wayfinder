@@ -52,6 +52,7 @@ import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import { setupMedals } from "./services/medalService.js";
 import { handleStructuredTrailmarkReportModal } from "./services/structuredTrailmarkReportService.js";
 import { handleCorpsApplicationModal, isCorpsApplicationModal } from "./services/applicationFormService.js";
+import { repairPendingLeadershipApplicationReviews } from "./services/applicationService.js";
 import { forwardDeliveredStructuredReports } from "./services/structuredReportForwardService.js";
 import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
 import {
@@ -155,7 +156,13 @@ client.once("ready", (readyClient) => {
       .catch((error) => console.warn("Failed to restore contact records or reconcile structured report links:", error));
     void refreshFieldNamesBulletin(corpsGuild)
       .catch((error) => console.warn("Failed to refresh Field Names bulletin:", error));
-    void refreshOpenPromotionVoteMessages(corpsGuild)
+    void repairPendingLeadershipApplicationReviews(corpsGuild)
+      .then(async (applicationsRepaired) => {
+        if (applicationsRepaired > 0) {
+          console.log(`Restored ${applicationsRepaired} leadership application${applicationsRepaired === 1 ? "" : "s"} to approval review.`);
+        }
+        return refreshOpenPromotionVoteMessages(corpsGuild);
+      })
       .then(({ refreshed, closedStale }) => {
         if (refreshed > 0) {
           console.log(`Refreshed ${refreshed} open promotion vote${refreshed === 1 ? "" : "s"}.`);
@@ -164,7 +171,7 @@ client.once("ready", (readyClient) => {
           console.log(`Removed ${closedStale} stale promotion vote${closedStale === 1 ? "" : "s"} for candidates who already hold the target rank.`);
         }
       })
-      .catch((error) => console.warn("Failed to refresh open promotion votes:", error));
+      .catch((error) => console.warn("Failed to restore leadership applications or refresh open promotion votes:", error));
     void refreshOpenFieldNameContestMessages(corpsGuild)
       .then((refreshed) => {
         if (refreshed > 0) {

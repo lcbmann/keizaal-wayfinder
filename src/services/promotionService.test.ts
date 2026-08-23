@@ -12,8 +12,9 @@ test("keeps genuine upward promotion votes open", () => {
   assert.equal(candidateAlreadyHoldsPromotionTarget("Ranger", "Ranger Marshal"), false);
 });
 
-test("leadership votes are restricted to their own leadership tier", () => {
+test("Ranger through Captain promotion votes are open to Ranger+", () => {
   assert.equal(minimumVoterRankForTarget("Ranger"), "Ranger");
-  assert.equal(minimumVoterRankForTarget("Ranger Marshal"), "Ranger Marshal");
-  assert.equal(minimumVoterRankForTarget("Ranger Captain"), "Ranger Captain");
+  assert.equal(minimumVoterRankForTarget("Ranger Marshal"), "Ranger");
+  assert.equal(minimumVoterRankForTarget("Ranger Captain"), "Ranger");
+  assert.equal(minimumVoterRankForTarget("Ranger Commander"), "Ranger Captain");
 });

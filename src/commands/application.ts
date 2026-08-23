@@ -37,15 +37,15 @@ export const applicationCommand: BotCommand = {
       .setDescription("Marshal+: list pending Corps applications you can review."))
     .addSubcommand((subcommand) => subcommand
       .setName("setup")
-      .setDescription("Commander: configure private leadership vote channels.")
+      .setDescription("Commander: configure private leadership application review channels.")
       .addChannelOption((option) => option
         .setName("marshal_channel")
-        .setDescription("Private Marshal+ channel for Marshal application votes.")
+        .setDescription("Private Marshal+ channel for reviewing Marshal applications.")
         .setRequired(true)
         .addChannelTypes(ChannelType.GuildText))
       .addChannelOption((option) => option
         .setName("captain_channel")
-        .setDescription("Private Captain+ channel for Captain application votes.")
+        .setDescription("Private Captain+ channel for reviewing Captain applications.")
         .setRequired(true)
         .addChannelTypes(ChannelType.GuildText))),
 
@@ -126,7 +126,7 @@ export const applicationCommand: BotCommand = {
       captainChannel: captainChannel as TextChannel
     });
     await interaction.reply({
-      content: `Marshal application votes will open in ${marshalChannel}; Captain application votes will open in ${captainChannel}.`,
+      content: `Marshal applications will be reviewed in ${marshalChannel}; Captain applications will be reviewed in ${captainChannel}. Approved applications will move to the configured Ranger promotion channel for a Ranger-wide vote.`,
       ephemeral: true
     });
   }

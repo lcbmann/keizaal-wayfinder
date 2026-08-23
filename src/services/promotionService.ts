@@ -28,7 +28,6 @@ import { getRangerByDiscordId, getRangerById, promoteRanger } from "./rangerServ
 import { refreshFieldNamesBulletin } from "./fieldNameService.js";
 import { getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import { roleIdForRank } from "../config/roles.js";
-import { leadershipApplicationChannelStateKey } from "./applicationChannelState.js";
 
 const PROMOTION_CHANNEL_STATE_KEY = "promotion-votes-channel";
 
@@ -510,25 +509,12 @@ async function repairOpenPromotionVoteMessages(guild: Guild): Promise<PromotionV
       continue;
     }
 
-    const leadershipKind = await linkedLeadershipApplicationKind(vote.id);
-    const expectedChannel = leadershipKind
-      ? await getStoredTextChannel(guild, leadershipApplicationChannelStateKey(leadershipKind))
-      : configuredChannel;
+    const expectedChannel = configuredChannel;
 
     if (expectedChannel && vote.channel_id !== expectedChannel.id) {
       await postPromotionVote({ guild, vote, channel: expectedChannel });
       await removePromotionVoteArtifacts(guild, vote);
       refreshed += 1;
-      continue;
-    }
-
-    if (leadershipKind && !expectedChannel && configuredChannel && vote.channel_id === configuredChannel.id) {
-      await removePromotionVoteArtifacts(guild, vote);
-      const { error } = await supabase
-        .from("promotion_votes")
-        .update({ channel_id: null, message_id: null, thread_id: null })
-        .eq("id", vote.id);
-      assertNoDbError(error, "detach private leadership vote from Ranger promotion channel");
       continue;
     }
 
@@ -635,10 +621,10 @@ async function resolveSupersededPromotionVote(guild: Guild, vote: PromotionVoteR
 }
 
 export function minimumVoterRankForTarget(targetRank: MainRank): MainRank {
-  if (targetRank === "Ranger") {
+  if (targetRank === "Ranger" || targetRank === "Ranger Marshal" || targetRank === "Ranger Captain") {
     return "Ranger";
   }
-  if (targetRank === "Ranger Captain" || targetRank === "Ranger Commander") {
+  if (targetRank === "Ranger Commander") {
     return "Ranger Captain";
   }
   return "Ranger Marshal";
@@ -646,19 +632,6 @@ export function minimumVoterRankForTarget(targetRank: MainRank): MainRank {
 
 function canVoteOnTarget(voterRank: MainRank, targetRank: MainRank): boolean {
   return rankAtLeast(voterRank, minimumVoterRankForTarget(targetRank));
-}
-
-async function linkedLeadershipApplicationKind(voteId: string): Promise<"Marshal" | "Captain" | null> {
-  const { data, error } = await supabase
-    .from("duty_applications")
-    .select("application_kind")
-    .eq("resulting_promotion_vote_id", voteId)
-    .in("application_kind", ["Marshal", "Captain"])
-    .maybeSingle();
-  assertNoDbError(error, "get linked leadership application kind");
-  return data?.application_kind === "Marshal" || data?.application_kind === "Captain"
-    ? data.application_kind
-    : null;
 }
 
 async function leadershipApplicationEmbed(guild: Guild, vote: PromotionVoteRow): Promise<EmbedBuilder | null> {

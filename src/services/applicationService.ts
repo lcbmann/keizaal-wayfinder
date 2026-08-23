@@ -6,7 +6,6 @@ import {
   ThreadAutoArchiveDuration,
   type Guild,
   type GuildMember,
-  type Message,
   type TextChannel
 } from "discord.js";
 import { isHold } from "../config/holds.js";
@@ -33,11 +32,11 @@ import {
 import { getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import { assignDuty, getDutyByName } from "./dutyService.js";
 import {
-  attachPromotionVoteMessage,
   createPromotionVote,
   denyPromotionVote,
+  getPromotionChannel,
   getPromotionVote,
-  refreshPromotionVoteMessage
+  postPromotionVote
 } from "./promotionService.js";
 import { requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
@@ -106,8 +105,8 @@ export async function configureApplicationChannels(params: {
   captainChannel: TextChannel;
 }): Promise<void> {
   await Promise.all([
-    configureLeadershipVoteChannel(params.marshalChannel, "Ranger Marshal"),
-    configureLeadershipVoteChannel(params.captainChannel, "Ranger Captain")
+    configureLeadershipReviewChannel(params.marshalChannel, "Ranger Marshal"),
+    configureLeadershipReviewChannel(params.captainChannel, "Ranger Captain")
   ]);
   await Promise.all([
     saveBotMessageState(MARSHAL_APPLICATION_CHANNEL_STATE_KEY, params.marshalChannel.id, []),
@@ -115,11 +114,11 @@ export async function configureApplicationChannels(params: {
   ]);
 }
 
-async function configureLeadershipVoteChannel(channel: TextChannel, minimumRank: "Ranger Marshal" | "Ranger Captain"): Promise<void> {
+async function configureLeadershipReviewChannel(channel: TextChannel, minimumRank: "Ranger Marshal" | "Ranger Captain"): Promise<void> {
   await channel.permissionOverwrites.edit(channel.guild.roles.everyone, {
     ViewChannel: false,
     ReadMessageHistory: false
-  }, { reason: "Restrict leadership application votes" });
+  }, { reason: "Restrict leadership application reviews" });
   await channel.permissionOverwrites.edit(roleIdForRank(minimumRank), {
     ViewChannel: true,
     ReadMessageHistory: true,
@@ -141,7 +140,7 @@ async function configureLeadershipVoteChannel(channel: TextChannel, minimumRank:
     CreatePublicThreads: true,
     SendMessagesInThreads: true,
     ManageThreads: true
-  }, { reason: "Allow Wayfinder to maintain leadership application votes" });
+  }, { reason: "Allow Wayfinder to maintain leadership application reviews" });
 }
 
 export async function createCorpsApplication(params: {
@@ -197,42 +196,15 @@ export async function createCorpsApplication(params: {
   const details = { application, applicant, duty: target.duty };
 
   try {
-    if (target.kind === "Duty") {
-      const entry = await postStrongboxThread({
+    const entry = target.kind === "Duty"
+      ? await postStrongboxThread({
           guild: params.guild,
           threadName: `${applicationTitle(details)} - ${displayName(applicant)}`,
           embed: corpsApplicationEmbed(params.guild, details),
           components: [corpsApplicationActionRow(application.id)],
           reason: `${applicationTitle(details)} from ${displayName(applicant)}`
-        });
-      const { data: attached, error: attachError } = await supabase
-        .from("duty_applications")
-        .update({
-          strongbox_channel_id: entry.channel.id,
-          strongbox_message_id: entry.message.id,
-          strongbox_thread_id: entry.thread.id
         })
-        .eq("id", application.id)
-        .select("*")
-        .single();
-      assertNoDbError(attachError, "attach Corps application review thread");
-      return { ...details, application: attached };
-    }
-
-    const vote = await createPromotionVote({
-      candidate: applicant,
-      targetRank: target.targetRank!,
-      openedByDiscordUserId: applicant.discord_user_id
-    });
-    const { data: linked, error: linkError } = await supabase
-      .from("duty_applications")
-      .update({ resulting_promotion_vote_id: vote.id })
-      .eq("id", application.id)
-      .select("*")
-      .single();
-    assertNoDbError(linkError, "link leadership application promotion vote");
-    const linkedDetails = { ...details, application: linked };
-    const entry = await postLeadershipApplicationVote(params.guild, linkedDetails, vote);
+      : await postLeadershipApplicationReview(params.guild, details);
     const { data: attached, error: attachError } = await supabase
       .from("duty_applications")
       .update({
@@ -244,16 +216,8 @@ export async function createCorpsApplication(params: {
       .select("*")
       .single();
     assertNoDbError(attachError, "attach Corps application review thread");
-    return { ...linkedDetails, application: attached };
+    return { ...details, application: attached };
   } catch (error) {
-    const { data: linkedApplication } = await supabase
-      .from("duty_applications")
-      .select("resulting_promotion_vote_id")
-      .eq("id", application.id)
-      .maybeSingle();
-    if (linkedApplication?.resulting_promotion_vote_id) {
-      await supabase.from("promotion_votes").delete().eq("id", linkedApplication.resulting_promotion_vote_id);
-    }
     await supabase.from("duty_applications").delete().eq("id", application.id);
     throw error;
   }
@@ -292,6 +256,83 @@ export async function listPendingCorpsApplications(applicantRangerId?: string): 
   assertNoDbError(error, "list pending Corps applications");
   const details = await Promise.all((data ?? []).map((row) => getCorpsApplicationDetails(row.id)));
   return details.filter((entry): entry is CorpsApplicationDetails => entry !== null);
+}
+
+export async function repairPendingLeadershipApplicationReviews(guild: Guild): Promise<number> {
+  const pending = (await listPendingCorpsApplications()).filter((details) =>
+    details.application.application_kind === "Marshal" || details.application.application_kind === "Captain"
+  );
+  let repaired = 0;
+
+  for (const details of pending) {
+    let current = details;
+    const legacyVoteId = details.application.resulting_promotion_vote_id;
+    if (legacyVoteId) {
+      const legacyVote = await getPromotionVote(legacyVoteId);
+      const { data: application, error } = await supabase
+        .from("duty_applications")
+        .update({ resulting_promotion_vote_id: null })
+        .eq("id", details.application.id)
+        .eq("status", "Pending")
+        .select("*")
+        .single();
+      assertNoDbError(error, "restore leadership application approval gate");
+      const { error: ballotDeleteError } = await supabase
+        .from("promotion_vote_ballots")
+        .delete()
+        .eq("promotion_vote_id", legacyVoteId);
+      assertNoDbError(ballotDeleteError, "remove legacy private promotion ballots");
+      const { error: voteDeleteError } = await supabase
+        .from("promotion_votes")
+        .delete()
+        .eq("id", legacyVoteId);
+      assertNoDbError(voteDeleteError, "remove legacy private promotion vote");
+      current = { ...details, application };
+
+      if (legacyVote?.channel_id && legacyVote.message_id
+        && legacyVote.message_id !== details.application.strongbox_message_id) {
+        await removeDetachedVoteArtifacts(guild, legacyVote.channel_id, legacyVote.message_id, legacyVote.thread_id);
+      }
+      repaired += 1;
+    }
+
+    const channel = current.application.strongbox_channel_id
+      ? await guild.channels.fetch(current.application.strongbox_channel_id).catch(() => null)
+      : null;
+    const message = channel?.type === ChannelType.GuildText && current.application.strongbox_message_id
+      ? await channel.messages.fetch(current.application.strongbox_message_id).catch(() => null)
+      : null;
+
+    if (message) {
+      await message.edit({
+        embeds: [corpsApplicationEmbed(guild, current)],
+        components: [corpsApplicationActionRow(current.application.id)]
+      });
+      if (current.application.strongbox_thread_id) {
+        const thread = await guild.channels.fetch(current.application.strongbox_thread_id).catch(() => null);
+        if (thread?.isThread()) {
+          await thread.setArchived(false, "Restore leadership application review").catch(() => undefined);
+          await thread.setLocked(false, "Restore leadership application review").catch(() => undefined);
+          await thread.setName(`${applicationTitle(current)} - ${displayName(current.applicant)}`.slice(0, 100)).catch(() => undefined);
+        }
+      }
+      continue;
+    }
+
+    const entry = await postLeadershipApplicationReview(guild, current);
+    const { error } = await supabase
+      .from("duty_applications")
+      .update({
+        strongbox_channel_id: entry.channel.id,
+        strongbox_message_id: entry.message.id,
+        strongbox_thread_id: entry.thread.id
+      })
+      .eq("id", current.application.id);
+    assertNoDbError(error, "repair leadership application review post");
+    repaired += 1;
+  }
+
+  return repaired;
 }
 
 export async function withdrawCorpsApplication(params: {
@@ -354,6 +395,9 @@ export async function reviewCorpsApplication(params: {
       parentHold: details.application.parent_hold
     });
   } else if (params.approve && details.application.target_rank) {
+    if (!await getPromotionChannel(params.guild)) {
+      throw new UserFacingError("The promotion channel is not configured. Run `/promotion setup` before approving leadership applications.");
+    }
     const vote = await createPromotionVote({
       candidate: details.applicant,
       targetRank: details.application.target_rank,
@@ -364,8 +408,30 @@ export async function reviewCorpsApplication(params: {
       .from("duty_applications")
       .update({ resulting_promotion_vote_id: vote.id })
       .eq("id", details.application.id);
-    assertNoDbError(linkError, "link legacy leadership application promotion vote");
-    await postLeadershipApplicationVote(params.guild, details, vote);
+    assertNoDbError(linkError, "link leadership application promotion vote");
+    try {
+      await postPromotionVote({
+        guild: params.guild,
+        vote,
+        mentionRoleIds: [roleIdForRank("Ranger")]
+      });
+    } catch (error) {
+      const { error: unlinkError } = await supabase
+        .from("duty_applications")
+        .update({ resulting_promotion_vote_id: null })
+        .eq("id", details.application.id);
+      if (unlinkError) {
+        console.warn(`Failed to unlink promotion vote ${vote.id} after publication failed:`, unlinkError);
+      }
+      const { error: voteDeleteError } = await supabase
+        .from("promotion_votes")
+        .delete()
+        .eq("id", vote.id);
+      if (voteDeleteError) {
+        console.warn(`Failed to remove promotion vote ${vote.id} after publication failed:`, voteDeleteError);
+      }
+      throw error;
+    }
     promotionVoteId = vote.id;
   }
 
@@ -428,7 +494,7 @@ export function corpsApplicationEmbed(guild: Guild, details: CorpsApplicationDet
     embed.addFields({ name: "Details", value: details.application.assignment_detail.slice(0, 1024) });
   }
   if (details.application.resulting_promotion_vote_id) {
-    embed.addFields({ name: "Leadership vote", value: "Opened in the private leadership channel." });
+    embed.addFields({ name: "Promotion vote", value: "Approved for a Ranger-wide vote in the promotion channel." });
   }
   return embed;
 }
@@ -513,26 +579,24 @@ function applicationResponses(value: Json): CorpsApplicationResponse[] {
   });
 }
 
-async function postLeadershipApplicationVote(
-  guild: Guild,
-  details: CorpsApplicationDetails,
-  vote: NonNullable<Awaited<ReturnType<typeof getPromotionVote>>>
-) {
+async function postLeadershipApplicationReview(guild: Guild, details: CorpsApplicationDetails) {
   if (details.application.application_kind === "Duty") {
-    throw new UserFacingError("Duty applications do not use leadership vote channels.");
+    throw new UserFacingError("Duty applications do not use leadership review channels.");
   }
   const stateKey = leadershipApplicationChannelStateKey(details.application.application_kind);
   const channel = await getStoredTextChannel(guild, stateKey);
   if (!channel) {
-    throw new UserFacingError(`The ${details.application.application_kind} vote channel is not configured. A Commander should run \`/application setup\`.`);
+    throw new UserFacingError(`The ${details.application.application_kind} application channel is not configured. A Commander should run \`/application setup\`.`);
   }
-  const message = await channel.send(await refreshPromotionVoteMessage(guild, vote.id));
-  const thread = await message.startThread({
-    name: `${applicationTitle(details)} Vote - ${displayName(details.applicant)}`.slice(0, 100),
-    autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
-    reason: `${applicationTitle(details)} application vote`
+  const message = await channel.send({
+    embeds: [corpsApplicationEmbed(guild, details)],
+    components: [corpsApplicationActionRow(details.application.id)]
   });
-  await attachPromotionVoteMessage(vote.id, channel.id, message.id, thread.id);
+  const thread = await message.startThread({
+    name: `${applicationTitle(details)} - ${displayName(details.applicant)}`.slice(0, 100),
+    autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+    reason: `${applicationTitle(details)} application review`
+  });
   for (const content of leadershipApplicationTranscript(details)) {
     await thread.send({ content, allowedMentions: { parse: [] } }).catch((error) => {
       console.warn(`Could not post the full application transcript for ${details.application.id}:`, error);
@@ -586,10 +650,6 @@ async function refreshApplicationPost(guild: Guild, details: CorpsApplicationDet
     return;
   }
   const message = await channel.messages.fetch(details.application.strongbox_message_id).catch(() => null);
-  if (details.application.resulting_promotion_vote_id) {
-    await message?.edit(await refreshPromotionVoteMessage(guild, details.application.resulting_promotion_vote_id));
-    return;
-  }
   await message?.edit({ embeds: [corpsApplicationEmbed(guild, details)], components: [corpsApplicationActionRow(details.application.id, disabled)] });
 }
 
@@ -604,6 +664,26 @@ async function finishApplicationThread(guild: Guild, details: CorpsApplicationDe
   await thread.send(message).catch(() => undefined);
   await thread.setLocked(true, "Application review completed").catch(() => undefined);
   await thread.setArchived(true, "Application review completed").catch(() => undefined);
+}
+
+async function removeDetachedVoteArtifacts(
+  guild: Guild,
+  channelId: string,
+  messageId: string,
+  threadId: string | null
+): Promise<void> {
+  if (threadId) {
+    const thread = await guild.channels.fetch(threadId).catch(() => null);
+    if (thread?.isThread()) {
+      await thread.delete("Restore leadership application approval gate").catch(() => undefined);
+    }
+  }
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (!channel?.isTextBased()) {
+    return;
+  }
+  const message = await channel.messages.fetch(messageId).catch(() => null);
+  await message?.delete().catch(() => undefined);
 }
 
 async function requireApplication(id: string): Promise<CorpsApplicationDetails> {

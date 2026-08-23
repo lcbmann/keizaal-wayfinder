@@ -423,6 +423,7 @@ Create a dedicated Ranger-only text channel, then run `/promotion setup` once as
 Marshal+ can use `/promotion status` to mark an Apprentice as `In Field Trial`, `On Hold`, or clear the progress status. `/promotion eligible` shows these as separate sections alongside Ready for Review and Not Yet Ready. Promotion approval clears the progress status automatically.
 
 Approving a vote promotes the candidate through the same service used by `/ranger promote`, writes rank history, updates Supabase, syncs Discord roles, refreshes the assignments board, and posts a promotion announcement embed.
+On startup and during `/promotion setup`, Wayfinder closes and removes stale open votes when the candidate already holds the target rank. Manual `/ranger promote` performs the same cleanup so an out-of-band promotion cannot leave an obsolete vote behind.
 
 ## Assignment Board
 

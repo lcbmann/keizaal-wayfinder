@@ -41,6 +41,7 @@ import { emojiText } from "../utils/guildEmojis.js";
 import { env } from "../config/env.js";
 import { getActiveFieldName } from "../services/fieldNameService.js";
 import { listRangerMedalAwards, medalEmoji } from "../services/medalService.js";
+import { closeSupersededPromotionVotes } from "../services/promotionService.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -472,6 +473,11 @@ export const rangerCommand: BotCommand = {
         targetRank: rank,
         changedByDiscordUserId: interaction.user.id,
         ...(reason ? { reason } : {})
+      });
+      await closeSupersededPromotionVotes({
+        guild: interaction.guild,
+        candidateRangerId: ranger.id,
+        currentRank: ranger.current_rank
       });
       await refreshStoredAssignmentsBoard(interaction.guild);
       await refreshFieldNamesBulletin(interaction.guild).catch((error) => {

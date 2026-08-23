@@ -143,7 +143,13 @@ export const promotionCommand: BotCommand = {
       }
       const repaired = await configurePromotionChannel(interaction.guild, channel as TextChannel);
       await interaction.editReply({
-        content: `Promotion votes will now be posted in ${channel}. Repaired or moved **${repaired}** open vote${repaired === 1 ? "" : "s"}.`
+        content: [
+          `Promotion votes will now be posted in ${channel}.`,
+          `Repaired or moved **${repaired.refreshed}** active vote${repaired.refreshed === 1 ? "" : "s"}.`,
+          repaired.closedStale > 0
+            ? `Removed **${repaired.closedStale}** stale vote${repaired.closedStale === 1 ? "" : "s"} for candidates who already hold the target rank.`
+            : null
+        ].filter(Boolean).join(" ")
       });
       return;
     }

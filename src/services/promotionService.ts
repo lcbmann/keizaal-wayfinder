@@ -30,6 +30,11 @@ import { roleIdForRank } from "../config/roles.js";
 
 const PROMOTION_CHANNEL_STATE_KEY = "promotion-votes-channel";
 
+export interface PromotionVoteRepairResult {
+  refreshed: number;
+  closedStale: number;
+}
+
 export interface EligibleRanger {
   ranger: RangerRow;
   daysInCorps: number;
@@ -158,6 +163,21 @@ export async function createPromotionVote(params: {
   openedByDiscordUserId: string;
   reason?: string | null;
 }): Promise<PromotionVoteRow> {
+  if (candidateAlreadyHoldsPromotionTarget(params.candidate.current_rank, params.targetRank)) {
+    throw new UserFacingError(`${params.candidate.discord_display_name ?? "That Ranger"} already holds ${params.targetRank} or a higher rank.`);
+  }
+
+  const { data: openVotes, error: openVoteError } = await supabase
+    .from("promotion_votes")
+    .select("id")
+    .eq("candidate_ranger_id", params.candidate.id)
+    .eq("status", "Open")
+    .limit(1);
+  assertNoDbError(openVoteError, "check existing promotion vote");
+  if ((openVotes?.length ?? 0) > 0) {
+    throw new UserFacingError(`${params.candidate.discord_display_name ?? "That Ranger"} already has an open promotion vote.`);
+  }
+
   const { data, error } = await supabase
     .from("promotion_votes")
     .insert({
@@ -194,7 +214,7 @@ export async function getPromotionChannel(guild: Guild): Promise<TextChannel | n
   return getStoredTextChannel(guild, PROMOTION_CHANNEL_STATE_KEY);
 }
 
-export async function configurePromotionChannel(guild: Guild, channel: TextChannel): Promise<number> {
+export async function configurePromotionChannel(guild: Guild, channel: TextChannel): Promise<PromotionVoteRepairResult> {
   await channel.permissionOverwrites.edit(guild.roles.everyone, {
     ViewChannel: false,
     ReadMessageHistory: false
@@ -467,16 +487,24 @@ export async function refreshPromotionVoteMessage(guild: Guild, voteId: string):
   };
 }
 
-export async function refreshOpenPromotionVoteMessages(guild: Guild): Promise<number> {
+export async function refreshOpenPromotionVoteMessages(guild: Guild): Promise<PromotionVoteRepairResult> {
   return repairOpenPromotionVoteMessages(guild);
 }
 
-async function repairOpenPromotionVoteMessages(guild: Guild): Promise<number> {
+async function repairOpenPromotionVoteMessages(guild: Guild): Promise<PromotionVoteRepairResult> {
   const votes = await findOpenPromotionVotes();
   let refreshed = 0;
+  let closedStale = 0;
   const configuredChannel = await getPromotionChannel(guild);
 
   for (const vote of votes) {
+    const candidate = await getRangerById(vote.candidate_ranger_id);
+    if (candidate && candidateAlreadyHoldsPromotionTarget(candidate.current_rank, vote.target_rank)) {
+      await resolveSupersededPromotionVote(guild, vote, candidate.current_rank);
+      closedStale += 1;
+      continue;
+    }
+
     if (configuredChannel && vote.channel_id !== configuredChannel.id) {
       await postPromotionVote({ guild, vote });
       refreshed += 1;
@@ -524,7 +552,65 @@ async function repairOpenPromotionVoteMessages(guild: Guild): Promise<number> {
     refreshed += 1;
   }
 
-  return refreshed;
+  return { refreshed, closedStale };
+}
+
+export function candidateAlreadyHoldsPromotionTarget(currentRank: MainRank, targetRank: MainRank): boolean {
+  return rankAtLeast(currentRank, targetRank);
+}
+
+export async function closeSupersededPromotionVotes(params: {
+  guild: Guild;
+  candidateRangerId: string;
+  currentRank: MainRank;
+}): Promise<number> {
+  const { data, error } = await supabase
+    .from("promotion_votes")
+    .select("*")
+    .eq("candidate_ranger_id", params.candidateRangerId)
+    .eq("status", "Open");
+  assertNoDbError(error, "list superseded promotion votes");
+
+  const staleVotes = (data ?? []).filter((vote) =>
+    candidateAlreadyHoldsPromotionTarget(params.currentRank, vote.target_rank)
+  );
+  for (const vote of staleVotes) {
+    await resolveSupersededPromotionVote(params.guild, vote, params.currentRank);
+  }
+  return staleVotes.length;
+}
+
+async function resolveSupersededPromotionVote(guild: Guild, vote: PromotionVoteRow, currentRank: MainRank): Promise<void> {
+  const { error } = await supabase
+    .from("promotion_votes")
+    .update({
+      status: "Approved",
+      final_decision: `Automatically closed because the candidate now holds ${currentRank}`,
+      closed_at: new Date().toISOString()
+    })
+    .eq("id", vote.id)
+    .eq("status", "Open");
+  assertNoDbError(error, "close superseded promotion vote");
+
+  if (vote.thread_id) {
+    const thread = await guild.channels.fetch(vote.thread_id).catch(() => null);
+    if (thread?.isThread()) {
+      await thread.delete("Remove superseded promotion vote discussion").catch((cleanupError) => {
+        console.warn(`Could not delete stale promotion thread ${vote.thread_id}:`, cleanupError);
+      });
+    }
+  }
+
+  if (vote.channel_id && vote.message_id) {
+    const channel = await guild.channels.fetch(vote.channel_id).catch(() => null);
+    if (channel?.isTextBased()) {
+      const message = await channel.messages.fetch(vote.message_id).catch(() => null);
+      await message?.delete().catch(async (cleanupError) => {
+        console.warn(`Could not delete stale promotion message ${vote.message_id}:`, cleanupError);
+        await message.edit(await refreshPromotionVoteMessage(guild, vote.id)).catch(() => undefined);
+      });
+    }
+  }
 }
 
 function canVoteOnTarget(voterRank: MainRank, targetRank: MainRank): boolean {

@@ -155,9 +155,12 @@ client.once("ready", (readyClient) => {
     void refreshFieldNamesBulletin(corpsGuild)
       .catch((error) => console.warn("Failed to refresh Field Names bulletin:", error));
     void refreshOpenPromotionVoteMessages(corpsGuild)
-      .then((refreshed) => {
+      .then(({ refreshed, closedStale }) => {
         if (refreshed > 0) {
           console.log(`Refreshed ${refreshed} open promotion vote${refreshed === 1 ? "" : "s"}.`);
+        }
+        if (closedStale > 0) {
+          console.log(`Removed ${closedStale} stale promotion vote${closedStale === 1 ? "" : "s"} for candidates who already hold the target rank.`);
         }
       })
       .catch((error) => console.warn("Failed to refresh open promotion votes:", error));

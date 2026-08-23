@@ -13,13 +13,16 @@ import {
   type CorpsDutyRow,
   type DutyApplicationRow,
   type RangerDutyAssignmentRow,
-  type RangerRow
+  type RangerRow,
+  type WardenScope
 } from "../db/supabase.js";
 import { rankAtLeast } from "../config/ranks.js";
+import { isHold } from "../config/holds.js";
 import { UserFacingError } from "../utils/errors.js";
 import { dutyEmojiName, emojiEmbed } from "../utils/guildEmojis.js";
-import { requireRangerByDiscordId } from "./rangerService.js";
+import { requireRangerByDiscordId, setRangerHold } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
+import { clearMemberHoldRole, setMemberHoldRole } from "./holdRoleService.js";
 
 export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Agent", "Courier", "Ambassador"] as const;
 const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Agent", "Ambassador"]);
@@ -103,7 +106,11 @@ export async function createDutyApplication(params: {
   const duty = await requireDuty(params.dutyName);
   assertDutyRankEligibility(applicant, duty);
   const assignmentDetail = normalizedDetail(duty, params.assignmentDetail);
-  await assertNoActiveDutyAssignment(applicant.id, duty.id);
+  await assertNoActiveDutyAssignment(applicant.id, duty.id, {
+    assignmentDetail,
+    wardenScope: null,
+    parentHold: null
+  });
 
   const { data: existing, error: existingError } = await supabase
     .from("duty_applications")
@@ -277,6 +284,8 @@ export async function assignDuty(params: {
   assignmentDetail: string | null;
   assignedByDiscordUserId: string;
   applicationId?: string | null;
+  wardenScope?: WardenScope | null;
+  parentHold?: string | null;
 }): Promise<DutyAssignmentDetails> {
   const duty = await requireDuty(params.dutyName);
   if (!duty.discord_role_id) {
@@ -287,8 +296,11 @@ export async function assignDuty(params: {
     throw new UserFacingError("Only active roster members can be assigned Corps duties.");
   }
   assertDutyRankEligibility(ranger, duty);
-  const detail = normalizedDetail(duty, params.assignmentDetail);
-  await assertNoActiveDutyAssignment(ranger.id, duty.id);
+  const normalized = normalizedAssignment(duty, params.assignmentDetail, params.wardenScope, params.parentHold);
+  await assertNoActiveDutyAssignment(ranger.id, duty.id, normalized);
+  if (normalized.wardenScope === "hold_primary" && normalized.parentHold) {
+    await assertPrimaryHoldAvailable(duty.id, normalized.parentHold, ranger.id);
+  }
   await assertDutyCapacity(duty);
 
   const member = await params.guild.members.fetch(ranger.discord_user_id).catch(() => null);
@@ -303,7 +315,9 @@ export async function assignDuty(params: {
       ranger_id: ranger.id,
       application_id: params.applicationId ?? null,
       status: "Active",
-      assignment_detail: detail,
+      assignment_detail: normalized.assignmentDetail,
+      warden_scope: normalized.wardenScope,
+      parent_hold: normalized.parentHold,
       assigned_by_discord_user_id: params.assignedByDiscordUserId,
       started_at: new Date().toISOString(),
       ended_at: null,
@@ -315,6 +329,10 @@ export async function assignDuty(params: {
 
   try {
     await member.roles.add(duty.discord_role_id, `Assigned ${duty.name} by ${params.assignedByDiscordUserId}`);
+    if (normalized.wardenScope === "hold_primary" && normalized.parentHold) {
+      await setRangerHold(ranger.discord_user_id, normalized.parentHold);
+      await setMemberHoldRole(member, normalized.parentHold);
+    }
   } catch (error) {
     await supabase.from("ranger_duty_assignments").delete().eq("id", assignment.id);
     throw error;
@@ -334,13 +352,18 @@ export async function ensureWardenDutyForHold(params: {
     throw new UserFacingError("Duty roles have not been set up. Ask a Marshal to run `/duty setup`.");
   }
   const ranger = await requireRangerByDiscordId(params.rangerDiscordUserId);
+  if (ranger.status !== "Active") {
+    throw new UserFacingError("Only active roster members can be appointed Ranger of a Hold.");
+  }
   assertDutyRankEligibility(ranger, duty);
+  await assertPrimaryHoldAvailable(duty.id, params.hold, ranger.id);
   const { data: existing, error: existingError } = await supabase
     .from("ranger_duty_assignments")
     .select("*")
     .eq("duty_id", duty.id)
     .eq("ranger_id", ranger.id)
     .eq("status", "Active")
+    .eq("warden_scope", "hold_primary")
     .maybeSingle();
   assertNoDbError(existingError, "get existing Warden assignment");
 
@@ -350,13 +373,15 @@ export async function ensureWardenDutyForHold(params: {
       rangerDiscordUserId: params.rangerDiscordUserId,
       dutyName: duty.name,
       assignmentDetail: params.hold,
+      wardenScope: "hold_primary",
+      parentHold: params.hold,
       assignedByDiscordUserId: params.assignedByDiscordUserId
     });
   }
 
   const { data: assignment, error } = await supabase
     .from("ranger_duty_assignments")
-    .update({ assignment_detail: params.hold })
+    .update({ assignment_detail: params.hold, parent_hold: params.hold, warden_scope: "hold_primary" })
     .eq("id", existing.id)
     .select("*")
     .single();
@@ -369,6 +394,8 @@ export async function ensureWardenDutyForHold(params: {
   if (!member.roles.cache.has(duty.discord_role_id)) {
     await member.roles.add(duty.discord_role_id, `Assigned Warden through hold assignment by ${params.assignedByDiscordUserId}`);
   }
+  await setRangerHold(ranger.discord_user_id, params.hold);
+  await setMemberHoldRole(member, params.hold);
   return { assignment, duty, ranger };
 }
 
@@ -405,20 +432,33 @@ export async function removeDuty(params: {
   dutyName: string;
   removedByDiscordUserId: string;
   reason: string | null;
+  wardenScope?: WardenScope | null;
+  parentHold?: string | null;
+  assignmentDetail?: string | null;
 }): Promise<DutyAssignmentDetails | null> {
   const duty = await requireDuty(params.dutyName);
   const ranger = await requireRangerByDiscordId(params.rangerDiscordUserId);
-  if (duty.name === "Warden" && ranger.assigned_hold) {
-    throw new UserFacingError(`Clear ${ranger.assigned_hold} as this Ranger's assigned hold before removing the Warden duty.`);
-  }
-  const { data: assignment, error: assignmentError } = await supabase
+  let assignmentQuery = supabase
     .from("ranger_duty_assignments")
     .select("*")
     .eq("duty_id", duty.id)
     .eq("ranger_id", ranger.id)
-    .eq("status", "Active")
-    .maybeSingle();
+    .eq("status", "Active");
+  if (params.wardenScope) {
+    assignmentQuery = assignmentQuery.eq("warden_scope", params.wardenScope);
+  }
+  if (params.parentHold) {
+    assignmentQuery = assignmentQuery.eq("parent_hold", params.parentHold);
+  }
+  if (params.assignmentDetail) {
+    assignmentQuery = assignmentQuery.ilike("assignment_detail", params.assignmentDetail.trim());
+  }
+  const { data: assignments, error: assignmentError } = await assignmentQuery.limit(2);
   assertNoDbError(assignmentError, "get active duty assignment");
+  if ((assignments?.length ?? 0) > 1) {
+    throw new UserFacingError("That Ranger has multiple Warden assignments. Specify whether this is a primary Hold or local Range and provide its location.");
+  }
+  const assignment = assignments?.[0] ?? null;
   if (!assignment) {
     return null;
   }
@@ -435,13 +475,50 @@ export async function removeDuty(params: {
     .single();
   assertNoDbError(error, "end duty assignment");
 
-  if (duty.discord_role_id) {
-    const member = await params.guild.members.fetch(ranger.discord_user_id).catch(() => null);
+  const member = await params.guild.members.fetch(ranger.discord_user_id).catch(() => null);
+  if (assignment.warden_scope === "hold_primary") {
+    await setRangerHold(ranger.discord_user_id, null);
+    if (member) {
+      await clearMemberHoldRole(member);
+    }
+  }
+
+  if (duty.discord_role_id && member && !await hasAnotherActiveDutyAssignment(ranger.id, duty.id, assignment.id)) {
     if (member?.roles.cache.has(duty.discord_role_id)) {
       await member.roles.remove(duty.discord_role_id, params.reason ?? `Removed by ${params.removedByDiscordUserId}`);
     }
   }
   return { assignment: ended, duty, ranger };
+}
+
+export async function endActiveDutyAssignmentsForRanger(params: {
+  guild: Guild;
+  rangerDiscordUserId: string;
+  endedByDiscordUserId: string;
+  reason: string;
+}): Promise<number> {
+  const ranger = await requireRangerByDiscordId(params.rangerDiscordUserId);
+  const assignments = (await listActiveDutyAssignments()).filter((entry) => entry.ranger.id === ranger.id);
+  if (assignments.length === 0) {
+    return 0;
+  }
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("ranger_duty_assignments")
+    .update({ status: "Ended", ended_at: now, end_reason: `${params.reason} (${params.endedByDiscordUserId})` })
+    .eq("ranger_id", ranger.id)
+    .eq("status", "Active");
+  assertNoDbError(error, "end inactive Ranger duties");
+  await setRangerHold(ranger.discord_user_id, null);
+  const member = await params.guild.members.fetch(ranger.discord_user_id).catch(() => null);
+  if (member) {
+    await clearMemberHoldRole(member);
+    const roleIds = assignments.map(({ duty }) => duty.discord_role_id).filter((id): id is string => Boolean(id));
+    if (roleIds.length) {
+      await member.roles.remove([...new Set(roleIds)], params.reason);
+    }
+  }
+  return assignments.length;
 }
 
 export async function listActiveDutyAssignments(dutyName?: string): Promise<DutyAssignmentDetails[]> {
@@ -539,24 +616,101 @@ function normalizedDetail(duty: CorpsDutyRow, value: string | null): string | nu
   return detail;
 }
 
+interface NormalizedAssignment {
+  assignmentDetail: string | null;
+  wardenScope: WardenScope | null;
+  parentHold: string | null;
+}
+
+function normalizedAssignment(
+  duty: CorpsDutyRow,
+  value: string | null,
+  wardenScope: WardenScope | null | undefined,
+  parentHold: string | null | undefined
+): NormalizedAssignment {
+  if (duty.name !== "Warden") {
+    return { assignmentDetail: normalizedDetail(duty, value), wardenScope: null, parentHold: null };
+  }
+  const detail = value?.trim() || null;
+  const hold = parentHold?.trim() || (detail && isHold(detail) ? detail : null);
+  const scope = wardenScope ?? (hold && detail === hold ? "hold_primary" : null);
+  if (!scope) {
+    throw new UserFacingError("Choose whether this is a primary Ranger of a Hold or a local Warden appointment.");
+  }
+  if (!hold || !isHold(hold)) {
+    throw new UserFacingError("Warden appointments require a valid parent Hold.");
+  }
+  if (scope === "hold_primary") {
+    return { assignmentDetail: hold, wardenScope: scope, parentHold: hold };
+  }
+  if (!detail) {
+    throw new UserFacingError("A local Warden appointment requires a town, road, lake, or other named Range.");
+  }
+  return { assignmentDetail: detail, wardenScope: scope, parentHold: hold };
+}
+
 function assertDutyRankEligibility(ranger: RangerRow, duty: CorpsDutyRow): void {
   if (RANGER_ONLY_DUTIES.has(duty.name) && !rankAtLeast(ranger.current_rank, "Ranger")) {
     throw new UserFacingError(`${duty.name} is reserved for full Rangers and higher.`);
   }
 }
 
-async function assertNoActiveDutyAssignment(rangerId: string, dutyId: string): Promise<void> {
+async function assertNoActiveDutyAssignment(
+  rangerId: string,
+  dutyId: string,
+  assignment: NormalizedAssignment
+): Promise<void> {
+  let query = supabase
+    .from("ranger_duty_assignments")
+    .select("id")
+    .eq("ranger_id", rangerId)
+    .eq("duty_id", dutyId)
+    .eq("status", "Active");
+  if (assignment.wardenScope) {
+    query = query.eq("warden_scope", assignment.wardenScope);
+    if (assignment.wardenScope === "local_range" && assignment.parentHold) {
+      query = query.eq("parent_hold", assignment.parentHold);
+    }
+    if (assignment.wardenScope === "local_range" && assignment.assignmentDetail) {
+      query = query.ilike("assignment_detail", assignment.assignmentDetail);
+    }
+  } else {
+    query = query.is("warden_scope", null);
+  }
+  const { data, error } = await query.limit(1);
+  assertNoDbError(error, "check active duty assignment");
+  if (data?.length) {
+    throw new UserFacingError("That Ranger already holds this duty.");
+  }
+}
+
+async function assertPrimaryHoldAvailable(dutyId: string, hold: string, rangerId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("ranger_duty_assignments")
+    .select("id, ranger_id")
+    .eq("duty_id", dutyId)
+    .eq("status", "Active")
+    .eq("warden_scope", "hold_primary")
+    .eq("parent_hold", hold)
+    .neq("ranger_id", rangerId)
+    .limit(1);
+  assertNoDbError(error, "check Ranger of the Hold appointment");
+  if (data?.length) {
+    throw new UserFacingError(`${hold} already has an active Ranger of the Hold. Remove that appointment before appointing another.`);
+  }
+}
+
+async function hasAnotherActiveDutyAssignment(rangerId: string, dutyId: string, excludingId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from("ranger_duty_assignments")
     .select("id")
     .eq("ranger_id", rangerId)
     .eq("duty_id", dutyId)
     .eq("status", "Active")
-    .maybeSingle();
-  assertNoDbError(error, "check active duty assignment");
-  if (data) {
-    throw new UserFacingError("That Ranger already holds this duty.");
-  }
+    .neq("id", excludingId)
+    .limit(1);
+  assertNoDbError(error, "check remaining duty assignments");
+  return Boolean(data?.length);
 }
 
 async function assertDutyCapacity(duty: CorpsDutyRow): Promise<void> {

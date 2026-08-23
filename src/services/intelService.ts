@@ -20,14 +20,9 @@ import {
   type TrailmarkSessionRow,
   type TrailmarkRow
 } from "../db/supabase.js";
-import {
-  atlasPreviewToJson,
-  atlasReportFieldValue,
-  resolveAtlasSharePreviewFromContent
-} from "./atlasService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { matchingIntelTopics } from "../utils/intelKeywords.js";
-import { emojiEmbed, emojiTitle, guildEmoji, intelReportChannelName, intelTopicEmojiName, isStandardIntelReportChannelName } from "../utils/guildEmojis.js";
+import { emojiEmbed, emojiTitle, intelReportChannelName, intelTopicEmojiName, isStandardIntelReportChannelName } from "../utils/guildEmojis.js";
 import { getActiveFieldNameMap } from "./fieldNameService.js";
 import { slugify } from "../utils/slugs.js";
 import { deleteStoredMessages, getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
@@ -37,6 +32,7 @@ import {
   publishDeliveredAllianceReportsToCorps,
   removeCorpsIntelReportFromAlliance
 } from "./allianceIntelService.js";
+import { forwardDeliveredStructuredReports } from "./structuredReportForwardService.js";
 
 const INTEL_TOPIC_STATE_PREFIX = "intel-topic";
 const LEGACY_TRAILMARK_FORUM_CHANNEL_ID = "1511443716420800673";
@@ -318,6 +314,17 @@ export async function captureAtlasTrailmarkDropForIntel(params: {
   return captureTrailmarkIntelContent(params);
 }
 
+export async function captureBotAuthoredTrailmarkReportForIntel(params: {
+  guild: Guild;
+  trailmark: TrailmarkRow;
+  message: Message;
+  content: string;
+  authorDiscordUserId: string;
+  authorDisplayName: string;
+}): Promise<number> {
+  return captureTrailmarkIntelContent(params);
+}
+
 async function captureTrailmarkIntelContent(params: {
   guild: Guild;
   trailmark: TrailmarkRow;
@@ -428,14 +435,11 @@ export async function synchronizeEditedTrailmarkIntelReports(message: Message): 
   }
 
   await captureTrailmarkIntelReports(message);
-  const atlasPreview = await resolveAtlasSharePreviewFromContent(content);
   const { error: updateError } = await supabase
     .from("intel_reports")
     .update({
       content,
-      author_display_name: reportAuthorDisplayName(message),
-      atlas_share_code: atlasPreview?.code ?? null,
-      atlas_summary: atlasPreviewToJson(atlasPreview)
+      author_display_name: reportAuthorDisplayName(message)
     })
     .eq("discord_channel_id", message.channelId)
     .eq("discord_message_id", message.id);
@@ -678,6 +682,7 @@ export async function recordTrailmarkVisitAndDeliver(params: {
       hqTrailmarkId: params.trailmark.id,
       hqVisitedAt: visitedAt
     });
+    await forwardDeliveredStructuredReports({ guild: params.guild });
   }
   const allianceDelivery = await deliverCarriedReportsToAllianceHeadquarters({
     guild: params.guild,
@@ -970,8 +975,7 @@ async function upsertIntelReport(params: {
   const content = (params.content ?? params.message.content).trim();
   const authorDiscordUserId = params.authorDiscordUserId ?? params.message.author.id;
   const authorDisplayName = params.authorDisplayName ?? reportAuthorDisplayName(params.message);
-  const atlasPreview = await resolveAtlasSharePreviewFromContent(content);
-  const basePayload = {
+  const payload = {
     topic_id: params.topic.id,
     trailmark_id: params.trailmark.id,
     discord_message_id: params.message.id,
@@ -981,26 +985,13 @@ async function upsertIntelReport(params: {
     delivered_by_discord_user_id: params.isHqReport ? authorDiscordUserId : null,
     delivered_to_trailmark_id: params.isHqReport ? params.trailmark.id : null,
     delivered_at: params.isHqReport ? params.message.createdAt.toISOString() : null,
-    created_at: params.message.createdAt.toISOString()
-  };
-  const payload = {
-    ...basePayload,
-    author_display_name: authorDisplayName,
-    atlas_share_code: atlasPreview?.code ?? null,
-    atlas_summary: atlasPreviewToJson(atlasPreview)
+    created_at: params.message.createdAt.toISOString(),
+    author_display_name: authorDisplayName
   };
 
   const { error } = await supabase
     .from("intel_reports")
     .upsert(payload, { onConflict: "topic_id,discord_message_id", ignoreDuplicates: !params.isHqReport });
-
-  if (isMissingColumnError(error)) {
-    const { error: retryError } = await supabase
-      .from("intel_reports")
-      .upsert(basePayload, { onConflict: "topic_id,discord_message_id", ignoreDuplicates: !params.isHqReport });
-    assertNoDbError(retryError, "upsert Trailmark intel report without Atlas summary");
-    return true;
-  }
 
   assertNoDbError(error, "upsert Trailmark intel report");
 
@@ -1629,8 +1620,6 @@ function reportEmbed(
     : "Unknown";
   const originalUrl = `https://discord.com/channels/${guild.id}/${report.discord_channel_id}/${report.discord_message_id}`;
   const where = trailmark ? `${trailmark.name} (${trailmark.hold})` : "Unknown Trailmark";
-  const atlasField = atlasReportFieldValue(report.atlas_summary, report.atlas_share_code);
-
   const topicEmoji = intelTopicEmojiName(topic?.name ?? "") ?? "intel";
   const embed = new EmbedBuilder()
     .setTitle(emojiTitle(guild, topicEmoji, `${trailmark?.name ?? "Unknown Trailmark"} - ${formatDiscordTime(report.created_at)}`))
@@ -1650,11 +1639,6 @@ function reportEmbed(
     )
     .setColor(0x587c4a)
     .setTimestamp(new Date(report.created_at));
-
-  if (atlasField) {
-    const atlasEmoji = guildEmoji(guild, "atlas");
-    embed.addFields({ name: atlasEmoji ? `${atlasEmoji} - Atlas Share` : "Atlas Share", value: atlasField, inline: false });
-  }
 
   return embed;
 }

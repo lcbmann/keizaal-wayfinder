@@ -14,8 +14,10 @@ import {
   updateTrailmarkAtlasLocation
 } from "../services/trailmarkService.js";
 import { UserFacingError } from "../utils/errors.js";
-import { canCreateTrailmarks } from "../utils/permissions.js";
+import { canCreateTrailmarks, canUseTrailmarks } from "../utils/permissions.js";
 import { emojiEmbed, emojiText } from "../utils/guildEmojis.js";
+import { listContacts } from "../services/contactService.js";
+import { createStructuredTrailmarkReportDraft } from "../services/structuredTrailmarkReportService.js";
 import type { BotCommand } from "./types.js";
 
 export const trailmarkCommand: BotCommand = {
@@ -26,6 +28,23 @@ export const trailmarkCommand: BotCommand = {
     .addSubcommand((subcommand) => subcommand.setName("leave").setDescription("Leave your current Trailmark."))
     .addSubcommand((subcommand) => subcommand.setName("list").setDescription("List active Trailmarks."))
     .addSubcommand((subcommand) => subcommand.setName("sessions").setDescription("Show active Trailmark access sessions."))
+    .addSubcommand((subcommand) => subcommand
+      .setName("report")
+      .setDescription("Open a standardized report form for the Trailmark you are visiting.")
+      .addStringOption((option) => option
+        .setName("type")
+        .setDescription("Report format.")
+        .setRequired(true)
+        .addChoices(
+          { name: "General report", value: "General" },
+          { name: "Incident report", value: "Incident" }
+        ))
+      .addStringOption((option) => option.setName("contact").setDescription("Optional contact involved.").setAutocomplete(true))
+      .addStringOption((option) => option.setName("contact_2").setDescription("Optional additional contact.").setAutocomplete(true))
+      .addStringOption((option) => option.setName("contact_3").setDescription("Optional additional contact.").setAutocomplete(true))
+      .addUserOption((option) => option.setName("participant").setDescription("Another Ranger who participated."))
+      .addUserOption((option) => option.setName("participant_2").setDescription("Another participating Ranger."))
+      .addUserOption((option) => option.setName("participant_3").setDescription("Another participating Ranger.")))
     .addSubcommand((subcommand) =>
       subcommand
         .setName("create")
@@ -96,6 +115,15 @@ export const trailmarkCommand: BotCommand = {
     ),
 
   async autocomplete(interaction) {
+    if (interaction.options.getSubcommand() === "report") {
+      const focused = interaction.options.getFocused().toLocaleLowerCase();
+      const contacts = await listContacts();
+      await interaction.respond(contacts
+        .map(({ contact }) => ({ name: `${contact.name} (${contact.hold})`.slice(0, 100), value: contact.id }))
+        .filter((choice) => choice.name.toLocaleLowerCase().includes(focused))
+        .slice(0, 25));
+      return;
+    }
     const focused = interaction.options.getFocused();
     const trailmarks = await findTrailmarksByName(focused);
     await interaction.respond(trailmarks.map((trailmark) => ({ name: `${trailmark.name} (${trailmark.hold})`, value: trailmark.id })));
@@ -108,6 +136,31 @@ export const trailmarkCommand: BotCommand = {
 
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === "report") {
+      if (!canUseTrailmarks(actor)) {
+        throw new UserFacingError("Apprentice or higher is required to leave Trailmark reports.");
+      }
+      const reportType = interaction.options.getString("type", true);
+      if (reportType !== "General" && reportType !== "Incident") {
+        throw new UserFacingError("Choose a valid Trailmark report type.");
+      }
+      const contactIds = ["contact", "contact_2", "contact_3"]
+        .map((name) => interaction.options.getString(name))
+        .filter((id): id is string => Boolean(id));
+      const participantIds = ["participant", "participant_2", "participant_3"]
+        .map((name) => interaction.options.getUser(name)?.id)
+        .filter((id): id is string => Boolean(id));
+      const draft = await createStructuredTrailmarkReportDraft({
+        member: actor,
+        channelId: interaction.channelId,
+        reportType,
+        contactIds,
+        participantDiscordUserIds: participantIds
+      });
+      await interaction.showModal(draft.modal);
+      return;
+    }
 
     if (subcommand === "panel") {
       if (!canCreateTrailmarks(actor)) {

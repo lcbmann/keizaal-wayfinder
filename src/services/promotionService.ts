@@ -1,4 +1,14 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type Guild } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  PermissionFlagsBits,
+  ThreadAutoArchiveDuration,
+  type Guild,
+  type Message,
+  type TextChannel
+} from "discord.js";
 import { env } from "../config/env.js";
 import { MAIN_RANKS, rankAtLeast, type MainRank } from "../config/ranks.js";
 import {
@@ -15,6 +25,10 @@ import { UserFacingError } from "../utils/errors.js";
 import { emojiEmbed, rankEmojiName } from "../utils/guildEmojis.js";
 import { getRangerByDiscordId, getRangerById, promoteRanger } from "./rangerService.js";
 import { refreshFieldNamesBulletin } from "./fieldNameService.js";
+import { getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
+import { roleIdForRank } from "../config/roles.js";
+
+const PROMOTION_CHANNEL_STATE_KEY = "promotion-votes-channel";
 
 export interface EligibleRanger {
   ranger: RangerRow;
@@ -162,13 +176,92 @@ export async function createPromotionVote(params: {
   return data;
 }
 
-export async function attachPromotionVoteMessage(voteId: string, channelId: string, messageId: string): Promise<void> {
+export async function attachPromotionVoteMessage(
+  voteId: string,
+  channelId: string,
+  messageId: string,
+  threadId: string | null = null
+): Promise<void> {
   const { error } = await supabase
     .from("promotion_votes")
-    .update({ channel_id: channelId, message_id: messageId })
+    .update({ channel_id: channelId, message_id: messageId, thread_id: threadId })
     .eq("id", voteId);
 
   assertNoDbError(error, "attach promotion vote message");
+}
+
+export async function getPromotionChannel(guild: Guild): Promise<TextChannel | null> {
+  return getStoredTextChannel(guild, PROMOTION_CHANNEL_STATE_KEY);
+}
+
+export async function configurePromotionChannel(guild: Guild, channel: TextChannel): Promise<number> {
+  await channel.permissionOverwrites.edit(guild.roles.everyone, {
+    ViewChannel: false,
+    ReadMessageHistory: false
+  }, { reason: "Restrict Ranger promotion votes" });
+  await channel.permissionOverwrites.edit(roleIdForRank("Ranger"), {
+    ViewChannel: true,
+    ReadMessageHistory: true,
+    SendMessages: true,
+    SendMessagesInThreads: true
+  }, { reason: "Allow full Rangers to review promotion votes" });
+  await channel.permissionOverwrites.edit(roleIdForRank("Apprentice"), {
+    ViewChannel: false,
+    ReadMessageHistory: false
+  }, { reason: "Keep promotion votes Ranger-only" });
+  await channel.permissionOverwrites.edit(guild.client.user.id, {
+    ViewChannel: true,
+    ReadMessageHistory: true,
+    SendMessages: true,
+    EmbedLinks: true,
+    CreatePublicThreads: true,
+    SendMessagesInThreads: true,
+    ManageThreads: true
+  }, { reason: "Allow Wayfinder to maintain promotion votes" });
+  await saveBotMessageState(PROMOTION_CHANNEL_STATE_KEY, channel.id, []);
+  return repairOpenPromotionVoteMessages(guild);
+}
+
+export async function postPromotionVote(params: {
+  guild: Guild;
+  vote: PromotionVoteRow;
+  mentionRoleIds?: string[];
+}): Promise<Message> {
+  const channel = await getPromotionChannel(params.guild);
+  if (!channel) {
+    throw new UserFacingError("The promotion channel is not configured. A Marshal should run `/promotion setup` first.");
+  }
+  const mentionRoleIds = [...new Set(params.mentionRoleIds ?? [])];
+  const message = await channel.send({
+    ...(mentionRoleIds.length > 0
+      ? {
+          content: mentionRoleIds.map((roleId) => `<@&${roleId}>`).join(" "),
+          allowedMentions: { roles: mentionRoleIds }
+        }
+      : {}),
+    embeds: [await promotionVoteEmbed(params.guild, params.vote)],
+    components: [promotionVoteActionRow(params.vote.id)]
+  });
+  const candidate = await getRangerById(params.vote.candidate_ranger_id);
+  const thread = await message.startThread({
+    name: `Promotion - ${candidate?.discord_display_name ?? candidate?.discord_username ?? params.vote.id.slice(0, 8)}`.slice(0, 100),
+    autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+    reason: "Create promotion vote discussion"
+  });
+  await attachPromotionVoteMessage(params.vote.id, channel.id, message.id, thread.id);
+  return message;
+}
+
+export async function finalizePromotionVoteThread(guild: Guild, vote: PromotionVoteRow): Promise<void> {
+  if (!vote.thread_id) {
+    return;
+  }
+  const thread = await guild.channels.fetch(vote.thread_id).catch(() => null);
+  if (!thread?.isThread()) {
+    return;
+  }
+  await thread.setLocked(true, `Promotion vote ${vote.status}`).catch(() => undefined);
+  await thread.setArchived(true, `Promotion vote ${vote.status}`).catch(() => undefined);
 }
 
 export async function getPromotionVote(id: string): Promise<PromotionVoteRow | null> {
@@ -375,25 +468,59 @@ export async function refreshPromotionVoteMessage(guild: Guild, voteId: string):
 }
 
 export async function refreshOpenPromotionVoteMessages(guild: Guild): Promise<number> {
+  return repairOpenPromotionVoteMessages(guild);
+}
+
+async function repairOpenPromotionVoteMessages(guild: Guild): Promise<number> {
   const votes = await findOpenPromotionVotes();
   let refreshed = 0;
+  const configuredChannel = await getPromotionChannel(guild);
 
   for (const vote of votes) {
+    if (configuredChannel && vote.channel_id !== configuredChannel.id) {
+      await postPromotionVote({ guild, vote });
+      refreshed += 1;
+      continue;
+    }
+
     if (!vote.channel_id || !vote.message_id) {
+      if (configuredChannel) {
+        await postPromotionVote({ guild, vote });
+        refreshed += 1;
+      }
       continue;
     }
 
     const channel = await guild.channels.fetch(vote.channel_id).catch(() => null);
     if (!channel?.isTextBased()) {
+      if (configuredChannel) {
+        await postPromotionVote({ guild, vote });
+        refreshed += 1;
+      }
       continue;
     }
 
     const message = await channel.messages.fetch(vote.message_id).catch(() => null);
     if (!message) {
+      if (configuredChannel) {
+        await postPromotionVote({ guild, vote });
+        refreshed += 1;
+      }
       continue;
     }
 
     await message.edit(await refreshPromotionVoteMessage(guild, vote.id));
+    if (!vote.thread_id) {
+      const candidate = await getRangerById(vote.candidate_ranger_id);
+      const thread = await message.startThread({
+        name: `Promotion - ${candidate?.discord_display_name ?? candidate?.discord_username ?? vote.id.slice(0, 8)}`.slice(0, 100),
+        autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+        reason: "Repair promotion vote discussion"
+      }).catch(() => null);
+      if (thread) {
+        await attachPromotionVoteMessage(vote.id, message.channelId, message.id, thread.id);
+      }
+    }
     refreshed += 1;
   }
 

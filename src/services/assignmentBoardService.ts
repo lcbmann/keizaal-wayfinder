@@ -17,6 +17,8 @@ const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Rang
 const assignmentBoardTitleSuffixes = [
   "Ranger Corps Leadership",
   "Ranger Corps Quartermasters",
+  "Rangers of the Holds",
+  "Local Wardens",
   "Ranger Corps Wardens",
   "Ranger Corps Ambassadors",
   "Ranger Corps Agents",
@@ -85,7 +87,9 @@ function assignmentsEmbeds(
   const quartermasters = dutyAssignments
     .filter(({ duty }) => duty.name === "Quartermaster")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  const wardens = dutyAssignments.filter(({ duty }) => duty.name === "Warden");
+  const wardens = dutyAssignments.filter(({ duty, ranger }) => duty.name === "Warden" && ranger.status === "Active");
+  const holdRangers = wardens.filter(({ assignment }) => assignment.warden_scope === "hold_primary");
+  const localWardens = wardens.filter(({ assignment }) => assignment.warden_scope === "local_range");
   const agents = dutyAssignments
     .filter(({ duty }) => duty.name === "Agent")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
@@ -105,9 +109,18 @@ function assignmentsEmbeds(
     });
   }
 
-  const wardensEmbed = emojiEmbed(guild, "warden", "Ranger Corps Wardens")
-    .setDescription("Rangers entrusted with the safety and oversight of a Hold or another designated Range.")
+  const holdRangersEmbed = emojiEmbed(guild, "warden", "Rangers of the Holds")
+    .setDescription(
+      "The primary Ranger representatives entrusted to know their Hold, coordinate its operations, and serve as the Corps' first point of contact there."
+    )
     .setColor(0x587c4a)
+    .setTimestamp(new Date());
+
+  const localWardensEmbed = emojiEmbed(guild, "warden", "Local Wardens")
+    .setDescription(
+      "Wardens responsible for a town, road, lake, or other local Range under the Ranger of its parent Hold."
+    )
+    .setColor(0x456b50)
     .setTimestamp(new Date());
 
   const quartermastersEmbed = emojiEmbed(guild, "quartermaster", "Ranger Corps Quartermasters")
@@ -122,25 +135,36 @@ function assignmentsEmbeds(
     .setTimestamp(new Date());
 
   for (const hold of HOLDS) {
-    const assigned = sortedRangers.filter((ranger) => ranger.assigned_hold === hold);
-    wardensEmbed.addFields({
-      name: hold,
-      value: assigned.length ? truncateField(assigned.map((ranger) => formatAssignmentRanger(guild, ranger)).join("\n")) : "None assigned."
+    const assigned = holdRangers
+      .filter(({ assignment }) => assignment.parent_hold === hold)
+      .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
+    holdRangersEmbed.addFields({
+      name: `Ranger of ${hold}`,
+      value: assigned.length
+        ? truncateField(assigned.map(({ ranger }) => formatAssignmentRanger(guild, ranger)).join("\n"))
+        : "None appointed."
     });
   }
 
-  const assignedHoldRangerIds = new Set(rangers
-    .filter((ranger) => ranger.assigned_hold)
-    .map((ranger) => ranger.id));
-  const otherWardens = wardens
-    .filter(({ ranger }) => !assignedHoldRangerIds.has(ranger.id))
-    .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  wardensEmbed.addFields({
-    name: "Other Ranges",
-    value: otherWardens.length
-      ? truncateField(otherWardens.map((details) => formatDutyAssignment(guild, details)).join("\n"))
-      : "None assigned."
-  });
+  for (const hold of HOLDS) {
+    const assigned = localWardens
+      .filter(({ assignment }) => assignment.parent_hold === hold)
+      .sort((a, b) => {
+        const rangeComparison = (a.assignment.assignment_detail ?? "")
+          .localeCompare(b.assignment.assignment_detail ?? "");
+        return rangeComparison || compareRangersForDisplay(a.ranger, b.ranger);
+      });
+    if (!assigned.length) {
+      continue;
+    }
+    localWardensEmbed.addFields({
+      name: hold,
+      value: truncateField(assigned.map((details) => formatLocalWarden(guild, details)).join("\n"))
+    });
+  }
+  if (!localWardens.length) {
+    localWardensEmbed.addFields({ name: "Current appointments", value: "None appointed." });
+  }
 
   const agentsEmbed = emojiEmbed(guild, "agent", "Ranger Corps Agents")
     .setDescription("Rangers tasked with investigations, gathering testimony, and preserving evidence.")
@@ -192,7 +216,15 @@ function assignmentsEmbeds(
     )
     .setTimestamp(new Date());
 
-  return [leadershipEmbed, quartermastersEmbed, wardensEmbed, ambassadorsEmbed, agentsEmbed, apprenticeshipsEmbed];
+  return [
+    leadershipEmbed,
+    quartermastersEmbed,
+    holdRangersEmbed,
+    localWardensEmbed,
+    ambassadorsEmbed,
+    agentsEmbed,
+    apprenticeshipsEmbed
+  ];
 }
 
 function rankEmojiForBoard(rank: MainRank): "rangercommander" | "rangercaptain" | "rangermarshal" {
@@ -215,6 +247,11 @@ function formatApprenticeship({ apprenticeship }: ApprenticeshipDetails): string
 function formatDutyAssignment(guild: Guild, { assignment, ranger }: DutyAssignmentDetails): string {
   const detail = assignment.assignment_detail ? ` - ${assignment.assignment_detail}` : "";
   return `${formatAssignmentRanger(guild, ranger)}${detail}`;
+}
+
+function formatLocalWarden(guild: Guild, details: DutyAssignmentDetails): string {
+  const range = details.assignment.assignment_detail ?? "Unspecified Range";
+  return `**Warden of ${range}:** ${formatAssignmentRanger(guild, details.ranger)}`;
 }
 
 function formatAssignmentRanger(guild: Guild, ranger: RangerRow): string {

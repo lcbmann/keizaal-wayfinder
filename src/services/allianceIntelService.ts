@@ -28,7 +28,6 @@ import { matchingIntelTopics } from "../utils/intelKeywords.js";
 import { allyReportsChannelName, emojiChannelName, emojiTitle, intelReportChannelName, intelTopicEmojiName } from "../utils/guildEmojis.js";
 import { slugify } from "../utils/slugs.js";
 import { createTrailmark, deactivateTrailmark } from "./trailmarkService.js";
-import { atlasReportFieldValue } from "./atlasService.js";
 
 const MAX_DESCRIPTION_LENGTH = 4000;
 const ALLIANCE_REPORT_BACKFILL_DAYS = 7;
@@ -1168,10 +1167,6 @@ async function headquartersReportEmbed(
     )
     .setColor(0x4f6f91)
     .setTimestamp(new Date(report.created_at));
-  const atlasField = atlasReportFieldValue(report.atlas_summary, report.atlas_share_code);
-  if (atlasField) {
-    embed.addFields({ name: "Atlas Share", value: atlasField, inline: false });
-  }
   return embed;
 }
 

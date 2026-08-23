@@ -148,7 +148,7 @@ async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Me
 function strongboxDropTopic(): string {
   return [
     "Private submissions to Ranger Marshal+. Member messages are forwarded and removed; Marshal+ messages remain as notices.",
-    "Duties: /duty volunteer, /duty withdraw.",
+    "Applications: /application apply, /application withdraw.",
     "Apprenticeships: /apprenticeship looking-for, /apprenticeship withdraw-looking, /apprenticeship propose, /apprenticeship sponsor, /apprenticeship info, /apprenticeship end."
   ].join(" ");
 }
@@ -181,8 +181,8 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
         value: [
           `**Ranger+ only:** ${roleLabel(guild, "quartermaster", "Quartermaster")}, ${roleLabel(guild, "warden", "Warden")}, ${roleLabel(guild, "agent", "Agent")}, and ${roleLabel(guild, "ambassador", "Ambassador")}.`,
           `**Apprentice+:** ${roleLabel(guild, "craftsman", "Craftsman")} and ${roleLabel(guild, "courier", "Courier")}.`,
-          "`/duty volunteer` - Apply for Quartermaster, Craftsman, Warden, Agent, Courier, or Ambassador.",
-          "`/duty withdraw` - Withdraw a pending duty application."
+          "`/application apply` - Apply for a duty, a primary Ranger of a Hold appointment, a local Warden Range, or eligible leadership consideration.",
+          "`/application withdraw` - Withdraw one of your pending applications."
         ].join("\n")
       },
       {

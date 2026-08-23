@@ -7,9 +7,10 @@ Keizaal Wayfinder is a TypeScript Discord bot for the Ranger Corps of Skyrim, an
 - Slash commands for roster management, Trailmarks, promotion votes, exports, recruitment, and health checks.
 - Discord role sync for cumulative Ranger rank roles.
 - Senior Ranger is preserved as a separate recognition role and is not treated as a main rank.
-- Private Trailmark channels with temporary per-user access.
-- Promotion votes with buttons and manual approval or denial.
-- Database-backed Corps duties with private applications, Marshal review, and Discord role sync.
+- Private Trailmark channels with temporary access and optional standardized report forms.
+- Ranger-only promotion posts with voting buttons, discussion threads, and manual approval or denial.
+- Database-backed Corps duties and leadership applications with routed review threads and Discord role sync.
+- Primary Rangers of each Hold plus local Warden appointments beneath a parent Hold.
 - Voluntary Ranger-Apprentice pairings with matching requests, consent, and sponsored-recruit review.
 - One private discussion thread per Strongbox entry.
 - Lightweight activity tracking without storing message content.
@@ -115,6 +116,8 @@ The migration creates:
 - `corps_duties`
 - `duty_applications`
 - `ranger_duty_assignments`
+- `structured_trailmark_reports`
+- `structured_report_contact_forwards`
 - `corps_medals`
 - `ranger_medal_awards`
 - `historical_corps_members`
@@ -138,9 +141,7 @@ The migration creates:
 - `alliance_headquarters_deliveries`
 - `alliance_headquarters_publications`
 
-It also creates enum types, update triggers, indexes, the Trailmark pinned flag, a partial unique index enforcing one active Trailmark session per Discord user, intel catchall topic state, and Atlas summary columns for intel reports.
-
-Atlas remote share previews also expect the Supabase RPC `get_atlas_share(share_code text)` to exist. The current Ranger Corps Supabase project has that RPC; new database projects must provide the same function or remote Atlas share-code previews will be skipped.
+It also creates enum types, update triggers, indexes, the Trailmark pinned flag, a partial unique index enforcing one active Trailmark session per Discord user, and intel catchall topic state.
 
 ## Commands
 
@@ -200,8 +201,11 @@ Implemented commands:
 - `/trailmark deactivate`
 - `/trailmark set-atlas`
 - `/trailmark clear-atlas`
+- `/trailmark report`
 - `/atlas link`
+- `/promotion setup`
 - `/promotion eligible`
+- `/promotion status`
 - `/promotion open`
 - `/promotion close`
 - `/promotion approve`
@@ -230,13 +234,14 @@ Implemented commands:
 - `/funds monthly`
 - `/strongbox drop`
 - `/strongbox setup`
-- `/duty volunteer`
-- `/duty withdraw`
 - `/duty assign`
 - `/duty remove`
 - `/duty list`
-- `/duty applications`
 - `/duty setup`
+- `/application apply`
+- `/application withdraw`
+- `/application list`
+- `/application setup`
 - `/apprenticeship looking-for`
 - `/apprenticeship withdraw-looking`
 - `/apprenticeship propose`
@@ -303,6 +308,8 @@ Users visit Trailmarks by selecting one from the bot message posted by `/trailma
 
 `/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, or pinned status. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
 
+Apprentice or higher can use `/trailmark report` while inside an open Trailmark channel. The command opens either a **General** or **Incident** Discord form and can link up to three existing contacts plus three participating Rangers. Submission posts one visible, standardized report card in that Trailmark and passes its full text through the same Intel keyword and catchall flow as an ordinary message. Reports linked to contacts are copied into those contacts' Forum threads only after the report reaches Corps Headquarters; reports written at Headquarters are eligible immediately.
+
 `/atlas link` creates a ten-minute code for the member to enter under **Link Discord** in the Atlas. After the Atlas device is linked, opening an Atlas location that has a matching active Trailmark creates a pending Discord access request. Wayfinder polls those requests every five seconds, verifies the linked Discord member still has Apprentice-or-higher Trailmark access, opens the matching Trailmark channel for the configured duration, and runs the same Intel capture and HQ delivery flow as the Discord dropdown.
 
 After a linked member records a visit, the Atlas can also queue a **Leave Drop** message for that Trailmark. Wayfinder verifies the member and Trailmark again, posts the message into the matching private channel under an Atlas field-drop embed, and routes the submitted text through the same Intel keyword/catchall categories as ordinary Trailmark messages. Non-HQ drops still follow the normal delivery step before appearing in public Intel bulletins. The Trailmark channel itself remains private: another Ranger must open that Trailmark through the Discord panel to read it. Apply Ranger Map migrations `202607300001_create_atlas_trailmark_visits.sql`, `202607300002_fix_atlas_trailmark_visit_conflict.sql`, `202607300003_create_atlas_overwatch_and_trailmark_drops.sql`, and `202607300004_track_atlas_trailmark_departures.sql` to the shared Supabase project before using these bridges.
@@ -315,11 +322,18 @@ After deploying the threaded Strongbox update, run `/strongbox setup` once to ad
 
 ## Corps Duties
 
-Run migrations `012_create_duties_and_apprenticeships.sql`, `023_add_ambassador_duty.sql`, and `033_rename_detective_to_agent.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Agent, Courier, and Ambassador roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Agent, and Ambassador are Ranger+ duties; Craftsman and Courier are available to Apprentices+. The Wayfinder bot role must remain above these roles.
+Run migrations `012_create_duties_and_apprenticeships.sql`, `023_add_ambassador_duty.sql`, `033_rename_detective_to_agent.sql`, and `036_rework_applications_promotions_and_wardens.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Agent, Courier, and Ambassador roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Agent, and Ambassador are Ranger+ duties; Craftsman and Courier are available to Apprentices+. The Wayfinder bot role must remain above these roles.
 
-Apprentice or higher can run `/duty volunteer` in any accessible channel. The application appears as a review card in the Marshal-only Strongbox and receives its own discussion thread. Marshal+ approves or denies it using the card buttons. Approval records the assignment and grants the corresponding Discord role. Multiple active Quartermasters are supported. Warden applications and assignments require a free-text Range; this will later be replaced by the Atlas-backed Range model.
+`/application apply` replaces `/duty volunteer`. Applicants can choose a normal duty, **Ranger of a Hold**, **Local Warden**, **Ranger Marshal**, or **Ranger Captain**. Normal duty and local Warden applications go to the Marshal Strongbox. Marshal applications go to the configured Marshal channel, while Captain applications go to the configured Captain channel. Every application gets its own discussion thread. Run `/application setup` once as Commander to store those two leadership review channels.
 
-Marshal+ can use `/duty assign` and `/duty remove` for direct administration, `/duty applications` to find pending review threads, and `/duty setup` to repair missing roles. `/duty list` is available to Corps members, and active duties also appear in `/ranger info`. Applicants can use `/duty withdraw` while an application is still pending.
+Approval of a duty application records the assignment and grants the duty role. Approval of a Marshal or Captain application opens a promotion vote rather than assigning the rank directly. Applicants use `/application withdraw`; Marshal+ uses `/application list`. Marshal+ can still use `/duty assign` and `/duty remove` for direct administration, while primary Hold appointments require Captain+. `/duty list` is available to Corps members, and active duties also appear in `/ranger info`.
+
+All Hold representatives remain Wardens, but Wayfinder distinguishes their appointments:
+
+- **Ranger of [Hold]** is the one primary, selective representative responsible for coordinating that Hold. Only one may be active per Hold, and one Ranger may hold only one such primary appointment.
+- **Warden of [Local Range]** covers a town, road, lake, or similar area under a parent Hold. A Ranger may hold multiple distinct local appointments.
+
+When a Ranger becomes Inactive or Retired, leaves the server, or is cleaned up with `/ranger retire-left`, Wayfinder ends their active duties and removes their Hold appointment. Use `/ranger set-hold` and `/ranger clear-hold` for primary Hold appointments; use `/duty assign` and `/duty remove` for local Wardens.
 
 ## Ranger Contacts
 
@@ -367,7 +381,6 @@ Trailmark intel topics collect delivered reports from Trailmark channels into pu
 
 When a message is posted in an active Trailmark channel, Wayfinder checks it against active intel topic keywords. Matching messages are stored as pending reports. A pending report is published only after a Ranger opens that source Trailmark after the report was written and later opens the configured HQ Trailmark. HQ-origin reports are published immediately. Bulletins are rebuilt in original report chronology and include the original reporter, source Trailmark, report time, original link, and the Ranger who delivered it to HQ. Topic-specific report embeds use the matching category emoji in their titles; Ally Reports use the teamwork emoji.
 
-Atlas share codes in Trailmark messages get a preview reply when Wayfinder can decode them. Intel reports also store Atlas summary metadata and include an Atlas Share field in the report embed.
 
 `/intel backfill` scans old Trailmark messages into the current intel topics. It scans current Trailmark channels and the archived legacy `#trailmarks` forum (`1511443716420800673`), mapping forum thread names such as `Morthal Stash` to current Trailmarks where possible. Historical delivery mode uses existing `trailmark_sessions.created_at` records to publish reports when the same Ranger opened the source Trailmark after the report and later opened HQ. Reports without a historical delivery path remain pending for future delivery. Use `after` and `limit_per_trailmark` to keep scans bounded.
 
@@ -405,7 +418,7 @@ When a rostered member leaves the Discord, Wayfinder marks their roster entry Re
 
 ## Promotion Voting
 
-Ranger Marshal or higher can open and close promotion votes. Ranger or higher can vote on Apprentice to Ranger votes. Higher target ranks require Ranger Marshal or higher to vote. Votes stay open until manually closed, and final approval or denial is manual.
+Create a dedicated Ranger-only text channel, then run `/promotion setup` once as Marshal+. Wayfinder applies Ranger-only visibility, stores the destination, moves or repairs open vote posts there, and creates one discussion thread for each vote. Ranger Marshal or higher can open and close promotion votes. Ranger or higher can vote on Apprentice to Ranger votes. Higher target ranks require Ranger Marshal or higher to vote. Votes stay open until manually closed, and final approval or denial is manual.
 
 Marshal+ can use `/promotion status` to mark an Apprentice as `In Field Trial`, `On Hold`, or clear the progress status. `/promotion eligible` shows these as separate sections alongside Ready for Review and Not Yet Ready. Promotion approval clears the progress status automatically.
 
@@ -413,7 +426,7 @@ Approving a vote promotes the candidate through the same service used by `/range
 
 ## Assignment Board
 
-`/ranger assignments` posts six persistent Ranger Corps messages for Leadership, Quartermasters, Wardens, Ambassadors, Agents, and Apprenticeships. The board includes every Ranger+ duty; Craftsman and Courier assignments are intentionally omitted. The Apprenticeship message shows active pairings and members looking for a mentor or Apprentice. Wayfinder remembers and replaces the set together after relevant roster, duty, or apprenticeship changes. Assigning a hold also assigns the Warden duty and role; run `/ranger sync-hold-roles` once to backfill existing hold assignments.
+`/ranger assignments` posts seven persistent Ranger Corps messages for Leadership, Quartermasters, Rangers of the Holds, Local Wardens, Ambassadors, Agents, and Apprenticeships. The Hold message shows the single primary **Ranger of [Hold]** for each Hold. Local Wardens are grouped beneath their parent Hold and shown as **Warden of [Range]**. The board includes every Ranger+ duty; Craftsman and Courier assignments are intentionally omitted. The Apprenticeship message shows active pairings and members looking for a mentor or Apprentice. Wayfinder remembers and replaces the set together after relevant roster, duty, or apprenticeship changes.
 
 ## Deployment
 

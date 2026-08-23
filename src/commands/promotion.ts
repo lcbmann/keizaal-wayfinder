@@ -1,18 +1,18 @@
-import { EmbedBuilder, SlashCommandBuilder, type Guild } from "discord.js";
+import { ChannelType, EmbedBuilder, SlashCommandBuilder, type Guild, type TextChannel } from "discord.js";
 import { MAIN_RANKS, isMainRank } from "../config/ranks.js";
 import { env } from "../config/env.js";
 import {
   approvePromotionVote,
-  attachPromotionVoteMessage,
   closePromotionVote,
+  configurePromotionChannel,
   createPromotionVote,
   denyPromotionVote,
+  finalizePromotionVoteThread,
   findRecentPromotionVotes,
   getPromotionVote,
   listPromotionBallotsWithVoters,
   listApprenticePromotionEligibility,
-  promotionVoteActionRow,
-  promotionVoteEmbed,
+  postPromotionVote,
   refreshPromotionVoteMessage,
   setPromotionProgress,
   type EligibleRanger,
@@ -30,6 +30,14 @@ export const promotionCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("promotion")
     .setDescription("Promotion eligibility and voting.")
+    .addSubcommand((subcommand) => subcommand
+      .setName("setup")
+      .setDescription("Marshal+: configure the Ranger-only promotion channel.")
+      .addChannelOption((option) => option
+        .setName("channel")
+        .setDescription("Channel where promotion votes and discussion threads are posted.")
+        .setRequired(true)
+        .addChannelTypes(ChannelType.GuildText)))
     .addSubcommand((subcommand) => subcommand.setName("eligible").setDescription("Show promotion readiness, field-trial, and hold statuses."))
     .addSubcommand((subcommand) =>
       subcommand
@@ -120,10 +128,25 @@ export const promotionCommand: BotCommand = {
     }
 
     const subcommand = interaction.options.getSubcommand();
-    if (subcommand === "approve" || subcommand === "eligible" || subcommand === "status") {
-      await interaction.deferReply({ ephemeral: subcommand === "eligible" || subcommand === "status" });
+    if (["approve", "eligible", "status", "open", "setup"].includes(subcommand)) {
+      await interaction.deferReply({ ephemeral: subcommand !== "approve" });
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
+
+    if (subcommand === "setup") {
+      if (!canOpenPromotionVotes(actor)) {
+        throw new UserFacingError("Ranger Marshal or higher is required.");
+      }
+      const channel = interaction.options.getChannel("channel", true);
+      if (channel.type !== ChannelType.GuildText) {
+        throw new UserFacingError("Choose a standard text channel for promotion votes.");
+      }
+      const repaired = await configurePromotionChannel(interaction.guild, channel as TextChannel);
+      await interaction.editReply({
+        content: `Promotion votes will now be posted in ${channel}. Repaired or moved **${repaired}** open vote${repaired === 1 ? "" : "s"}.`
+      });
+      return;
+    }
 
     if (subcommand === "status") {
       if (!canOpenPromotionVotes(actor)) {
@@ -190,18 +213,12 @@ export const promotionCommand: BotCommand = {
         .map((optionName) => interaction.options.getRole(optionName)?.id)
         .filter((roleId): roleId is string => Boolean(roleId));
       const uniqueMentionRoleIds = [...new Set(mentionRoleIds)];
-      const message = await interaction.reply({
-        ...(uniqueMentionRoleIds.length > 0
-          ? {
-              content: uniqueMentionRoleIds.map((roleId) => `<@&${roleId}>`).join(" "),
-              allowedMentions: { roles: uniqueMentionRoleIds }
-            }
-          : {}),
-        embeds: [await promotionVoteEmbed(interaction.guild, vote)],
-        components: [promotionVoteActionRow(vote.id)],
-        fetchReply: true
+      const message = await postPromotionVote({
+        guild: interaction.guild,
+        vote,
+        mentionRoleIds: uniqueMentionRoleIds
       });
-      await attachPromotionVoteMessage(vote.id, message.channelId, message.id);
+      await interaction.editReply({ content: `Opened the promotion vote in ${message.channel}.` });
       return;
     }
 
@@ -211,7 +228,9 @@ export const promotionCommand: BotCommand = {
       }
 
       const result = await closePromotionVote(interaction.options.getString("vote", true));
-      await interaction.reply({ content: `Promotion vote closed.\n${result.summary}` });
+      await interaction.reply({ content: `Promotion vote closed.\n${result.summary}`, ephemeral: true });
+      await editPromotionVoteMessage(interaction.guild, result.vote.id);
+      await finalizePromotionVoteThread(interaction.guild, result.vote);
       return;
     }
 
@@ -231,6 +250,7 @@ export const promotionCommand: BotCommand = {
         embeds: [promotionApprovalEmbed(interaction.guild, result.promoted, result.previousRank, result.vote, ballots)],
         allowedMentions: { users: [result.promoted.discord_user_id] }
       });
+      await finalizePromotionVoteThread(interaction.guild, result.vote);
       void Promise.allSettled([
         refreshStoredAssignmentsBoard(interaction.guild),
         editPromotionVoteMessage(interaction.guild, result.vote.id)
@@ -249,8 +269,14 @@ export const promotionCommand: BotCommand = {
         throw new UserFacingError("Ranger Captain or higher is required.");
       }
 
-      await denyPromotionVote(interaction.options.getString("vote", true), interaction.user.id);
-      await interaction.reply({ content: "The promotion was not approved. The vote is now closed." });
+      const voteId = interaction.options.getString("vote", true);
+      await denyPromotionVote(voteId, interaction.user.id);
+      const vote = await getPromotionVote(voteId);
+      await interaction.reply({ content: "The promotion was not approved. The vote is now closed.", ephemeral: true });
+      await editPromotionVoteMessage(interaction.guild, voteId);
+      if (vote) {
+        await finalizePromotionVoteThread(interaction.guild, vote);
+      }
       return;
     }
 

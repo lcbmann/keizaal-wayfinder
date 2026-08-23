@@ -2,15 +2,14 @@ import { SlashCommandBuilder, type GuildMember } from "discord.js";
 import {
   DUTY_NAMES,
   assignDuty,
-  createDutyApplication,
   listActiveDutyAssignments,
-  listPendingDutyApplications,
   removeDuty,
-  setupDutyRoles,
-  withdrawDutyApplication
+  setupDutyRoles
 } from "../services/dutyService.js";
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
-import { canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
+import { HOLDS } from "../config/holds.js";
+import type { WardenScope } from "../db/supabase.js";
+import { canApprovePromotions, canOpenPromotionVotes, canUseTrailmarks } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
 
@@ -19,34 +18,40 @@ const dutyChoices = DUTY_NAMES.map((name) => ({ name, value: name }));
 export const dutyCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("duty")
-    .setDescription("Volunteer for and manage Ranger Corps duties.")
-    .addSubcommand((subcommand) => subcommand
-      .setName("volunteer")
-      .setDescription("Submit a private application for a Corps duty.")
-      .addStringOption((option) => option.setName("duty").setDescription("Duty to volunteer for.").setRequired(true).addChoices(...dutyChoices))
-      .addStringOption((option) => option.setName("reason").setDescription("Why you want to take on this duty.").setRequired(true).setMaxLength(1500))
-      .addStringOption((option) => option.setName("range_or_specialty").setDescription("Required Range for Wardens; optional specialty for Craftsmen.").setMaxLength(200)))
-    .addSubcommand((subcommand) => subcommand
-      .setName("withdraw")
-      .setDescription("Withdraw one of your pending duty applications.")
-      .addStringOption((option) => option.setName("duty").setDescription("Application to withdraw.").setRequired(true).addChoices(...dutyChoices)))
+    .setDescription("Manage active Ranger Corps duties. Use /application apply to volunteer.")
     .addSubcommand((subcommand) => subcommand
       .setName("assign")
       .setDescription("Marshal+: directly assign a Corps duty.")
       .addUserOption((option) => option.setName("member").setDescription("Ranger receiving the duty.").setRequired(true))
       .addStringOption((option) => option.setName("duty").setDescription("Duty to assign.").setRequired(true).addChoices(...dutyChoices))
-      .addStringOption((option) => option.setName("range_or_specialty").setDescription("Required Range for Wardens; optional specialty for Craftsmen.").setMaxLength(200)))
+      .addStringOption((option) => option
+        .setName("warden_position")
+        .setDescription("Required when assigning Warden.")
+        .addChoices(
+          { name: "Ranger of a Hold (primary Warden)", value: "hold_primary" },
+          { name: "Local Warden", value: "local_range" }
+        ))
+      .addStringOption((option) => option.setName("hold").setDescription("Parent Hold for a Warden appointment.").addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold }))))
+      .addStringOption((option) => option.setName("range_or_specialty").setDescription("Local Warden Range or optional Craftsman specialty.").setMaxLength(200)))
     .addSubcommand((subcommand) => subcommand
       .setName("remove")
       .setDescription("Marshal+: remove a Corps duty.")
       .addUserOption((option) => option.setName("member").setDescription("Ranger losing the duty.").setRequired(true))
       .addStringOption((option) => option.setName("duty").setDescription("Duty to remove.").setRequired(true).addChoices(...dutyChoices))
+      .addStringOption((option) => option
+        .setName("warden_position")
+        .setDescription("Use when the Ranger has multiple Warden appointments.")
+        .addChoices(
+          { name: "Ranger of a Hold (primary Warden)", value: "hold_primary" },
+          { name: "Local Warden", value: "local_range" }
+        ))
+      .addStringOption((option) => option.setName("hold").setDescription("Parent Hold of the Warden appointment.").addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold }))))
+      .addStringOption((option) => option.setName("range").setDescription("Named local Range to remove.").setMaxLength(200))
       .addStringOption((option) => option.setName("reason").setDescription("Optional removal reason.").setMaxLength(500)))
     .addSubcommand((subcommand) => subcommand
       .setName("list")
       .setDescription("List current Corps duty holders.")
       .addStringOption((option) => option.setName("duty").setDescription("Limit the list to one duty.").addChoices(...dutyChoices)))
-    .addSubcommand((subcommand) => subcommand.setName("applications").setDescription("Marshal+: list pending duty applications."))
     .addSubcommand((subcommand) => subcommand.setName("setup").setDescription("Marshal+: create or repair Corps duty roles.")),
 
   async execute(interaction) {
@@ -55,37 +60,6 @@ export const dutyCommand: BotCommand = {
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     const subcommand = interaction.options.getSubcommand();
-
-    if (subcommand === "volunteer") {
-      requireCorpsMember(actor);
-      await interaction.deferReply({ ephemeral: true });
-      const details = await createDutyApplication({
-        guild: interaction.guild,
-        applicantDiscordUserId: interaction.user.id,
-        dutyName: interaction.options.getString("duty", true),
-        reason: interaction.options.getString("reason", true).trim(),
-        assignmentDetail: interaction.options.getString("range_or_specialty")
-      });
-      await interaction.editReply({
-        content: `You place your application to serve as ${details.duty.name} in the HQ Strongbox. A Marshal will review it.`
-      });
-      return;
-    }
-
-    if (subcommand === "withdraw") {
-      requireCorpsMember(actor);
-      const dutyName = interaction.options.getString("duty", true);
-      const withdrawn = await withdrawDutyApplication({
-        guild: interaction.guild,
-        discordUserId: interaction.user.id,
-        dutyName
-      });
-      await interaction.reply({
-        content: withdrawn ? `You withdraw your application to serve as ${dutyName}.` : `No pending ${dutyName} application was found.`,
-        ephemeral: true
-      });
-      return;
-    }
 
     if (subcommand === "list") {
       requireCorpsMember(actor);
@@ -108,15 +82,6 @@ export const dutyCommand: BotCommand = {
       return;
     }
 
-    if (subcommand === "applications") {
-      const applications = await listPendingDutyApplications();
-      const lines = applications.map(({ application, applicant, duty }) =>
-        `<@${applicant.discord_user_id}> - **${duty.name}**${application.strongbox_thread_id ? ` - <#${application.strongbox_thread_id}>` : ""}`
-      );
-      await interaction.reply({ content: lines.length ? lines.join("\n") : "There are no pending duty applications.", ephemeral: true });
-      return;
-    }
-
     const member = interaction.options.getMember("member");
     if (!member) {
       throw new UserFacingError("That member is not available in this server.");
@@ -124,15 +89,26 @@ export const dutyCommand: BotCommand = {
     const dutyName = interaction.options.getString("duty", true);
 
     if (subcommand === "assign") {
+      const wardenScope = interaction.options.getString("warden_position") as WardenScope | null;
+      if (dutyName === "Warden" && wardenScope === "hold_primary" && !canApprovePromotions(actor)) {
+        throw new UserFacingError("Ranger Captain or higher is required to appoint the primary Ranger of a Hold.");
+      }
       await interaction.deferReply({ ephemeral: true });
       const result = await assignDuty({
         guild: interaction.guild,
         rangerDiscordUserId: member.id,
         dutyName,
         assignmentDetail: interaction.options.getString("range_or_specialty"),
-        assignedByDiscordUserId: interaction.user.id
+        assignedByDiscordUserId: interaction.user.id,
+        wardenScope,
+        parentHold: interaction.options.getString("hold")
       });
-      await interaction.editReply({ content: `Assigned ${result.duty.name} to ${member}.` });
+      const appointment = result.assignment.warden_scope === "hold_primary"
+        ? `Ranger of ${result.assignment.parent_hold}`
+        : result.assignment.warden_scope === "local_range"
+          ? `Warden of ${result.assignment.assignment_detail}`
+          : result.duty.name;
+      await interaction.editReply({ content: `Assigned **${appointment}** to ${member}.` });
       await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
         console.error("Failed to refresh assignments board after duty assignment:", error);
       });
@@ -146,7 +122,10 @@ export const dutyCommand: BotCommand = {
         rangerDiscordUserId: member.id,
         dutyName,
         removedByDiscordUserId: interaction.user.id,
-        reason: interaction.options.getString("reason")
+        reason: interaction.options.getString("reason"),
+        wardenScope: interaction.options.getString("warden_position") as WardenScope | null,
+        parentHold: interaction.options.getString("hold"),
+        assignmentDetail: interaction.options.getString("range")
       });
       await interaction.editReply({ content: result ? `Removed ${result.duty.name} from ${member}.` : `${member} does not hold ${dutyName}.` });
       await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {

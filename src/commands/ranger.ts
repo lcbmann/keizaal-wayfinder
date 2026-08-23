@@ -24,13 +24,15 @@ import {
   syncMemberToRoster,
   updateRangerNotes
 } from "../services/rangerService.js";
-import { clearMemberHoldRole, setMemberHoldRole, syncAssignedHoldRoles } from "../services/holdRoleService.js";
+import { syncAssignedHoldRoles } from "../services/holdRoleService.js";
 import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
 import {
   ensureWardenDutyForHold,
+  endActiveDutyAssignmentsForRanger,
   listActiveDutyAssignments,
+  removeDuty,
   syncHoldWardenAssignments
 } from "../services/dutyService.js";
 import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
@@ -112,7 +114,7 @@ export const rangerCommand: BotCommand = {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("clear-hold")
-        .setDescription("Remove a hold assignment by Discord user ID, including for departed members.")
+        .setDescription("Captain+: remove a Ranger of a Hold appointment, including for departed members.")
         .addStringOption((option) =>
           option
             .setName("discord_user_id")
@@ -122,28 +124,19 @@ export const rangerCommand: BotCommand = {
             .setMaxLength(20)
         )
     )
-    .addSubcommand((subcommand) => {
+    .addSubcommand((subcommand) =>
       subcommand
         .setName("set-hold")
-        .setDescription("Set or remove assigned holds for one or more Rangers.")
-        .addUserOption((option) => option.setName("user").setDescription("Member to update.").setRequired(true))
+        .setDescription("Captain+: appoint the primary Ranger of a Hold.")
+        .addUserOption((option) => option.setName("user").setDescription("Ranger to appoint.").setRequired(true))
         .addStringOption((option) =>
           option
             .setName("hold")
-            .setDescription("Assigned hold.")
+            .setDescription("Hold they will represent and coordinate.")
             .setRequired(true)
-            .addChoices(
-              { name: "Unassigned", value: "__unassigned__" },
-              ...HOLDS.map((hold) => ({ name: hold, value: hold }))
-            )
-        );
-      for (let index = 2; index <= 10; index += 1) {
-        subcommand.addUserOption((option) =>
-          option.setName(`user_${index}`).setDescription(`Additional member ${index}.`)
-        );
-      }
-      return subcommand;
-    })
+            .addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold })))
+        )
+    )
     .addSubcommand((subcommand) =>
       subcommand.setName("sync-hold-roles").setDescription("Create and sync assigned hold roles for the current roster.")
     )
@@ -202,7 +195,7 @@ export const rangerCommand: BotCommand = {
       const duties = dutyEntries
         .filter((entry) => entry.ranger.id === ranger.id)
         .map((entry) => entry.duty.name === "Warden" && entry.assignment.assignment_detail
-          ? formatWardenDuty(entry.assignment.assignment_detail, ranger.assigned_hold)
+          ? formatWardenDuty(entry.assignment.assignment_detail, entry.assignment.warden_scope)
           : entry.duty.name);
       const roleMedals = member
         ? listDiscordRoleMedals(member).map(({ label, emojiName, rolePosition }) => ({
@@ -334,7 +327,17 @@ export const rangerCommand: BotCommand = {
       const status = interaction.options.getString("status", true) as RangerStatus;
       await interaction.deferReply({ ephemeral: true });
       const ranger = await setRangerStatus(user.id, status);
-      await interaction.editReply({ content: `Set ${user} to ${ranger.status}.` });
+      const endedDuties = status === "Inactive" || status === "Retired"
+        ? await endActiveDutyAssignmentsForRanger({
+            guild: interaction.guild,
+            rangerDiscordUserId: user.id,
+            endedByDiscordUserId: interaction.user.id,
+            reason: `Roster status changed to ${status}`
+          })
+        : 0;
+      await interaction.editReply({
+        content: `Set ${user} to ${ranger.status}.${endedDuties ? ` Ended ${endedDuties} active duty assignment${endedDuties === 1 ? "" : "s"}.` : ""}`
+      });
       await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
         console.error("Failed to refresh assignments board after Ranger status change:", error);
       });
@@ -355,80 +358,63 @@ export const rangerCommand: BotCommand = {
         return;
       }
 
+      const endedDuties = await endActiveDutyAssignmentsForRanger({
+        guild: interaction.guild,
+        rangerDiscordUserId: discordUserId,
+        endedByDiscordUserId: interaction.user.id,
+        reason: "Ranger left the Discord and was retired"
+      });
       await refreshStoredAssignmentsBoard(interaction.guild);
       await interaction.editReply({
-        content: `Set ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} to Retired.`
+        content: `Set ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} to Retired.` +
+          (endedDuties ? ` Ended ${endedDuties} active duty assignment${endedDuties === 1 ? "" : "s"}.` : "")
       });
       return;
     }
 
     if (subcommand === "clear-hold") {
-      requireMarshal(actor);
+      if (!canManageAll(actor)) {
+        throw new UserFacingError("Ranger Captain or higher is required to remove a Ranger of a Hold appointment.");
+      }
+      await interaction.deferReply({ ephemeral: true });
       const discordUserId = interaction.options.getString("discord_user_id", true).trim();
       if (!/^\d{17,20}$/u.test(discordUserId)) {
         throw new UserFacingError("Discord user ID must be a numeric snowflake.");
       }
 
+      const removed = await removeDuty({
+        guild: interaction.guild,
+        rangerDiscordUserId: discordUserId,
+        dutyName: "Warden",
+        wardenScope: "hold_primary",
+        removedByDiscordUserId: interaction.user.id,
+        reason: "Ranger of the Hold appointment removed"
+      });
       const ranger = await setRangerHold(discordUserId, null);
       await refreshStoredAssignmentsBoard(interaction.guild);
-      await interaction.reply({
-        content: `Removed the hold assignment from ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId}.`,
-        ephemeral: true
+      await interaction.editReply({
+        content: removed
+          ? `Removed ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} as Ranger of ${removed.assignment.parent_hold ?? removed.assignment.assignment_detail ?? "their Hold"}.`
+          : `${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} had no active Ranger of a Hold appointment; any legacy hold value was cleared.`
       });
       return;
     }
 
     if (subcommand === "set-hold") {
-      if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to set assigned holds.");
+      if (!canManageAll(actor)) {
+        throw new UserFacingError("Ranger Captain or higher is required to appoint the Ranger of a Hold.");
       }
-
-      const users = [interaction.options.getUser("user", true)];
-      for (let index = 2; index <= 10; index += 1) {
-        const user = interaction.options.getUser(`user_${index}`);
-        if (user) {
-          users.push(user);
-        }
-      }
-      if (new Set(users.map((user) => user.id)).size !== users.length) {
-        throw new UserFacingError("Each member can only be included once.");
-      }
-
-      const holdValue = interaction.options.getString("hold", true);
-      const hold = holdValue === "__unassigned__" ? null : holdValue;
-      const members = await Promise.all(users.map((user) =>
-        user.id === interaction.user.id ? actor : interaction.guild.members.fetch(user.id)
-      ));
-      const synced = await Promise.all(members.map((member) => syncMemberToRoster(member, interaction.user.id)));
-      if (synced.some((ranger) => !ranger)) {
-        throw new UserFacingError("Every selected member must have a Ranger rank role.");
-      }
-
-      for (let index = 0; index < users.length; index += 1) {
-        const user = users[index];
-        const member = members[index];
-        if (!user || !member) {
-          throw new UserFacingError("Could not resolve every selected member.");
-        }
-        if (hold) {
-          await ensureWardenDutyForHold({
-            guild: interaction.guild,
-            rangerDiscordUserId: user.id,
-            hold,
-            assignedByDiscordUserId: interaction.user.id
-          });
-          await setRangerHold(user.id, hold);
-          await setMemberHoldRole(member, hold);
-        } else {
-          await setRangerHold(user.id, null);
-          await clearMemberHoldRole(member);
-        }
-      }
-      await interaction.reply({
-        content: hold
-          ? `Set ${users.join(", ")}'s assigned hold to ${hold}.`
-          : `Removed hold assignments from ${users.join(", ")}.`,
-        ephemeral: true
+      await interaction.deferReply({ ephemeral: true });
+      const user = interaction.options.getUser("user", true);
+      const hold = interaction.options.getString("hold", true);
+      await ensureWardenDutyForHold({
+        guild: interaction.guild,
+        rangerDiscordUserId: user.id,
+        hold,
+        assignedByDiscordUserId: interaction.user.id
+      });
+      await interaction.editReply({
+        content: `Appointed ${user} as **Ranger of ${hold}**.`
       });
       await refreshStoredAssignmentsBoard(interaction.guild);
       return;
@@ -568,13 +554,13 @@ function embedListValue(entries: string[], emptyValue: string): string {
   return value.length <= 1024 ? value : `${value.slice(0, 1021)}...`;
 }
 
-function formatWardenDuty(range: string, assignedHold: string | null): string {
+function formatWardenDuty(range: string, scope: "hold_primary" | "local_range" | null): string {
   const normalizedRange = range.trim();
   if (/^(?:ranger|warden)\s+of\s+/iu.test(normalizedRange)) {
     return normalizedRange;
   }
 
-  return `${normalizedRange === assignedHold ? "Ranger" : "Warden"} of ${normalizedRange}`;
+  return `${scope === "hold_primary" ? "Ranger" : "Warden"} of ${normalizedRange}`;
 }
 
 function rangerTitle(rank: string): string {

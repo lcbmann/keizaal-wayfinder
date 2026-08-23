@@ -10,6 +10,10 @@ export type CorpsFundTransactionType = "Donation" | "Expense" | "Adjustment";
 export type SupplyAssignmentStatus = "Active" | "Completed" | "Cancelled";
 export type DutyApplicationStatus = "Pending" | "Approved" | "Denied" | "Withdrawn";
 export type DutyAssignmentStatus = "Active" | "Ended";
+export type CorpsApplicationKind = "Duty" | "Marshal" | "Captain";
+export type WardenScope = "hold_primary" | "local_range";
+export type StructuredTrailmarkReportType = "General" | "Incident";
+export type StructuredTrailmarkReportStatus = "Draft" | "Submitted" | "Cancelled";
 export type ApprenticeshipSeekingType = "Mentor" | "Apprentice";
 export type ApprenticeshipStatus = "Proposed" | "Pending Marshal" | "Active" | "Declined" | "Ended";
 export type FieldNameProposalStatus = "Open" | "Approved" | "Denied" | "Cancelled";
@@ -74,6 +78,7 @@ export interface PromotionVoteRow {
   opened_by_discord_user_id: string;
   message_id: string | null;
   channel_id: string | null;
+  thread_id: string | null;
   final_decision: string | null;
   created_at: string;
   closed_at: string | null;
@@ -147,8 +152,6 @@ export interface IntelReportRow {
   bulletin_channel_id: string | null;
   bulletin_message_id: string | null;
   bulletin_posted_at: string | null;
-  atlas_share_code: string | null;
-  atlas_summary: Json | null;
   author_display_name: string | null;
   source_order: string | null;
   source_alliance_report_id: string | null;
@@ -187,11 +190,17 @@ export interface RankHistoryRow {
 
 export interface DutyApplicationRow {
   id: string;
-  duty_id: string;
+  duty_id: string | null;
   applicant_ranger_id: string;
+  application_kind: CorpsApplicationKind;
+  target_rank: MainRank | null;
   status: DutyApplicationStatus;
   reason: string;
+  experience: string | null;
   assignment_detail: string | null;
+  warden_scope: WardenScope | null;
+  parent_hold: string | null;
+  resulting_promotion_vote_id: string | null;
   reviewed_by_discord_user_id: string | null;
   reviewed_at: string | null;
   strongbox_channel_id: string | null;
@@ -208,12 +217,44 @@ export interface RangerDutyAssignmentRow {
   application_id: string | null;
   status: DutyAssignmentStatus;
   assignment_detail: string | null;
+  warden_scope: WardenScope | null;
+  parent_hold: string | null;
   assigned_by_discord_user_id: string;
   started_at: string;
   ended_at: string | null;
   end_reason: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface StructuredTrailmarkReportRow {
+  id: string;
+  trailmark_id: string;
+  reporter_discord_user_id: string;
+  reporter_display_name: string;
+  report_type: StructuredTrailmarkReportType;
+  status: StructuredTrailmarkReportStatus;
+  subject: string | null;
+  location: string | null;
+  summary: string | null;
+  details: string | null;
+  follow_up: string | null;
+  commendation: string | null;
+  contact_ids: string[];
+  participant_discord_user_ids: string[];
+  discord_channel_id: string | null;
+  discord_message_id: string | null;
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StructuredReportContactForwardRow {
+  report_id: string;
+  contact_id: string;
+  discord_thread_id: string;
+  discord_message_id: string;
+  forwarded_at: string;
 }
 
 export interface CorpsMedalRow {
@@ -579,7 +620,10 @@ export interface Database {
       };
       promotion_votes: {
         Row: PromotionVoteRow;
-        Insert: Omit<PromotionVoteRow, "id" | "created_at" | "closed_at"> & { closed_at?: string | null };
+        Insert: Omit<PromotionVoteRow, "id" | "created_at" | "closed_at" | "thread_id"> & {
+          closed_at?: string | null;
+          thread_id?: string | null;
+        };
         Update: Partial<PromotionVoteRow>;
       };
       promotion_vote_ballots: {
@@ -598,21 +642,47 @@ export interface Database {
       };
       duty_applications: {
         Row: DutyApplicationRow;
-        Insert: Omit<DutyApplicationRow, "id" | "created_at" | "updated_at"> & {
+        Insert: Omit<
+          DutyApplicationRow,
+          "id" | "created_at" | "updated_at" | "application_kind" | "target_rank" | "experience"
+          | "warden_scope" | "parent_hold" | "resulting_promotion_vote_id"
+        > & {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          application_kind?: CorpsApplicationKind;
+          target_rank?: MainRank | null;
+          experience?: string | null;
+          warden_scope?: WardenScope | null;
+          parent_hold?: string | null;
+          resulting_promotion_vote_id?: string | null;
         };
         Update: Partial<DutyApplicationRow>;
       };
       ranger_duty_assignments: {
         Row: RangerDutyAssignmentRow;
-        Insert: Omit<RangerDutyAssignmentRow, "id" | "created_at" | "updated_at"> & {
+        Insert: Omit<RangerDutyAssignmentRow, "id" | "created_at" | "updated_at" | "warden_scope" | "parent_hold"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          warden_scope?: WardenScope | null;
+          parent_hold?: string | null;
+        };
+        Update: Partial<RangerDutyAssignmentRow>;
+      };
+      structured_trailmark_reports: {
+        Row: StructuredTrailmarkReportRow;
+        Insert: Omit<StructuredTrailmarkReportRow, "id" | "created_at" | "updated_at"> & {
           id?: string;
           created_at?: string;
           updated_at?: string;
         };
-        Update: Partial<RangerDutyAssignmentRow>;
+        Update: Partial<StructuredTrailmarkReportRow>;
+      };
+      structured_report_contact_forwards: {
+        Row: StructuredReportContactForwardRow;
+        Insert: Omit<StructuredReportContactForwardRow, "forwarded_at"> & { forwarded_at?: string };
+        Update: never;
       };
       corps_medals: {
         Row: CorpsMedalRow;
@@ -796,15 +866,13 @@ export interface Database {
         Row: IntelReportRow;
         Insert: Omit<
           IntelReportRow,
-          "id" | "bulletin_channel_id" | "bulletin_message_id" | "bulletin_posted_at" | "atlas_share_code" | "atlas_summary"
+          "id" | "bulletin_channel_id" | "bulletin_message_id" | "bulletin_posted_at"
           | "author_display_name" | "source_order" | "source_alliance_report_id"
         > & {
           id?: string;
           bulletin_channel_id?: string | null;
           bulletin_message_id?: string | null;
           bulletin_posted_at?: string | null;
-          atlas_share_code?: string | null;
-          atlas_summary?: Json | null;
           author_display_name?: string | null;
           source_order?: string | null;
           source_alliance_report_id?: string | null;
@@ -900,10 +968,6 @@ export interface Database {
       };
     };
     Functions: {
-      get_atlas_share: {
-        Args: { share_code: string };
-        Returns: Json;
-      };
       create_atlas_discord_link_code: {
         Args: {
           discord_user_id_input: string;

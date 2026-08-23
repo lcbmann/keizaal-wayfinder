@@ -1,4 +1,5 @@
 import type { GuildMember, PartialGuildMember } from "discord.js";
+import { endActiveDutyAssignmentsForRanger } from "../services/dutyService.js";
 import { syncAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
 import { dmNewApprentice, retireDepartedRanger, syncMemberToRoster } from "../services/rangerService.js";
 
@@ -18,5 +19,13 @@ export async function handleMemberUpdate(oldMember: GuildMember | PartialGuildMe
 
 export async function handleMemberRemove(member: GuildMember | PartialGuildMember): Promise<boolean> {
   const retired = await retireDepartedRanger(member.id);
+  if (retired) {
+    await endActiveDutyAssignmentsForRanger({
+      guild: member.guild,
+      rangerDiscordUserId: member.id,
+      endedByDiscordUserId: "system",
+      reason: "Ranger left the Discord and was retired"
+    });
+  }
   return Boolean(retired);
 }

@@ -7,6 +7,7 @@ import {
   type ButtonInteraction,
   type Guild,
   type GuildMember,
+  type Message,
   type ThreadChannel
 } from "discord.js";
 import { HOLDS } from "../config/holds.js";
@@ -330,6 +331,40 @@ export async function refreshActiveContactForumPosts(guild: Guild): Promise<numb
   }
 
   return refreshed;
+}
+
+export async function postLinkedReportToContact(params: {
+  guild: Guild;
+  contactId: string;
+  reportTitle: string;
+  reportSummary: string;
+  sourceChannelId: string;
+  sourceMessageId: string;
+  reporterDisplayName: string;
+  submittedAt: string;
+}): Promise<{ thread: ThreadChannel; message: Message } | null> {
+  const details = await getContactDetails(params.contactId);
+  if (!details?.contact.active) {
+    return null;
+  }
+
+  const thread = await fetchContactThread(params.guild, details.contact);
+  if (!thread) {
+    return null;
+  }
+
+  const sourceUrl = `https://discord.com/channels/${params.guild.id}/${params.sourceChannelId}/${params.sourceMessageId}`;
+  const embed = emojiEmbed(params.guild, "intel", `Linked Report - ${params.reportTitle}`)
+    .setDescription(params.reportSummary.slice(0, 4096))
+    .addFields(
+      { name: "Reported by", value: params.reporterDisplayName, inline: true },
+      { name: "Report time", value: `<t:${Math.floor(new Date(params.submittedAt).getTime() / 1000)}:f>`, inline: true },
+      { name: "Original", value: `[Open report](${sourceUrl})`, inline: true }
+    )
+    .setColor(0x587c4a)
+    .setTimestamp(new Date(params.submittedAt));
+  const message = await thread.send({ embeds: [embed] });
+  return { thread, message };
 }
 
 export async function handleContactButton(interaction: ButtonInteraction): Promise<void> {

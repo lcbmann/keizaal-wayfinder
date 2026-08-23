@@ -13,6 +13,7 @@ import { strongboxCommand } from "./commands/strongbox.js";
 import { allianceCommand } from "./commands/alliance.js";
 import { supplyCommand } from "./commands/supply.js";
 import { dutyCommand } from "./commands/duty.js";
+import { applicationCommand } from "./commands/application.js";
 import { apprenticeshipCommand } from "./commands/apprenticeship.js";
 import { fieldNameCommand } from "./commands/fieldName.js";
 import { contactCommand } from "./commands/contact.js";
@@ -31,6 +32,7 @@ const corpsCommands = [
   strongboxCommand,
   supplyCommand,
   dutyCommand,
+  applicationCommand,
   apprenticeshipCommand,
   fieldNameCommand,
   contactCommand,

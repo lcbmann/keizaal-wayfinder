@@ -20,6 +20,7 @@ import { strongboxCommand } from "./commands/strongbox.js";
 import { allianceCommand } from "./commands/alliance.js";
 import { supplyCommand } from "./commands/supply.js";
 import { dutyCommand } from "./commands/duty.js";
+import { applicationCommand } from "./commands/application.js";
 import { apprenticeshipCommand } from "./commands/apprenticeship.js";
 import { fieldNameCommand } from "./commands/fieldName.js";
 import { contactCommand } from "./commands/contact.js";
@@ -28,6 +29,7 @@ import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
 import { handleDutyButton } from "./components/dutyButtons.js";
+import { handleApplicationButton } from "./components/applicationButtons.js";
 import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.js";
 import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./components/fieldNameButtons.js";
 import { handleContactButton } from "./components/contactButtons.js";
@@ -36,7 +38,6 @@ import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessio
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
 import { startAtlasTrailmarkDropPollingJob } from "./jobs/pollAtlasTrailmarkDrops.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
-import { maybeSendAtlasSharePreview } from "./services/atlasService.js";
 import { refreshStoredAssignmentsBoard } from "./services/assignmentBoardService.js";
 import { refreshOpenPromotionVoteMessages } from "./services/promotionService.js";
 import {
@@ -49,6 +50,8 @@ import { handleStrongboxDropMessage, refreshStrongboxDropInstructions } from "./
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import { setupMedals } from "./services/medalService.js";
+import { handleStructuredTrailmarkReportModal } from "./services/structuredTrailmarkReportService.js";
+import { forwardDeliveredStructuredReports } from "./services/structuredReportForwardService.js";
 import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
 import {
   backfillFieldNameContestVetoNotices,
@@ -57,7 +60,6 @@ import {
   refreshFieldNamesBulletin,
   refreshOpenFieldNameContestMessages
 } from "./services/fieldNameService.js";
-import { getActiveTrailmarkByChannelId } from "./services/trailmarkService.js";
 import {
   handleAllianceReportMessage,
   isAllianceGuildId,
@@ -82,6 +84,7 @@ for (const command of [
   allianceCommand,
   supplyCommand,
   dutyCommand,
+  applicationCommand,
   apprenticeshipCommand,
   fieldNameCommand,
   contactCommand,
@@ -139,12 +142,16 @@ client.once("ready", (readyClient) => {
       })
       .catch((error) => console.warn("Failed to refresh Strongbox Drop instructions:", error));
     void refreshActiveContactForumPosts(corpsGuild)
-      .then((refreshed) => {
+      .then(async (refreshed) => {
         if (refreshed > 0) {
           console.log(`Restored ${refreshed} active contact record${refreshed === 1 ? "" : "s"}.`);
         }
+        const forwarded = await forwardDeliveredStructuredReports({ guild: corpsGuild });
+        if (forwarded > 0) {
+          console.log(`Forwarded ${forwarded} delivered structured report link${forwarded === 1 ? "" : "s"} to contact records.`);
+        }
       })
-      .catch((error) => console.warn("Failed to restore active contact records:", error));
+      .catch((error) => console.warn("Failed to restore contact records or reconcile structured report links:", error));
     void refreshFieldNamesBulletin(corpsGuild)
       .catch((error) => console.warn("Failed to refresh Field Names bulletin:", error));
     void refreshOpenPromotionVoteMessages(corpsGuild)
@@ -301,11 +308,6 @@ client.on("messageCreate", (message) => {
       if (await handleStrongboxDropMessage(message)) {
         return;
       }
-      if (await getActiveTrailmarkByChannelId(message.channelId)) {
-        await maybeSendAtlasSharePreview(message).catch((error) => {
-          console.warn(`Failed to preview Atlas share for message ${message.id}:`, error);
-        });
-      }
       await captureTrailmarkIntelReports(message);
     })
     .catch((error) => {
@@ -408,6 +410,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     return;
   }
 
+  if (interaction.isButton() && interaction.customId.startsWith("application:review:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Corps applications are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleApplicationButton(interaction);
+    return;
+  }
+
   if (interaction.isButton() && interaction.customId.startsWith("apprenticeship:")) {
     if (interaction.guildId === env.DISCORD_GUILD_ID) {
       await safelyRecordInteraction(interaction.user.id);
@@ -447,6 +458,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleFieldNameSuggestionModal(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("trailmark-report-submit:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Trailmark reports are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleStructuredTrailmarkReportModal(interaction);
     return;
   }
 

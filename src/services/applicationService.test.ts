@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CorpsDutyRow, DutyApplicationRow, RangerRow } from "../db/supabase.js";
 import {
+  assertHoldWardenApplicationVacant,
   applicationMinimumRank,
   applicationReviewMinimumRank,
   type CorpsApplicationDetails
@@ -22,6 +23,14 @@ test("application review rank scales with appointment authority", () => {
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: "hold_primary" })), "Ranger Captain");
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Marshal", warden_scope: null })), "Ranger Captain");
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Captain", warden_scope: null })), "Ranger Commander");
+});
+
+test("Hold Warden applications reject Holds with an active appointment", () => {
+  assert.doesNotThrow(() => assertHoldWardenApplicationVacant("Whiterun", false));
+  assert.throws(
+    () => assertHoldWardenApplicationVacant("Whiterun", true),
+    /Whiterun already has an appointed Ranger of the Hold/
+  );
 });
 
 test("leadership applications ask about loyalties and responsibilities", () => {

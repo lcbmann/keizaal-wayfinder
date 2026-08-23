@@ -86,6 +86,12 @@ export function applicationReviewMinimumRank(details: CorpsApplicationDetails): 
   return "Ranger Marshal";
 }
 
+export function assertHoldWardenApplicationVacant(hold: string, hasActiveHolder: boolean): void {
+  if (hasActiveHolder) {
+    throw new UserFacingError(`${hold} already has an appointed Ranger of the Hold and is not accepting Hold Warden applications.`);
+  }
+}
+
 export async function configureApplicationChannels(params: {
   marshalChannel: TextChannel;
   captainChannel: TextChannel;
@@ -117,6 +123,9 @@ export async function createCorpsApplication(params: {
   }
 
   const target = await resolveTarget(params.target, params.hold, params.range, params.assignmentDetail ?? null);
+  if (target.wardenScope === "hold_primary" && target.parentHold && target.duty) {
+    await assertHoldWardenApplicationAvailable(target.duty.id, target.parentHold);
+  }
   await assertNoPendingApplication(applicant.id, target.kind, target.duty?.id ?? null, target.targetRank);
 
   const { data: application, error } = await supabase
@@ -493,6 +502,19 @@ async function assertNoPendingApplication(
   if (data?.length) {
     throw new UserFacingError("You already have a pending application for that position.");
   }
+}
+
+async function assertHoldWardenApplicationAvailable(dutyId: string, hold: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("ranger_duty_assignments")
+    .select("id")
+    .eq("duty_id", dutyId)
+    .eq("status", "Active")
+    .eq("warden_scope", "hold_primary")
+    .eq("parent_hold", hold)
+    .limit(1);
+  assertNoDbError(error, "check Hold Warden application availability");
+  assertHoldWardenApplicationVacant(hold, Boolean(data?.length));
 }
 
 async function getDutyById(id: string): Promise<CorpsDutyRow | null> {

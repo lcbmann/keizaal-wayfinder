@@ -15,6 +15,7 @@ import {
   assertNoDbError,
   supabase,
   type BallotVote,
+  type Json,
   type PromotionBallotRow,
   type PromotionProgress,
   type PromotionVoteRow,
@@ -27,6 +28,7 @@ import { getRangerByDiscordId, getRangerById, promoteRanger } from "./rangerServ
 import { refreshFieldNamesBulletin } from "./fieldNameService.js";
 import { getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import { roleIdForRank } from "../config/roles.js";
+import { leadershipApplicationChannelStateKey } from "./applicationChannelState.js";
 
 const PROMOTION_CHANNEL_STATE_KEY = "promotion-votes-channel";
 
@@ -246,8 +248,9 @@ export async function postPromotionVote(params: {
   guild: Guild;
   vote: PromotionVoteRow;
   mentionRoleIds?: string[];
+  channel?: TextChannel;
 }): Promise<Message> {
-  const channel = await getPromotionChannel(params.guild);
+  const channel = params.channel ?? await getPromotionChannel(params.guild);
   if (!channel) {
     throw new UserFacingError("The promotion channel is not configured. A Marshal should run `/promotion setup` first.");
   }
@@ -259,8 +262,7 @@ export async function postPromotionVote(params: {
           allowedMentions: { roles: mentionRoleIds }
         }
       : {}),
-    embeds: [await promotionVoteEmbed(params.guild, params.vote)],
-    components: [promotionVoteActionRow(params.vote.id)]
+    ...await refreshPromotionVoteMessage(params.guild, params.vote.id)
   });
   const candidate = await getRangerById(params.vote.candidate_ranger_id);
   const thread = await message.startThread({
@@ -423,6 +425,7 @@ export async function approvePromotionVote(params: {
     .single();
 
   assertNoDbError(error, "approve promotion vote");
+  await syncLeadershipApplicationStatus(vote.id, "Approved", params.approverDiscordUserId);
   return { promoted, previousRank, vote: approvedVote };
 }
 
@@ -437,6 +440,7 @@ export async function denyPromotionVote(voteId: string, deniedByDiscordUserId: s
     .eq("id", voteId);
 
   assertNoDbError(error, "deny promotion vote");
+  await syncLeadershipApplicationStatus(voteId, "Denied", deniedByDiscordUserId);
 }
 
 export async function promotionVoteEmbed(guild: Guild, vote: PromotionVoteRow): Promise<EmbedBuilder> {
@@ -481,8 +485,9 @@ export async function refreshPromotionVoteMessage(guild: Guild, voteId: string):
     throw new UserFacingError("Promotion vote not found.");
   }
 
+  const applicationEmbed = await leadershipApplicationEmbed(guild, vote);
   return {
-    embeds: [await promotionVoteEmbed(guild, vote)],
+    embeds: [applicationEmbed, await promotionVoteEmbed(guild, vote)].filter((embed): embed is EmbedBuilder => embed !== null),
     components: vote.status === "Open" ? [promotionVoteActionRow(vote.id)] : []
   };
 }
@@ -505,15 +510,31 @@ async function repairOpenPromotionVoteMessages(guild: Guild): Promise<PromotionV
       continue;
     }
 
-    if (configuredChannel && vote.channel_id !== configuredChannel.id) {
-      await postPromotionVote({ guild, vote });
+    const leadershipKind = await linkedLeadershipApplicationKind(vote.id);
+    const expectedChannel = leadershipKind
+      ? await getStoredTextChannel(guild, leadershipApplicationChannelStateKey(leadershipKind))
+      : configuredChannel;
+
+    if (expectedChannel && vote.channel_id !== expectedChannel.id) {
+      await postPromotionVote({ guild, vote, channel: expectedChannel });
+      await removePromotionVoteArtifacts(guild, vote);
       refreshed += 1;
       continue;
     }
 
+    if (leadershipKind && !expectedChannel && configuredChannel && vote.channel_id === configuredChannel.id) {
+      await removePromotionVoteArtifacts(guild, vote);
+      const { error } = await supabase
+        .from("promotion_votes")
+        .update({ channel_id: null, message_id: null, thread_id: null })
+        .eq("id", vote.id);
+      assertNoDbError(error, "detach private leadership vote from Ranger promotion channel");
+      continue;
+    }
+
     if (!vote.channel_id || !vote.message_id) {
-      if (configuredChannel) {
-        await postPromotionVote({ guild, vote });
+      if (expectedChannel) {
+        await postPromotionVote({ guild, vote, channel: expectedChannel });
         refreshed += 1;
       }
       continue;
@@ -521,8 +542,8 @@ async function repairOpenPromotionVoteMessages(guild: Guild): Promise<PromotionV
 
     const channel = await guild.channels.fetch(vote.channel_id).catch(() => null);
     if (!channel?.isTextBased()) {
-      if (configuredChannel) {
-        await postPromotionVote({ guild, vote });
+      if (expectedChannel) {
+        await postPromotionVote({ guild, vote, channel: expectedChannel });
         refreshed += 1;
       }
       continue;
@@ -530,8 +551,8 @@ async function repairOpenPromotionVoteMessages(guild: Guild): Promise<PromotionV
 
     const message = await channel.messages.fetch(vote.message_id).catch(() => null);
     if (!message) {
-      if (configuredChannel) {
-        await postPromotionVote({ guild, vote });
+      if (expectedChannel) {
+        await postPromotionVote({ guild, vote, channel: expectedChannel });
         refreshed += 1;
       }
       continue;
@@ -613,12 +634,125 @@ async function resolveSupersededPromotionVote(guild: Guild, vote: PromotionVoteR
   }
 }
 
-function canVoteOnTarget(voterRank: MainRank, targetRank: MainRank): boolean {
+export function minimumVoterRankForTarget(targetRank: MainRank): MainRank {
   if (targetRank === "Ranger") {
-    return rankAtLeast(voterRank, "Ranger");
+    return "Ranger";
+  }
+  if (targetRank === "Ranger Captain" || targetRank === "Ranger Commander") {
+    return "Ranger Captain";
+  }
+  return "Ranger Marshal";
+}
+
+function canVoteOnTarget(voterRank: MainRank, targetRank: MainRank): boolean {
+  return rankAtLeast(voterRank, minimumVoterRankForTarget(targetRank));
+}
+
+async function linkedLeadershipApplicationKind(voteId: string): Promise<"Marshal" | "Captain" | null> {
+  const { data, error } = await supabase
+    .from("duty_applications")
+    .select("application_kind")
+    .eq("resulting_promotion_vote_id", voteId)
+    .in("application_kind", ["Marshal", "Captain"])
+    .maybeSingle();
+  assertNoDbError(error, "get linked leadership application kind");
+  return data?.application_kind === "Marshal" || data?.application_kind === "Captain"
+    ? data.application_kind
+    : null;
+}
+
+async function leadershipApplicationEmbed(guild: Guild, vote: PromotionVoteRow): Promise<EmbedBuilder | null> {
+  const { data: application, error } = await supabase
+    .from("duty_applications")
+    .select("*")
+    .eq("resulting_promotion_vote_id", vote.id)
+    .in("application_kind", ["Marshal", "Captain"])
+    .maybeSingle();
+  assertNoDbError(error, "get leadership application for vote");
+  if (!application) {
+    return null;
   }
 
-  return rankAtLeast(voterRank, "Ranger Marshal");
+  const candidate = await getRangerById(application.applicant_ranger_id);
+  const displayName = candidate?.discord_display_name ?? candidate?.in_game_name ?? candidate?.discord_username ?? "Unknown Ranger";
+  const applicationStatus = application.status === "Pending"
+    ? vote.status === "Open" ? "Voting" : vote.status === "Closed" ? "Awaiting final decision" : vote.status
+    : application.status;
+  const embed = emojiEmbed(guild, rankEmojiName(vote.target_rank) ?? "promotion", `${vote.target_rank} Application`)
+    .setDescription(compactApplicationAnswer(application.reason))
+    .addFields(
+      { name: "Applicant", value: candidate ? `<@${candidate.discord_user_id}> - ${displayName}` : displayName, inline: true },
+      { name: "Current rank", value: candidate?.current_rank ?? "Unknown", inline: true },
+      { name: "Application status", value: applicationStatus, inline: true }
+    )
+    .setColor(0x587c4a)
+    .setTimestamp(new Date(application.created_at));
+  if (application.experience) {
+    embed.addFields({ name: "Relevant experience", value: compactApplicationAnswer(application.experience) });
+  }
+  for (const response of applicationResponses(application.application_responses)) {
+    embed.addFields({ name: response.label.slice(0, 256), value: compactApplicationAnswer(response.value) });
+  }
+  return embed;
+}
+
+function compactApplicationAnswer(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length <= 700 ? trimmed : `${trimmed.slice(0, 697)}...`;
+}
+
+function applicationResponses(value: Json): Array<{ label: string; value: string }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") {
+      return [];
+    }
+    return typeof entry.label === "string" && typeof entry.value === "string"
+      ? [{ label: entry.label, value: entry.value }]
+      : [];
+  });
+}
+
+async function syncLeadershipApplicationStatus(
+  voteId: string,
+  status: "Approved" | "Denied",
+  reviewerDiscordUserId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("duty_applications")
+    .update({
+      status,
+      reviewed_by_discord_user_id: reviewerDiscordUserId,
+      reviewed_at: new Date().toISOString()
+    })
+    .eq("resulting_promotion_vote_id", voteId)
+    .in("application_kind", ["Marshal", "Captain"])
+    .eq("status", "Pending");
+  assertNoDbError(error, "sync leadership application result");
+}
+
+async function removePromotionVoteArtifacts(guild: Guild, vote: PromotionVoteRow): Promise<void> {
+  if (vote.thread_id) {
+    const thread = await guild.channels.fetch(vote.thread_id).catch(() => null);
+    if (thread?.isThread()) {
+      await thread.delete("Move leadership vote to its private channel").catch((error) => {
+        console.warn(`Could not remove old promotion thread ${vote.thread_id}:`, error);
+      });
+    }
+  }
+  if (!vote.channel_id || !vote.message_id) {
+    return;
+  }
+  const channel = await guild.channels.fetch(vote.channel_id).catch(() => null);
+  if (!channel?.isTextBased()) {
+    return;
+  }
+  const message = await channel.messages.fetch(vote.message_id).catch(() => null);
+  await message?.delete().catch((error) => {
+    console.warn(`Could not remove old promotion message ${vote.message_id}:`, error);
+  });
 }
 
 async function getExistingBallot(voteId: string, voterDiscordUserId: string): Promise<PromotionBallotRow | null> {

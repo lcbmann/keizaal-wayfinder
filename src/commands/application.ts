@@ -34,18 +34,18 @@ export const applicationCommand: BotCommand = {
         .setAutocomplete(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("list")
-      .setDescription("Marshal+: list pending Corps applications."))
+      .setDescription("Marshal+: list pending Corps applications you can review."))
     .addSubcommand((subcommand) => subcommand
       .setName("setup")
-      .setDescription("Commander: configure leadership application review channels.")
+      .setDescription("Commander: configure private leadership vote channels.")
       .addChannelOption((option) => option
         .setName("marshal_channel")
-        .setDescription("Private channel where Marshal applications are reviewed.")
+        .setDescription("Private Marshal+ channel for Marshal application votes.")
         .setRequired(true)
         .addChannelTypes(ChannelType.GuildText))
       .addChannelOption((option) => option
         .setName("captain_channel")
-        .setDescription("Private channel where Captain applications are reviewed.")
+        .setDescription("Private Captain+ channel for Captain application votes.")
         .setRequired(true)
         .addChannelTypes(ChannelType.GuildText))),
 
@@ -98,7 +98,11 @@ export const applicationCommand: BotCommand = {
         throw new UserFacingError("Ranger Marshal or higher is required to list pending applications.");
       }
       await interaction.deferReply({ ephemeral: true });
-      const applications = await listPendingCorpsApplications();
+      const applications = (await listPendingCorpsApplications()).filter((details) =>
+        details.application.application_kind === "Captain"
+          ? memberRankAtLeast(actor, "Ranger Captain")
+          : true
+      );
       const lines = applications.map((details) =>
         `<@${details.applicant.discord_user_id}> - **${applicationLabel(details)}**${details.application.strongbox_thread_id ? ` - <#${details.application.strongbox_thread_id}>` : ""}`
       );
@@ -114,12 +118,15 @@ export const applicationCommand: BotCommand = {
     if (marshalChannel.type !== ChannelType.GuildText || captainChannel.type !== ChannelType.GuildText) {
       throw new UserFacingError("Both application destinations must be standard text channels.");
     }
+    if (marshalChannel.id === captainChannel.id) {
+      throw new UserFacingError("Marshal and Captain applications require separate private channels.");
+    }
     await configureApplicationChannels({
       marshalChannel: marshalChannel as TextChannel,
       captainChannel: captainChannel as TextChannel
     });
     await interaction.reply({
-      content: `Marshal applications will be filed in ${marshalChannel}; Captain applications will be filed in ${captainChannel}.`,
+      content: `Marshal application votes will open in ${marshalChannel}; Captain application votes will open in ${captainChannel}.`,
       ephemeral: true
     });
   }

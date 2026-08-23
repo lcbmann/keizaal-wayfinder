@@ -12,6 +12,7 @@ import {
   getPromotionVote,
   listPromotionBallotsWithVoters,
   listApprenticePromotionEligibility,
+  minimumVoterRankForTarget,
   postPromotionVote,
   refreshPromotionVoteMessage,
   setPromotionProgress,
@@ -22,7 +23,7 @@ import { getRangerByDiscordId, getRangerById } from "../services/rangerService.j
 import { refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { formatElapsedSince } from "../utils/dates.js";
-import { canApprovePromotions, canOpenPromotionVotes } from "../utils/permissions.js";
+import { canApprovePromotions, canOpenPromotionVotes, memberRankAtLeast } from "../utils/permissions.js";
 import { emojiEmbed, rankEmojiName } from "../utils/guildEmojis.js";
 import type { BotCommand } from "./types.js";
 
@@ -107,8 +108,14 @@ export const promotionCommand: BotCommand = {
 
   async autocomplete(interaction) {
     const subcommand = interaction.options.getSubcommand();
+    if (!interaction.inCachedGuild()) {
+      await interaction.respond([]);
+      return;
+    }
+    const actor = await interaction.guild.members.fetch(interaction.user.id);
     const votes = (await findRecentPromotionVotes()).filter((vote) =>
-      subcommand !== "approve" || vote.status === "Open" || vote.status === "Closed"
+      memberRankAtLeast(actor, minimumVoterRankForTarget(vote.target_rank)) &&
+      (subcommand !== "approve" || vote.status === "Open" || vote.status === "Closed")
     );
     const choices = await Promise.all(
       votes.map(async (vote) => {
@@ -208,6 +215,9 @@ export const promotionCommand: BotCommand = {
       if (!isMainRank(rankValue)) {
         throw new UserFacingError("Invalid target rank.");
       }
+      if (rankValue === "Ranger Marshal" || rankValue === "Ranger Captain") {
+        throw new UserFacingError("Marshal and Captain votes are opened through `/application apply` in their private leadership channels.");
+      }
 
       const vote = await createPromotionVote({
         candidate,
@@ -233,7 +243,12 @@ export const promotionCommand: BotCommand = {
         throw new UserFacingError("Ranger Marshal or higher is required.");
       }
 
-      const result = await closePromotionVote(interaction.options.getString("vote", true));
+      const voteId = interaction.options.getString("vote", true);
+      const vote = await getPromotionVote(voteId);
+      if (!vote || !memberRankAtLeast(actor, minimumVoterRankForTarget(vote.target_rank))) {
+        throw new UserFacingError("You do not have permission to close that promotion vote.");
+      }
+      const result = await closePromotionVote(voteId);
       await interaction.reply({ content: `Promotion vote closed.\n${result.summary}`, ephemeral: true });
       await editPromotionVoteMessage(interaction.guild, result.vote.id);
       await finalizePromotionVoteThread(interaction.guild, result.vote);

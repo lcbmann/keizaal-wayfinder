@@ -209,7 +209,9 @@ export async function handleCorpsApplicationModal(interaction: ModalSubmitIntera
     responses: values.responses
   });
   await interaction.editReply({
-    content: `Your **${applicationTitle(details)}** application has been filed for review${details.application.strongbox_thread_id ? ` in <#${details.application.strongbox_thread_id}>` : ""}.`
+    content: details.application.application_kind === "Duty"
+      ? `Your **${applicationTitle(details)}** application has been filed for review${details.application.strongbox_thread_id ? ` in <#${details.application.strongbox_thread_id}>` : ""}.`
+      : `Your **${applicationTitle(details)}** application has been submitted and its private leadership vote is now open.`
   });
 }
 

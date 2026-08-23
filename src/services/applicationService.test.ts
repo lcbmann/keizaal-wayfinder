@@ -8,6 +8,7 @@ import {
   type CorpsApplicationDetails
 } from "./applicationService.js";
 import { applicationFormDefinition } from "./applicationFormService.js";
+import { leadershipApplicationChannelStateKey } from "./applicationChannelState.js";
 
 test("application targets enforce the intended member rank", () => {
   assert.equal(applicationMinimumRank("Craftsman"), "Apprentice");
@@ -23,6 +24,11 @@ test("application review rank scales with appointment authority", () => {
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: "hold_primary" })), "Ranger Captain");
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Marshal", warden_scope: null })), "Ranger Captain");
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Captain", warden_scope: null })), "Ranger Commander");
+});
+
+test("leadership applications use separate private channel state", () => {
+  assert.equal(leadershipApplicationChannelStateKey("Marshal"), "marshal-applications-channel");
+  assert.equal(leadershipApplicationChannelStateKey("Captain"), "captain-applications-channel");
 });
 
 test("Hold Warden applications reject Holds with an active appointment", () => {

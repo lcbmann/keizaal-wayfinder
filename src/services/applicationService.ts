@@ -17,6 +17,7 @@ import {
   type CorpsApplicationKind,
   type CorpsDutyRow,
   type DutyApplicationRow,
+  type Json,
   type RangerRow,
   type WardenScope
 } from "../db/supabase.js";
@@ -38,7 +39,7 @@ export const APPLICATION_TARGETS = [
   "Agent",
   "Courier",
   "Ambassador",
-  "Ranger of a Hold",
+  "Hold Warden",
   "Local Warden",
   "Ranger Marshal",
   "Ranger Captain"
@@ -55,6 +56,11 @@ export interface ApplicationReviewResult extends CorpsApplicationDetails {
   promotionVoteId: string | null;
 }
 
+export interface CorpsApplicationResponse {
+  label: string;
+  value: string;
+}
+
 export function isApplicationTarget(value: string): value is ApplicationTarget {
   return (APPLICATION_TARGETS as readonly string[]).includes(value);
 }
@@ -63,7 +69,7 @@ export function applicationMinimumRank(target: ApplicationTarget): MainRank {
   if (target === "Ranger Captain") {
     return "Ranger Marshal";
   }
-  if (target === "Ranger Marshal" || target === "Ranger of a Hold" || target === "Local Warden"
+  if (target === "Ranger Marshal" || target === "Hold Warden" || target === "Local Warden"
     || target === "Quartermaster" || target === "Agent" || target === "Ambassador") {
     return "Ranger";
   }
@@ -98,6 +104,8 @@ export async function createCorpsApplication(params: {
   experience: string | null;
   hold: string | null;
   range: string | null;
+  assignmentDetail?: string | null;
+  responses?: CorpsApplicationResponse[];
 }): Promise<CorpsApplicationDetails> {
   const applicant = await requireRangerByDiscordId(params.applicantDiscordUserId);
   if (applicant.status !== "Active") {
@@ -108,7 +116,7 @@ export async function createCorpsApplication(params: {
     throw new UserFacingError(`${params.target} applications require ${minimumRank} or higher.`);
   }
 
-  const target = await resolveTarget(params.target, params.hold, params.range);
+  const target = await resolveTarget(params.target, params.hold, params.range, params.assignmentDetail ?? null);
   await assertNoPendingApplication(applicant.id, target.kind, target.duty?.id ?? null, target.targetRank);
 
   const { data: application, error } = await supabase
@@ -121,6 +129,7 @@ export async function createCorpsApplication(params: {
       status: "Pending",
       reason: params.reason.trim(),
       experience: params.experience?.trim() || null,
+      application_responses: (params.responses ?? []) as unknown as Json,
       assignment_detail: target.assignmentDetail,
       warden_scope: target.wardenScope,
       parent_hold: target.parentHold,
@@ -317,6 +326,9 @@ export function corpsApplicationEmbed(guild: Guild, details: CorpsApplicationDet
   if (details.application.experience) {
     embed.addFields({ name: "Relevant experience", value: details.application.experience.slice(0, 1024) });
   }
+  for (const response of applicationResponses(details.application.application_responses)) {
+    embed.addFields({ name: response.label.slice(0, 256), value: response.value.slice(0, 1024) });
+  }
   if (details.application.warden_scope === "hold_primary") {
     embed.addFields({ name: "Appointment requested", value: `Ranger of ${details.application.parent_hold}` });
   } else if (details.application.warden_scope === "local_range") {
@@ -330,7 +342,7 @@ export function corpsApplicationEmbed(guild: Guild, details: CorpsApplicationDet
   return embed;
 }
 
-function applicationTitle(details: CorpsApplicationDetails): string {
+export function applicationTitle(details: CorpsApplicationDetails): string {
   if (details.application.application_kind === "Marshal") {
     return "Ranger Marshal";
   }
@@ -346,7 +358,7 @@ function applicationTitle(details: CorpsApplicationDetails): string {
   return details.duty?.name ?? "Corps Duty";
 }
 
-async function resolveTarget(target: ApplicationTarget, hold: string | null, range: string | null): Promise<{
+async function resolveTarget(target: ApplicationTarget, hold: string | null, range: string | null, assignmentDetail: string | null): Promise<{
   kind: CorpsApplicationKind;
   duty: CorpsDutyRow | null;
   targetRank: MainRank | null;
@@ -364,11 +376,11 @@ async function resolveTarget(target: ApplicationTarget, hold: string | null, ran
       assignmentDetail: null
     };
   }
-  const duty = await getDutyByName(target === "Ranger of a Hold" || target === "Local Warden" ? "Warden" : target);
+  const duty = await getDutyByName(target === "Hold Warden" || target === "Local Warden" ? "Warden" : target);
   if (!duty) {
     throw new UserFacingError("That Corps duty is not configured.");
   }
-  if (target === "Ranger of a Hold" || target === "Local Warden") {
+  if (target === "Hold Warden" || target === "Local Warden") {
     if (!hold || !isHold(hold)) {
       throw new UserFacingError("Choose the parent Hold for this Warden application.");
     }
@@ -379,12 +391,35 @@ async function resolveTarget(target: ApplicationTarget, hold: string | null, ran
       kind: "Duty",
       duty,
       targetRank: null,
-      wardenScope: target === "Ranger of a Hold" ? "hold_primary" : "local_range",
+      wardenScope: target === "Hold Warden" ? "hold_primary" : "local_range",
       parentHold: hold,
-      assignmentDetail: target === "Ranger of a Hold" ? hold : range!.trim()
+      assignmentDetail: target === "Hold Warden" ? hold : range!.trim()
     };
   }
-  return { kind: "Duty", duty, targetRank: null, wardenScope: null, parentHold: null, assignmentDetail: null };
+  return {
+    kind: "Duty",
+    duty,
+    targetRank: null,
+    wardenScope: null,
+    parentHold: null,
+    assignmentDetail: target === "Craftsman" ? assignmentDetail?.trim() || null : null
+  };
+}
+
+function applicationResponses(value: Json): CorpsApplicationResponse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") {
+      return [];
+    }
+    const label = entry.label;
+    const responseValue = entry.value;
+    return typeof label === "string" && typeof responseValue === "string"
+      ? [{ label, value: responseValue }]
+      : [];
+  });
 }
 
 async function postLeadershipApplicationThread(guild: Guild, details: CorpsApplicationDetails) {

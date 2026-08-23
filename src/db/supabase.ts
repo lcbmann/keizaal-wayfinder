@@ -197,6 +197,7 @@ export interface DutyApplicationRow {
   status: DutyApplicationStatus;
   reason: string;
   experience: string | null;
+  application_responses: Json;
   assignment_detail: string | null;
   warden_scope: WardenScope | null;
   parent_hold: string | null;
@@ -645,7 +646,7 @@ export interface Database {
         Insert: Omit<
           DutyApplicationRow,
           "id" | "created_at" | "updated_at" | "application_kind" | "target_rank" | "experience"
-          | "warden_scope" | "parent_hold" | "resulting_promotion_vote_id"
+          | "application_responses" | "warden_scope" | "parent_hold" | "resulting_promotion_vote_id"
         > & {
           id?: string;
           created_at?: string;
@@ -653,6 +654,7 @@ export interface Database {
           application_kind?: CorpsApplicationKind;
           target_rank?: MainRank | null;
           experience?: string | null;
+          application_responses?: Json;
           warden_scope?: WardenScope | null;
           parent_hold?: string | null;
           resulting_promotion_vote_id?: string | null;

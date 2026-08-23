@@ -115,7 +115,7 @@ export const rangerCommand: BotCommand = {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("clear-hold")
-        .setDescription("Captain+: remove a Ranger of a Hold appointment, including for departed members.")
+        .setDescription("Captain+: remove a Hold Warden appointment, including for departed members.")
         .addStringOption((option) =>
           option
             .setName("discord_user_id")
@@ -128,7 +128,7 @@ export const rangerCommand: BotCommand = {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("set-hold")
-        .setDescription("Captain+: appoint the primary Ranger of a Hold.")
+        .setDescription("Captain+: appoint a Hold Warden as the Ranger of that Hold.")
         .addUserOption((option) => option.setName("user").setDescription("Ranger to appoint.").setRequired(true))
         .addStringOption((option) =>
           option
@@ -375,7 +375,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "clear-hold") {
       if (!canManageAll(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to remove a Ranger of a Hold appointment.");
+        throw new UserFacingError("Ranger Captain or higher is required to remove a Hold Warden appointment.");
       }
       await interaction.deferReply({ ephemeral: true });
       const discordUserId = interaction.options.getString("discord_user_id", true).trim();
@@ -396,14 +396,14 @@ export const rangerCommand: BotCommand = {
       await interaction.editReply({
         content: removed
           ? `Removed ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} as Ranger of ${removed.assignment.parent_hold ?? removed.assignment.assignment_detail ?? "their Hold"}.`
-          : `${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} had no active Ranger of a Hold appointment; any legacy hold value was cleared.`
+          : `${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} had no active Hold Warden appointment; any legacy hold value was cleared.`
       });
       return;
     }
 
     if (subcommand === "set-hold") {
       if (!canManageAll(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to appoint the Ranger of a Hold.");
+        throw new UserFacingError("Ranger Captain or higher is required to appoint a Hold Warden.");
       }
       await interaction.deferReply({ ephemeral: true });
       const user = interaction.options.getUser("user", true);

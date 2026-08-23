@@ -353,7 +353,7 @@ export async function ensureWardenDutyForHold(params: {
   }
   const ranger = await requireRangerByDiscordId(params.rangerDiscordUserId);
   if (ranger.status !== "Active") {
-    throw new UserFacingError("Only active roster members can be appointed Ranger of a Hold.");
+    throw new UserFacingError("Only active roster members can be appointed as Hold Wardens.");
   }
   assertDutyRankEligibility(ranger, duty);
   await assertPrimaryHoldAvailable(duty.id, params.hold, ranger.id);
@@ -635,7 +635,7 @@ function normalizedAssignment(
   const hold = parentHold?.trim() || (detail && isHold(detail) ? detail : null);
   const scope = wardenScope ?? (hold && detail === hold ? "hold_primary" : null);
   if (!scope) {
-    throw new UserFacingError("Choose whether this is a primary Ranger of a Hold or a local Warden appointment.");
+    throw new UserFacingError("Choose whether this is a Hold Warden or local Warden appointment.");
   }
   if (!hold || !isHold(hold)) {
     throw new UserFacingError("Warden appointments require a valid parent Hold.");

@@ -28,7 +28,7 @@ export const dutyCommand: BotCommand = {
         .setName("warden_position")
         .setDescription("Required when assigning Warden.")
         .addChoices(
-          { name: "Ranger of a Hold (primary Warden)", value: "hold_primary" },
+          { name: "Hold Warden (appointed as Ranger of the Hold)", value: "hold_primary" },
           { name: "Local Warden", value: "local_range" }
         ))
       .addStringOption((option) => option.setName("hold").setDescription("Parent Hold for a Warden appointment.").addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold }))))
@@ -42,7 +42,7 @@ export const dutyCommand: BotCommand = {
         .setName("warden_position")
         .setDescription("Use when the Ranger has multiple Warden appointments.")
         .addChoices(
-          { name: "Ranger of a Hold (primary Warden)", value: "hold_primary" },
+          { name: "Hold Warden (appointed as Ranger of the Hold)", value: "hold_primary" },
           { name: "Local Warden", value: "local_range" }
         ))
       .addStringOption((option) => option.setName("hold").setDescription("Parent Hold of the Warden appointment.").addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold }))))
@@ -91,7 +91,7 @@ export const dutyCommand: BotCommand = {
     if (subcommand === "assign") {
       const wardenScope = interaction.options.getString("warden_position") as WardenScope | null;
       if (dutyName === "Warden" && wardenScope === "hold_primary" && !canApprovePromotions(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to appoint the primary Ranger of a Hold.");
+        throw new UserFacingError("Ranger Captain or higher is required to appoint a Hold Warden.");
       }
       await interaction.deferReply({ ephemeral: true });
       const result = await assignDuty({

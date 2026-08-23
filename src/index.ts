@@ -51,6 +51,7 @@ import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipSe
 import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import { setupMedals } from "./services/medalService.js";
 import { handleStructuredTrailmarkReportModal } from "./services/structuredTrailmarkReportService.js";
+import { handleCorpsApplicationModal, isCorpsApplicationModal } from "./services/applicationFormService.js";
 import { forwardDeliveredStructuredReports } from "./services/structuredReportForwardService.js";
 import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
 import {
@@ -470,6 +471,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleStructuredTrailmarkReportModal(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && isCorpsApplicationModal(interaction.customId)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Corps applications are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleCorpsApplicationModal(interaction);
     return;
   }
 

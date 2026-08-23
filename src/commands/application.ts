@@ -1,13 +1,12 @@
 import { ChannelType, SlashCommandBuilder, type TextChannel } from "discord.js";
-import { HOLDS } from "../config/holds.js";
 import {
   APPLICATION_TARGETS,
   configureApplicationChannels,
-  createCorpsApplication,
   isApplicationTarget,
   listPendingCorpsApplications,
   withdrawCorpsApplication
 } from "../services/applicationService.js";
+import { corpsApplicationModal } from "../services/applicationFormService.js";
 import { getRangerByDiscordId } from "../services/rangerService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canOpenPromotionVotes, memberRankAtLeast } from "../utils/permissions.js";
@@ -24,24 +23,7 @@ export const applicationCommand: BotCommand = {
         .setName("position")
         .setDescription("Position you are applying for.")
         .setRequired(true)
-        .addChoices(...APPLICATION_TARGETS.map((target) => ({ name: target, value: target }))))
-      .addStringOption((option) => option
-        .setName("reason")
-        .setDescription("Why you want this position and what you intend to do with it.")
-        .setRequired(true)
-        .setMaxLength(1500))
-      .addStringOption((option) => option
-        .setName("experience")
-        .setDescription("Relevant experience, service, or preparation.")
-        .setMaxLength(1000))
-      .addStringOption((option) => option
-        .setName("hold")
-        .setDescription("Required for Ranger of a Hold and local Warden applications.")
-        .addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold }))))
-      .addStringOption((option) => option
-        .setName("range")
-        .setDescription("Local Warden area, such as Dragon Bridge or Lake Ilinalta.")
-        .setMaxLength(150)))
+        .addChoices(...APPLICATION_TARGETS.map((target) => ({ name: target, value: target })))))
     .addSubcommand((subcommand) => subcommand
       .setName("withdraw")
       .setDescription("Withdraw one of your pending applications.")
@@ -92,23 +74,11 @@ export const applicationCommand: BotCommand = {
     const actor = await interaction.guild.members.fetch(interaction.user.id);
 
     if (subcommand === "apply") {
-      await interaction.deferReply({ ephemeral: true });
       const position = interaction.options.getString("position", true);
       if (!isApplicationTarget(position)) {
         throw new UserFacingError("That application position is not supported.");
       }
-      const details = await createCorpsApplication({
-        guild: interaction.guild,
-        applicantDiscordUserId: interaction.user.id,
-        target: position,
-        reason: interaction.options.getString("reason", true),
-        experience: interaction.options.getString("experience"),
-        hold: interaction.options.getString("hold"),
-        range: interaction.options.getString("range")
-      });
-      await interaction.editReply({
-        content: `Your **${applicationLabel(details)}** application has been filed for review${details.application.strongbox_thread_id ? ` in <#${details.application.strongbox_thread_id}>` : ""}.`
-      });
+      await interaction.showModal(corpsApplicationModal(position));
       return;
     }
 

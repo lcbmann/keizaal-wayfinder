@@ -13,12 +13,12 @@ test("general structured reports include fields used by Intel classification", (
       followUp: "Request a patrol.",
       commendation: null
     },
-    ["Stewardess Vizeniya"],
+    ["Stewardess Vizeniya", "Group: Red Pike Bandits"],
     ["<@111> - Eliana Fenn", "<@222> - Ritoth Softrun"]
   );
 
   assert.match(content, /General Report: Vampire activity near Morthal/);
-  assert.match(content, /Contacts: Stewardess Vizeniya/);
+  assert.match(content, /Contacts \/ groups: Stewardess Vizeniya, Group: Red Pike Bandits/);
   assert.match(content, /Participating Rangers: <@111> - Eliana Fenn, <@222> - Ritoth Softrun/);
 });
 

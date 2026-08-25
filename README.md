@@ -259,6 +259,7 @@ Implemented commands:
 - `/field-name cancel`
 - `/contact setup`
 - `/contact create`
+- `/contact create-group`
 - `/contact edit`
 - `/contact list`
 - `/contact archive`
@@ -310,6 +311,8 @@ Users visit Trailmarks by selecting one from the bot message posted by `/trailma
 
 Apprentice or higher can use `/trailmark report` while inside an open Trailmark channel. The command opens either a **General** or **Incident** Discord form and can link up to three existing contacts plus three participating Rangers. Submission posts one visible, standardized report card in that Trailmark and passes its full text through the same Intel keyword and catchall flow as an ordinary message. Reports linked to contacts are copied into those contacts' Forum threads only after the report reaches Corps Headquarters; reports written at Headquarters are eligible immediately.
 
+Wayfinder adds the Corps `salute` reaction to every new message in active Trailmark channels and configured Corps Intel report channels, including standardized reports, Atlas drops, and Ally Reports. Members can add their own salute to the seeded reaction to mark a report as read. Existing messages are not backfilled.
+
 `/atlas link` creates a ten-minute code for the member to enter under **Link Discord** in the Atlas. After the Atlas device is linked, opening an Atlas location that has a matching active Trailmark creates a pending Discord access request. Wayfinder polls those requests every five seconds, verifies the linked Discord member still has Apprentice-or-higher Trailmark access, opens the matching Trailmark channel for the configured duration, and runs the same Intel capture and HQ delivery flow as the Discord dropdown.
 
 After a linked member records a visit, the Atlas can also queue a **Leave Drop** message for that Trailmark. Wayfinder verifies the member and Trailmark again, posts the message into the matching private channel under an Atlas field-drop embed, and routes the submitted text through the same Intel keyword/catchall categories as ordinary Trailmark messages. Non-HQ drops still follow the normal delivery step before appearing in public Intel bulletins. The Trailmark channel itself remains private: another Ranger must open that Trailmark through the Discord panel to read it. Apply Ranger Map migrations `202607300001_create_atlas_trailmark_visits.sql`, `202607300002_fix_atlas_trailmark_visit_conflict.sql`, `202607300003_create_atlas_overwatch_and_trailmark_drops.sql`, and `202607300004_track_atlas_trailmark_departures.sql` to the shared Supabase project before using these bridges.
@@ -337,13 +340,15 @@ When a Ranger becomes Inactive or Retired, leaves the server, or is cleaned up w
 
 ## Ranger Contacts
 
-Apply `src/db/migrations/026_create_contacts.sql`, redeploy slash commands, and run `/contact setup` once as a Marshal. The command creates or repairs an Apprentice+ `contacts` Forum. An optional category can be supplied when setting it up. Apprentices can read the Forum and discuss entries in their threads; full Rangers can assess and maintain entries while Wayfinder maintains each opening contact card.
+Apply `src/db/migrations/026_create_contacts.sql` and `src/db/migrations/038_expand_contacts_with_groups.sql`, redeploy slash commands, and run `/contact setup` once as a Marshal. The command creates or repairs an Apprentice+ `contacts` Forum containing records for both individual contacts and known groups. An optional category can be supplied when setting it up. Apprentices can read, discuss, create, edit, and assess entries while Wayfinder maintains each opening record card.
 
-Apprentice or higher can use `/contact create`, `/contact edit`, and `/contact list` from any accessible channel, and can use the assessment buttons on contact cards. The command records the contact's name, race, sex, occupation, faction, Hold or region, usual locations, commentary, and an optional **High Priority** flag. Wayfinder creates one Forum post, assigns region and occupation tags, and adds the High Priority tag for important contacts such as Hold leaders or senior officials.
+Apprentice or higher can use `/contact create`, `/contact create-group`, `/contact edit`, and `/contact list` from any accessible channel, and can use the assessment buttons on record cards. Person records contain the contact's name, race, sex, occupation, faction, Hold or region, usual locations, commentary, and an optional **High Priority** flag. Group records contain a category, estimated strength, identifying signs, arms or capabilities, tactics, territory, affiliation, additional intelligence, and the same region and priority fields. Wayfinder creates one Forum post and adds the appropriate region, occupation or **Group**, and High Priority tags.
 
-Full Rangers can use the buttons on each contact card to record **Still good**, **Cold**, **Not found**, **MIA**, or **Propose archive**. Each Ranger has one current assessment per contact and can change it later. The card always shows the current rating, assessment totals, and last confirmation. Archive proposals do not delete anything; Marshal+ uses `/contact archive` to close an entry while preserving its history. `/contact edit` updates the same Forum post, and `/contact list` provides simple Hold, occupation, and High Priority filters.
+Person cards use **Still good**, **Cold**, **Not found**, **MIA**, and **Propose archive** assessments. Group cards use **Active**, **Inactive**, **Not sighted**, **Disbanded**, and **Propose archive**. Each member has one current assessment per record and can change it later. The card always shows the current rating, assessment totals, and last confirmation. Archive proposals do not delete anything; Marshal+ uses `/contact archive` to close an entry while preserving its history. `/contact edit` updates the same Forum post, and `/contact list` can filter by record type, Hold, occupation, group category, and priority.
 
-Discord Forums allow only 20 custom tags, so the built-in tags cover the nine Holds, Cross-Skyrim, Other Region, common occupations, Other Occupation, and High Priority. Factions and detailed locations remain on the contact card.
+Discord Forums allow only 20 custom tags, so the built-in tags cover the nine Holds, Cross-Skyrim, Other Region, common occupations, Other Occupation, Group, and High Priority. Group categories, factions, and detailed locations remain on the record card.
+
+Standardized `/trailmark report` submissions may link up to three person or group records. Once the report reaches Corps Headquarters, Wayfinder posts a copy in every linked record's discussion thread. Reports written at Headquarters are linked immediately; reports left elsewhere remain undisclosed until they are carried back through the normal Trailmark delivery flow.
 
 ## Apprenticeships
 

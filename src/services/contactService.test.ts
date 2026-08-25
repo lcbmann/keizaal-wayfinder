@@ -37,16 +37,37 @@ test("shows an archive proposal without removing the other assessment counts", (
 
 test("assigns region, occupation, and high-priority Forum tags", () => {
   assert.deepEqual(contactTagNames({
+    record_type: "Person",
     hold: "Falkreath",
     occupation: "Alchemist",
     high_priority: true
   }), ["Falkreath", "Alchemist", "High Priority"]);
 
   assert.deepEqual(contactTagNames({
+    record_type: "Person",
     hold: "Cross-Skyrim",
     occupation: "General Merchant",
     high_priority: false
   }), ["Cross-Skyrim", "Other Occupation"]);
+
+  assert.deepEqual(contactTagNames({
+    record_type: "Group",
+    hold: "The Rift",
+    occupation: null,
+    high_priority: true
+  }), ["The Rift", "Group", "High Priority"]);
+});
+
+test("uses operational status language for group assessments", () => {
+  const active = summarizeContactAssessments([
+    { assessment: "good", updated_at: "2026-08-25T10:00:00.000Z" }
+  ], "Group");
+  const inactive = summarizeContactAssessments([
+    { assessment: "cold", updated_at: "2026-08-25T11:00:00.000Z" }
+  ], "Group");
+
+  assert.equal(active.status, "Active");
+  assert.equal(inactive.status, "Inactive");
 });
 
 test("keeps a contact record intact when a non-Apprentice clicks an assessment button", async () => {

@@ -55,6 +55,7 @@ import { handleCorpsApplicationModal, isCorpsApplicationModal } from "./services
 import { repairPendingLeadershipApplicationReviews } from "./services/applicationService.js";
 import { forwardDeliveredStructuredReports } from "./services/structuredReportForwardService.js";
 import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
+import { addReadAcknowledgementReaction } from "./services/readAcknowledgementService.js";
 import {
   backfillFieldNameContestVetoNotices,
   cleanupResolvedFieldNameContestMessages,
@@ -299,7 +300,17 @@ client.on("guildMemberRemove", (member) => {
 });
 
 client.on("messageCreate", (message) => {
-  if (!message.guild || message.author.bot) {
+  if (!message.guild) {
+    return;
+  }
+
+  if (message.guild.id === env.DISCORD_GUILD_ID) {
+    void addReadAcknowledgementReaction(message).catch((error) => {
+      console.warn(`Failed to add a read acknowledgement to message ${message.id}:`, error);
+    });
+  }
+
+  if (message.author.bot) {
     return;
   }
 

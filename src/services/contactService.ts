@@ -17,6 +17,7 @@ import {
   supabase,
   type ContactAssessment,
   type ContactAssessmentRow,
+  type RangerContactRecordType,
   type RangerContactRow
 } from "../db/supabase.js";
 import { getBotMessageState, saveBotMessageState } from "./botMessageStateService.js";
@@ -38,11 +39,21 @@ export const CONTACT_OCCUPATIONS = [
   "Other Occupation"
 ] as const;
 
+export const CONTACT_GROUP_CATEGORIES = [
+  "Bandit Group",
+  "Supernatural Group",
+  "Cult",
+  "Military or Political",
+  "Criminal Organization",
+  "Other Group"
+] as const;
+
 const CONTACT_TAG_NAMES = [
   ...HOLDS,
   "Cross-Skyrim",
   "Other Region",
   ...CONTACT_OCCUPATIONS,
+  "Group",
   "High Priority"
 ] as const;
 
@@ -51,6 +62,14 @@ const ASSESSMENT_LABELS: Record<ContactAssessment, string> = {
   cold: "Cold",
   not_found: "Not found",
   mia: "MIA",
+  archive: "Archive proposed"
+};
+
+const GROUP_ASSESSMENT_LABELS: Record<ContactAssessment, string> = {
+  good: "Active",
+  cold: "Inactive",
+  not_found: "Not recently sighted",
+  mia: "Disbanded or destroyed",
   archive: "Archive proposed"
 };
 
@@ -86,12 +105,13 @@ export async function setupContactsForum(guild: Guild, categoryId?: string | nul
     name: CONTACT_FORUM_NAME,
     type: ChannelType.GuildForum,
     ...(categoryId ? { parent: categoryId } : {}),
-    topic: "A living record of people known to the Ranger Corps. Each post is maintained by Wayfinder."
+    topic: "A living record of people and groups known to the Ranger Corps. Each post is maintained by Wayfinder."
   });
 
   await forum.setAvailableTags(CONTACT_TAG_NAMES.map((name) => ({ name })), "Set Ranger contact filters");
   await applyContactForumPermissions(forum);
   await saveBotMessageState(CONTACT_FORUM_STATE_KEY, forum.id, []);
+  await refreshActiveContactForumPosts(guild);
   return forum;
 }
 
@@ -109,24 +129,108 @@ export async function createContact(params: {
   highPriority: boolean;
 }): Promise<{ contact: RangerContactRow; thread: ThreadChannel }> {
   requireContactMember(params.creator);
+  const input = normalizeContactInput(params);
+  return createContactRecord({
+    guild: params.guild,
+    creator: params.creator,
+    recordType: "Person",
+    name: input.name,
+    race: input.race,
+    sex: input.sex,
+    occupation: input.occupation,
+    faction: input.faction,
+    hold: input.hold,
+    usualLocations: input.usualLocations,
+    commentary: input.commentary,
+    groupCategory: null,
+    estimatedSize: null,
+    identifyingFeatures: null,
+    weaponsCapabilities: null,
+    tactics: null,
+    highPriority: input.highPriority
+  });
+}
+
+export async function createContactGroup(params: {
+  guild: Guild;
+  creator: GuildMember;
+  name: string;
+  groupCategory: string;
+  hold: string;
+  faction?: string | null;
+  estimatedSize?: string | null;
+  identifyingFeatures?: string | null;
+  weaponsCapabilities?: string | null;
+  tactics?: string | null;
+  usualLocations?: string | null;
+  commentary?: string | null;
+  highPriority: boolean;
+}): Promise<{ contact: RangerContactRow; thread: ThreadChannel }> {
+  requireContactMember(params.creator);
+  const input = normalizeContactGroupInput(params);
+  return createContactRecord({
+    guild: params.guild,
+    creator: params.creator,
+    recordType: "Group",
+    name: input.name,
+    race: null,
+    sex: null,
+    occupation: null,
+    faction: input.faction,
+    hold: input.hold,
+    usualLocations: input.usualLocations,
+    commentary: input.commentary,
+    groupCategory: input.groupCategory,
+    estimatedSize: input.estimatedSize,
+    identifyingFeatures: input.identifyingFeatures,
+    weaponsCapabilities: input.weaponsCapabilities,
+    tactics: input.tactics,
+    highPriority: input.highPriority
+  });
+}
+
+async function createContactRecord(params: {
+  guild: Guild;
+  creator: GuildMember;
+  recordType: RangerContactRecordType;
+  name: string;
+  race: string | null;
+  sex: string | null;
+  occupation: string | null;
+  faction: string | null;
+  hold: string;
+  usualLocations: string | null;
+  commentary: string | null;
+  groupCategory: string | null;
+  estimatedSize: string | null;
+  identifyingFeatures: string | null;
+  weaponsCapabilities: string | null;
+  tactics: string | null;
+  highPriority: boolean;
+}): Promise<{ contact: RangerContactRow; thread: ThreadChannel }> {
   const forum = await getContactsForum(params.guild);
   if (!forum) {
     throw new UserFacingError("The Contacts Forum has not been set up. Ask a Marshal to run `/contact setup` first.");
   }
 
-  const input = normalizeContactInput(params);
   const { data: inserted, error } = await supabase
     .from("ranger_contacts")
     .insert({
-      name: input.name,
-      race: input.race,
-      sex: input.sex,
-      occupation: input.occupation,
-      faction: input.faction,
-      hold: input.hold,
-      usual_locations: input.usualLocations,
-      commentary: input.commentary,
-      high_priority: input.highPriority,
+      record_type: params.recordType,
+      name: params.name,
+      race: params.race,
+      sex: params.sex,
+      occupation: params.occupation,
+      faction: params.faction,
+      hold: params.hold,
+      usual_locations: params.usualLocations,
+      commentary: params.commentary,
+      group_category: params.groupCategory,
+      estimated_size: params.estimatedSize,
+      identifying_features: params.identifyingFeatures,
+      weapons_capabilities: params.weaponsCapabilities,
+      tactics: params.tactics,
+      high_priority: params.highPriority,
       active: true,
       created_by_discord_user_id: params.creator.id,
       forum_channel_id: forum.id,
@@ -179,6 +283,11 @@ export async function editContact(params: {
   hold?: string;
   usualLocations?: string | null;
   commentary?: string | null;
+  groupCategory?: string;
+  estimatedSize?: string | null;
+  identifyingFeatures?: string | null;
+  weaponsCapabilities?: string | null;
+  tactics?: string | null;
   highPriority?: boolean;
 }): Promise<ContactDetails> {
   requireContactMember(params.editor);
@@ -187,7 +296,7 @@ export async function editContact(params: {
     throw new UserFacingError("That contact is not active.");
   }
 
-  const changes = normalizeContactChanges(params);
+  const changes = normalizeContactChanges(params, current.contact.record_type);
   if (Object.keys(changes).length === 0) {
     throw new UserFacingError("Provide at least one contact field to change.");
   }
@@ -266,8 +375,10 @@ export async function recordContactAssessment(params: {
 }
 
 export async function listContacts(params: {
+  recordType?: RangerContactRecordType | null;
   hold?: string | null;
   occupation?: string | null;
+  groupCategory?: string | null;
   highPriority?: boolean | null;
 } = {}): Promise<ContactDetails[]> {
   let query = supabase
@@ -276,11 +387,17 @@ export async function listContacts(params: {
     .eq("active", true)
     .order("high_priority", { ascending: false })
     .order("name", { ascending: true });
+  if (params.recordType) {
+    query = query.eq("record_type", params.recordType);
+  }
   if (params.hold) {
     query = query.eq("hold", params.hold);
   }
   if (params.occupation) {
     query = query.eq("occupation", params.occupation);
+  }
+  if (params.groupCategory) {
+    query = query.eq("group_category", params.groupCategory);
   }
   if (params.highPriority !== null && params.highPriority !== undefined) {
     query = query.eq("high_priority", params.highPriority);
@@ -387,14 +504,14 @@ export async function handleContactButton(interaction: ButtonInteraction): Promi
 
   await interaction.deferUpdate();
   try {
-    await recordContactAssessment({
+    const updated = await recordContactAssessment({
       guild: interaction.guild,
       contactId,
       voter: member,
       assessment
     });
     await interaction.followUp({
-      content: `Your assessment is recorded as **${ASSESSMENT_LABELS[assessment]}**. You can change it later.`,
+      content: `Your assessment is recorded as **${assessmentLabels(updated.contact.record_type)[assessment]}**. You can change it later.`,
       ephemeral: true
     });
   } catch (error) {
@@ -408,7 +525,10 @@ export async function handleContactButton(interaction: ButtonInteraction): Promi
   }
 }
 
-export function summarizeContactAssessments(assessments: ReadonlyArray<Pick<ContactAssessmentRow, "assessment" | "updated_at">>): ContactAssessmentSummary {
+export function summarizeContactAssessments(
+  assessments: ReadonlyArray<Pick<ContactAssessmentRow, "assessment" | "updated_at">>,
+  recordType: RangerContactRecordType = "Person"
+): ContactAssessmentSummary {
   const counts: Record<ContactAssessment, number> = {
     good: 0,
     cold: 0,
@@ -429,18 +549,19 @@ export function summarizeContactAssessments(assessments: ReadonlyArray<Pick<Cont
     .sort((a, b) => counts[b] - counts[a]);
   const top = ranked[0];
   const tied = top && ranked.filter((assessment) => counts[assessment] === counts[top] && counts[top] > 0).length > 1;
+  const labels = assessmentLabels(recordType);
   const status = counts.archive > 0
-    ? ASSESSMENT_LABELS.archive
+    ? labels.archive
     : !top || counts[top] === 0
       ? "Unverified"
       : tied
         ? "Mixed reports"
-        : ASSESSMENT_LABELS[top];
+        : labels[top];
 
   return { counts, status, lastVerifiedAt };
 }
 
-export function contactTagNames(contact: Pick<RangerContactRow, "hold" | "occupation" | "high_priority">): string[] {
+export function contactTagNames(contact: Pick<RangerContactRow, "record_type" | "hold" | "occupation" | "high_priority">): string[] {
   const tags: string[] = [];
   if (HOLDS.includes(contact.hold as (typeof HOLDS)[number])) {
     tags.push(contact.hold);
@@ -450,10 +571,14 @@ export function contactTagNames(contact: Pick<RangerContactRow, "hold" | "occupa
     tags.push("Other Region");
   }
 
-  const occupation = CONTACT_OCCUPATIONS.includes(contact.occupation as (typeof CONTACT_OCCUPATIONS)[number])
-    ? contact.occupation
-    : "Other Occupation";
-  tags.push(occupation);
+  if (contact.record_type === "Group") {
+    tags.push("Group");
+  } else {
+    const occupation = contact.occupation && CONTACT_OCCUPATIONS.includes(contact.occupation as (typeof CONTACT_OCCUPATIONS)[number])
+      ? contact.occupation
+      : "Other Occupation";
+    tags.push(occupation);
+  }
   if (contact.high_priority) {
     tags.push("High Priority");
   }
@@ -473,38 +598,74 @@ async function contactMessagePayload(guild: Guild, contactId: string): Promise<C
   }
   const { contact, summary } = details;
   const rating = ratingText(summary);
-  const embed = emojiEmbed(guild, "wayfinder", `Contact - ${contact.name}`)
+  const group = contact.record_type === "Group";
+  const embed = emojiEmbed(guild, group ? "intel" : "wayfinder", `${group ? "Group" : "Contact"} - ${contact.name}`)
     .setColor(contact.high_priority ? 0xa64d3f : 0x587c4a)
-    .setDescription(`${contact.high_priority ? "**High-priority contact.**\n" : ""}**Current rating:** ${summary.status}\n${rating}`)
-    .addFields(
+    .setDescription(`${contact.high_priority ? `**High-priority ${group ? "group" : "contact"}.**\n` : ""}**Current assessment:** ${summary.status}\n${rating}`);
+
+  if (group) {
+    embed.addFields(
+      { name: "Group", value: contact.name, inline: true },
+      { name: "Category", value: contact.group_category ?? "Other Group", inline: true },
+      { name: "Hold / Region", value: contact.hold, inline: true },
+      { name: "Affiliation", value: contact.faction ?? "None known", inline: true },
+      { name: "Estimated strength", value: contact.estimated_size ?? "Unknown", inline: true },
+      { name: "Territory / usual locations", value: contact.usual_locations ?? "Unknown", inline: false },
+      { name: "Identifying signs", value: contact.identifying_features ?? "None recorded.", inline: false },
+      { name: "Arms / capabilities", value: contact.weapons_capabilities ?? "Unknown", inline: false },
+      { name: "Tactics / behavior", value: contact.tactics ?? "Unknown", inline: false },
+      { name: "Additional intelligence", value: contact.commentary ?? "None recorded.", inline: false },
+      { name: "Last confirmed active", value: summary.lastVerifiedAt ? formatDiscordTime(summary.lastVerifiedAt) : "No Ranger has confirmed this group yet.", inline: false },
+      { name: "Originally recorded by", value: `<@${contact.created_by_discord_user_id}>`, inline: true }
+    );
+  } else {
+    embed.addFields(
       { name: "Name", value: contact.name, inline: true },
-      { name: "Race", value: contact.race, inline: true },
-      { name: "Sex", value: contact.sex, inline: true },
-      { name: "Occupation", value: contact.occupation, inline: true },
+      { name: "Race", value: contact.race ?? "Unknown", inline: true },
+      { name: "Sex", value: contact.sex ?? "Unknown", inline: true },
+      { name: "Occupation", value: contact.occupation ?? "Unknown", inline: true },
       { name: "Faction", value: contact.faction ?? "Unknown", inline: true },
       { name: "Hold / Region", value: contact.hold, inline: true },
       { name: "Usual locations", value: contact.usual_locations ?? "Unknown", inline: false },
       { name: "Commentary", value: contact.commentary ?? "None recorded.", inline: false },
       { name: "Last verified", value: summary.lastVerifiedAt ? formatDiscordTime(summary.lastVerifiedAt) : "No Ranger has confirmed this contact yet.", inline: false },
       { name: "Originally recorded by", value: `<@${contact.created_by_discord_user_id}>`, inline: true }
-    )
-    .setFooter({ text: contact.active ? "Use the buttons to record your current knowledge. Discuss details in this post's thread." : `Archived: ${contact.archive_reason ?? "No reason recorded."}` });
+    );
+  }
+
+  embed.setFooter({
+    text: contact.active
+      ? `Use the buttons to record current knowledge. Discuss updates and linked reports in this post's thread.`
+      : `Archived: ${contact.archive_reason ?? "No reason recorded."}`
+  });
 
   return {
     content: `**${contact.name}** - ${summary.status} | ${rating}`.slice(0, 2000),
     embeds: [embed],
-    components: [contactAssessmentRow(contact.id, contact.active)]
+    components: [contactAssessmentRow(contact.id, contact.active, contact.record_type)]
   };
 }
 
-function contactAssessmentRow(contactId: string, active: boolean): ActionRowBuilder<ButtonBuilder> {
-  const buttons: Array<[ContactAssessment, string, ButtonStyle]> = [
-    ["good", "Still good", ButtonStyle.Success],
-    ["cold", "Cold", ButtonStyle.Danger],
-    ["not_found", "Not found", ButtonStyle.Secondary],
-    ["mia", "MIA", ButtonStyle.Secondary],
-    ["archive", "Propose archive", ButtonStyle.Danger]
-  ];
+function contactAssessmentRow(
+  contactId: string,
+  active: boolean,
+  recordType: RangerContactRecordType
+): ActionRowBuilder<ButtonBuilder> {
+  const buttons: Array<[ContactAssessment, string, ButtonStyle]> = recordType === "Group"
+    ? [
+      ["good", "Active", ButtonStyle.Success],
+      ["cold", "Inactive", ButtonStyle.Danger],
+      ["not_found", "Not sighted", ButtonStyle.Secondary],
+      ["mia", "Disbanded", ButtonStyle.Secondary],
+      ["archive", "Propose archive", ButtonStyle.Danger]
+    ]
+    : [
+      ["good", "Still good", ButtonStyle.Success],
+      ["cold", "Cold", ButtonStyle.Danger],
+      ["not_found", "Not found", ButtonStyle.Secondary],
+      ["mia", "MIA", ButtonStyle.Secondary],
+      ["archive", "Propose archive", ButtonStyle.Danger]
+    ];
   return new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.map(([assessment, label, style]) =>
     new ButtonBuilder()
       .setCustomId(`contact:assess:${contactId}:${assessment}`)
@@ -524,7 +685,7 @@ async function getContactDetailsFromRow(contact: RangerContactRow): Promise<Cont
   return {
     contact,
     assessments: data ?? [],
-    summary: summarizeContactAssessments(data ?? [])
+    summary: summarizeContactAssessments(data ?? [], contact.record_type)
   };
 }
 
@@ -620,6 +781,55 @@ function normalizeContactInput(params: {
   };
 }
 
+function normalizeContactGroupInput(params: {
+  name: string;
+  groupCategory: string;
+  hold: string;
+  faction?: string | null;
+  estimatedSize?: string | null;
+  identifyingFeatures?: string | null;
+  weaponsCapabilities?: string | null;
+  tactics?: string | null;
+  usualLocations?: string | null;
+  commentary?: string | null;
+  highPriority: boolean;
+}): {
+  name: string;
+  groupCategory: string;
+  hold: string;
+  faction: string | null;
+  estimatedSize: string | null;
+  identifyingFeatures: string | null;
+  weaponsCapabilities: string | null;
+  tactics: string | null;
+  usualLocations: string | null;
+  commentary: string | null;
+  highPriority: boolean;
+} {
+  const name = requiredText(params.name, "Group name", 100);
+  const groupCategory = requiredText(params.groupCategory, "Group category", 100);
+  if (!CONTACT_GROUP_CATEGORIES.includes(groupCategory as (typeof CONTACT_GROUP_CATEGORIES)[number])) {
+    throw new UserFacingError("Choose a valid group category.");
+  }
+  const hold = requiredText(params.hold, "Hold or region", 100);
+  if (!CONTACT_HOLD_CHOICES.includes(hold as (typeof CONTACT_HOLD_CHOICES)[number])) {
+    throw new UserFacingError("Choose a valid Hold or region.");
+  }
+  return {
+    name,
+    groupCategory,
+    hold,
+    faction: optionalText(params.faction, 150),
+    estimatedSize: optionalText(params.estimatedSize, 200),
+    identifyingFeatures: optionalText(params.identifyingFeatures, 700),
+    weaponsCapabilities: optionalText(params.weaponsCapabilities, 700),
+    tactics: optionalText(params.tactics, 700),
+    usualLocations: optionalText(params.usualLocations, 500),
+    commentary: optionalText(params.commentary, 1500),
+    highPriority: params.highPriority
+  };
+}
+
 function normalizeContactChanges(params: {
   name?: string;
   race?: string;
@@ -629,9 +839,26 @@ function normalizeContactChanges(params: {
   hold?: string;
   usualLocations?: string | null;
   commentary?: string | null;
+  groupCategory?: string;
+  estimatedSize?: string | null;
+  identifyingFeatures?: string | null;
+  weaponsCapabilities?: string | null;
+  tactics?: string | null;
   highPriority?: boolean;
-}): Partial<RangerContactRow> {
+}, recordType: RangerContactRecordType): Partial<RangerContactRow> {
   const changes: Partial<RangerContactRow> = {};
+  const hasPersonFields = params.race !== undefined || params.sex !== undefined || params.occupation !== undefined;
+  const hasGroupFields = params.groupCategory !== undefined
+    || params.estimatedSize !== undefined
+    || params.identifyingFeatures !== undefined
+    || params.weaponsCapabilities !== undefined
+    || params.tactics !== undefined;
+  if (recordType === "Group" && hasPersonFields) {
+    throw new UserFacingError("Race, sex, and occupation only apply to person contacts.");
+  }
+  if (recordType === "Person" && hasGroupFields) {
+    throw new UserFacingError("Group category, strength, identifying signs, capabilities, and tactics only apply to group records.");
+  }
   if (params.name !== undefined) changes.name = requiredText(params.name, "Name", 100);
   if (params.race !== undefined) changes.race = requiredText(params.race, "Race", 100);
   if (params.sex !== undefined) changes.sex = requiredText(params.sex, "Sex", 100);
@@ -645,6 +872,16 @@ function normalizeContactChanges(params: {
   }
   if (params.usualLocations !== undefined) changes.usual_locations = optionalText(params.usualLocations, 500);
   if (params.commentary !== undefined) changes.commentary = optionalText(params.commentary, 1500);
+  if (params.groupCategory !== undefined) {
+    changes.group_category = requiredText(params.groupCategory, "Group category", 100);
+    if (!CONTACT_GROUP_CATEGORIES.includes(changes.group_category as (typeof CONTACT_GROUP_CATEGORIES)[number])) {
+      throw new UserFacingError("Choose a valid group category.");
+    }
+  }
+  if (params.estimatedSize !== undefined) changes.estimated_size = optionalText(params.estimatedSize, 200);
+  if (params.identifyingFeatures !== undefined) changes.identifying_features = optionalText(params.identifyingFeatures, 700);
+  if (params.weaponsCapabilities !== undefined) changes.weapons_capabilities = optionalText(params.weaponsCapabilities, 700);
+  if (params.tactics !== undefined) changes.tactics = optionalText(params.tactics, 700);
   if (params.highPriority !== undefined) changes.high_priority = params.highPriority;
   return changes;
 }
@@ -682,8 +919,12 @@ function ratingText(summary: ContactAssessmentSummary): string {
   return `✅ ${summary.counts.good} · ❌ ${summary.counts.cold} · ❔ ${summary.counts.not_found} · 💀 ${summary.counts.mia} · 🗑️ ${summary.counts.archive}`;
 }
 
-function contactThreadName(contact: Pick<RangerContactRow, "name">): string {
-  return `Contact - ${contact.name}`.slice(0, 100);
+function contactThreadName(contact: Pick<RangerContactRow, "record_type" | "name">): string {
+  return `${contact.record_type === "Group" ? "Group" : "Contact"} - ${contact.name}`.slice(0, 100);
+}
+
+function assessmentLabels(recordType: RangerContactRecordType): Record<ContactAssessment, string> {
+  return recordType === "Group" ? GROUP_ASSESSMENT_LABELS : ASSESSMENT_LABELS;
 }
 
 function formatDiscordTime(value: string | null): string {

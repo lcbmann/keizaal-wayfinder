@@ -39,9 +39,9 @@ export const trailmarkCommand: BotCommand = {
           { name: "General report", value: "General" },
           { name: "Incident report", value: "Incident" }
         ))
-      .addStringOption((option) => option.setName("contact").setDescription("Optional contact involved.").setAutocomplete(true))
-      .addStringOption((option) => option.setName("contact_2").setDescription("Optional additional contact.").setAutocomplete(true))
-      .addStringOption((option) => option.setName("contact_3").setDescription("Optional additional contact.").setAutocomplete(true))
+      .addStringOption((option) => option.setName("contact").setDescription("Optional person or group involved.").setAutocomplete(true))
+      .addStringOption((option) => option.setName("contact_2").setDescription("Optional additional person or group.").setAutocomplete(true))
+      .addStringOption((option) => option.setName("contact_3").setDescription("Optional additional person or group.").setAutocomplete(true))
       .addUserOption((option) => option.setName("participant").setDescription("Another Ranger who participated."))
       .addUserOption((option) => option.setName("participant_2").setDescription("Another participating Ranger."))
       .addUserOption((option) => option.setName("participant_3").setDescription("Another participating Ranger.")))
@@ -119,7 +119,7 @@ export const trailmarkCommand: BotCommand = {
       const focused = interaction.options.getFocused().toLocaleLowerCase();
       const contacts = await listContacts();
       await interaction.respond(contacts
-        .map(({ contact }) => ({ name: `${contact.name} (${contact.hold})`.slice(0, 100), value: contact.id }))
+        .map(({ contact }) => ({ name: `[${contact.record_type}] ${contact.name} (${contact.hold})`.slice(0, 100), value: contact.id }))
         .filter((choice) => choice.name.toLocaleLowerCase().includes(focused))
         .slice(0, 25));
       return;

@@ -20,6 +20,7 @@ export type FieldNameProposalStatus = "Open" | "Approved" | "Denied" | "Cancelle
 export type FieldNameBallotVote = "yes" | "no" | "abstain";
 export type FieldNameContestStatus = "Open" | "Approved" | "Denied" | "Cancelled";
 export type ContactAssessment = "good" | "cold" | "not_found" | "mia" | "archive";
+export type RangerContactRecordType = "Person" | "Group";
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface RangerRow {
@@ -410,14 +411,20 @@ export interface RangerFieldNameRow {
 
 export interface RangerContactRow {
   id: string;
+  record_type: RangerContactRecordType;
   name: string;
-  race: string;
-  sex: string;
-  occupation: string;
+  race: string | null;
+  sex: string | null;
+  occupation: string | null;
   faction: string | null;
   hold: string;
   usual_locations: string | null;
   commentary: string | null;
+  group_category: string | null;
+  estimated_size: string | null;
+  identifying_features: string | null;
+  weapons_capabilities: string | null;
+  tactics: string | null;
   high_priority: boolean;
   active: boolean;
   created_by_discord_user_id: string;

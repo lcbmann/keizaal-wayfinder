@@ -49,7 +49,7 @@ export async function createStructuredTrailmarkReportDraft(params: {
       .eq("active", true);
     assertNoDbError(contactsError, "validate structured report contacts");
     if ((contacts?.length ?? 0) !== contactIds.length) {
-      throw new UserFacingError("One of the selected contacts is no longer active.");
+      throw new UserFacingError("One of the selected contacts or groups is no longer active.");
     }
   }
 
@@ -231,7 +231,7 @@ async function contactNamesFor(contactIds: string[]): Promise<string[]> {
   for (const contactId of contactIds) {
     const details = await getContactDetails(contactId);
     if (details?.contact.active) {
-      names.push(details.contact.name);
+      names.push(details.contact.record_type === "Group" ? `Group: ${details.contact.name}` : details.contact.name);
     }
   }
   return names;
@@ -264,7 +264,7 @@ function structuredReportEmbed(params: {
     .setColor(params.report.report_type === "Incident" ? 0xa64d3f : 0x587c4a)
     .setTimestamp(new Date());
   if (params.contactNames.length) {
-    embed.addFields({ name: "Linked contacts", value: params.contactNames.join(", ").slice(0, 1024), inline: false });
+    embed.addFields({ name: "Linked contacts / groups", value: params.contactNames.join(", ").slice(0, 1024), inline: false });
   }
   if (params.values.details) {
     embed.addFields({ name: params.report.report_type === "Incident" ? "Threat / current status" : "Details", value: params.values.details.slice(0, 1024) });
@@ -287,7 +287,7 @@ export function formatStructuredReportIntelContent(
     values.summary,
     values.details,
     values.followUp,
-    contacts.length ? `Contacts: ${contacts.join(", ")}` : null,
+    contacts.length ? `Contacts / groups: ${contacts.join(", ")}` : null,
     participantLabels.length ? `Participating Rangers: ${participantLabels.join(", ")}` : null
   ].filter((value): value is string => Boolean(value)).join("\n\n");
 }

@@ -1,8 +1,10 @@
 import { ChannelType, SlashCommandBuilder, type GuildMember } from "discord.js";
 import {
+  CONTACT_GROUP_CATEGORIES,
   CONTACT_HOLD_CHOICES,
   archiveContact,
   createContact,
+  createContactGroup,
   editContact,
   listContacts,
   setupContactsForum
@@ -12,6 +14,7 @@ import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
 
 const holdChoices = CONTACT_HOLD_CHOICES.map((hold) => ({ name: hold, value: hold }));
+const groupCategoryChoices = CONTACT_GROUP_CATEGORIES.map((category) => ({ name: category, value: category }));
 
 export const contactCommand: BotCommand = {
   data: new SlashCommandBuilder()
@@ -26,7 +29,7 @@ export const contactCommand: BotCommand = {
         .addChannelTypes(ChannelType.GuildCategory)))
     .addSubcommand((subcommand) => subcommand
       .setName("create")
-      .setDescription("Apprentice+: create a structured contact record.")
+      .setDescription("Apprentice+: create a record for an individual contact.")
       .addStringOption((option) => option.setName("name").setDescription("The contact's name.").setRequired(true).setMaxLength(100))
       .addStringOption((option) => option.setName("race").setDescription("The contact's race.").setRequired(true).setMaxLength(100))
       .addStringOption((option) => option.setName("sex").setDescription("The contact's sex.").setRequired(true).setMaxLength(100))
@@ -37,10 +40,24 @@ export const contactCommand: BotCommand = {
       .addStringOption((option) => option.setName("commentary").setDescription("Additional notes about the contact.").setMaxLength(1500))
       .addBooleanOption((option) => option.setName("high_priority").setDescription("Mark important contacts such as leaders or high-ranking officials.")))
     .addSubcommand((subcommand) => subcommand
+      .setName("create-group")
+      .setDescription("Apprentice+: create a record for a known group.")
+      .addStringOption((option) => option.setName("name").setDescription("The group's known name.").setRequired(true).setMaxLength(100))
+      .addStringOption((option) => option.setName("category").setDescription("What kind of group this is.").setRequired(true).addChoices(...groupCategoryChoices))
+      .addStringOption((option) => option.setName("hold").setDescription("Primary Hold or region.").setRequired(true).addChoices(...holdChoices))
+      .addStringOption((option) => option.setName("estimated_size").setDescription("Estimated numbers or strength.").setMaxLength(200))
+      .addStringOption((option) => option.setName("identifying_features").setDescription("Clothing, symbols, appearance, or other identifying signs.").setMaxLength(700))
+      .addStringOption((option) => option.setName("weapons_capabilities").setDescription("Known weapons, magic, creatures, or other capabilities.").setMaxLength(700))
+      .addStringOption((option) => option.setName("tactics").setDescription("Known tactics, behavior, or patterns.").setMaxLength(700))
+      .addStringOption((option) => option.setName("usual_locations").setDescription("Territory, camps, routes, or usual locations.").setMaxLength(500))
+      .addStringOption((option) => option.setName("faction").setDescription("Larger faction or known affiliation.").setMaxLength(150))
+      .addStringOption((option) => option.setName("commentary").setDescription("Additional intelligence or notes.").setMaxLength(1500))
+      .addBooleanOption((option) => option.setName("high_priority").setDescription("Mark a particularly important or dangerous group.")))
+    .addSubcommand((subcommand) => subcommand
       .setName("edit")
-      .setDescription("Apprentice+: edit a contact record.")
-      .addStringOption((option) => option.setName("contact").setDescription("Contact to edit.").setRequired(true).setAutocomplete(true))
-      .addStringOption((option) => option.setName("name").setDescription("Replace the contact's name.").setMaxLength(100))
+      .setDescription("Apprentice+: edit a person or group record.")
+      .addStringOption((option) => option.setName("contact").setDescription("Person or group to edit.").setRequired(true).setAutocomplete(true))
+      .addStringOption((option) => option.setName("name").setDescription("Replace the record's name.").setMaxLength(100))
       .addStringOption((option) => option.setName("race").setDescription("Replace the contact's race.").setMaxLength(100))
       .addStringOption((option) => option.setName("sex").setDescription("Replace the contact's sex.").setMaxLength(100))
       .addStringOption((option) => option.setName("occupation").setDescription("Replace the occupation.").setMaxLength(100))
@@ -48,12 +65,22 @@ export const contactCommand: BotCommand = {
       .addStringOption((option) => option.setName("faction").setDescription("Replace the faction or organization.").setMaxLength(150))
       .addStringOption((option) => option.setName("usual_locations").setDescription("Replace usual locations.").setMaxLength(500))
       .addStringOption((option) => option.setName("commentary").setDescription("Replace the commentary.").setMaxLength(1500))
+      .addStringOption((option) => option.setName("group_category").setDescription("Group records only: replace the category.").addChoices(...groupCategoryChoices))
+      .addStringOption((option) => option.setName("estimated_size").setDescription("Group records only: replace estimated size.").setMaxLength(200))
+      .addStringOption((option) => option.setName("identifying_features").setDescription("Group records only: replace identifying signs.").setMaxLength(700))
+      .addStringOption((option) => option.setName("weapons_capabilities").setDescription("Group records only: replace arms or capabilities.").setMaxLength(700))
+      .addStringOption((option) => option.setName("tactics").setDescription("Group records only: replace tactics or behavior.").setMaxLength(700))
       .addBooleanOption((option) => option.setName("high_priority").setDescription("Set whether this is a high-priority contact.")))
     .addSubcommand((subcommand) => subcommand
       .setName("list")
-      .setDescription("List active contacts, optionally filtered.")
+      .setDescription("List active people and groups, optionally filtered.")
+      .addStringOption((option) => option.setName("type").setDescription("Only people or groups.").addChoices(
+        { name: "People", value: "Person" },
+        { name: "Groups", value: "Group" }
+      ))
       .addStringOption((option) => option.setName("hold").setDescription("Only contacts in this Hold or region.").addChoices(...holdChoices))
       .addStringOption((option) => option.setName("occupation").setDescription("Only contacts with this occupation.").setMaxLength(100))
+      .addStringOption((option) => option.setName("group_category").setDescription("Only groups in this category.").addChoices(...groupCategoryChoices))
       .addBooleanOption((option) => option.setName("high_priority").setDescription("Only show high-priority contacts.")))
     .addSubcommand((subcommand) => subcommand
       .setName("archive")
@@ -66,7 +93,7 @@ export const contactCommand: BotCommand = {
     const contacts = await listContacts();
     const choices = contacts
       .map(({ contact, summary }) => ({
-        name: `${contact.high_priority ? "High Priority - " : ""}${contact.name} (${contact.hold}) - ${summary.status}`.slice(0, 100),
+        name: `${contact.high_priority ? "High Priority - " : ""}[${contact.record_type}] ${contact.name} (${contact.hold}) - ${summary.status}`.slice(0, 100),
         value: contact.id
       }))
       .filter((choice) => choice.name.toLowerCase().includes(focused))
@@ -110,6 +137,28 @@ export const contactCommand: BotCommand = {
       return;
     }
 
+    if (subcommand === "create-group") {
+      requireContactCreator(actor);
+      await interaction.deferReply({ ephemeral: true });
+      const created = await createContactGroup({
+        guild: interaction.guild,
+        creator: actor,
+        name: interaction.options.getString("name", true),
+        groupCategory: interaction.options.getString("category", true),
+        hold: interaction.options.getString("hold", true),
+        estimatedSize: interaction.options.getString("estimated_size"),
+        identifyingFeatures: interaction.options.getString("identifying_features"),
+        weaponsCapabilities: interaction.options.getString("weapons_capabilities"),
+        tactics: interaction.options.getString("tactics"),
+        usualLocations: interaction.options.getString("usual_locations"),
+        faction: interaction.options.getString("faction"),
+        commentary: interaction.options.getString("commentary"),
+        highPriority: interaction.options.getBoolean("high_priority") ?? false
+      });
+      await interaction.editReply({ content: `Group record created: ${created.thread}.` });
+      return;
+    }
+
     requireContactMember(actor);
 
     if (subcommand === "edit") {
@@ -126,14 +175,18 @@ export const contactCommand: BotCommand = {
     }
 
     if (subcommand === "list") {
+      const recordType = interaction.options.getString("type");
       const contacts = await listContacts({
+        recordType: recordType === "Person" || recordType === "Group" ? recordType : null,
         hold: interaction.options.getString("hold"),
         occupation: interaction.options.getString("occupation"),
+        groupCategory: interaction.options.getString("group_category"),
         highPriority: interaction.options.getBoolean("high_priority")
       });
-      const lines = contacts.slice(0, 25).map(({ contact, summary }) =>
-        `${contact.high_priority ? "⚠️ " : ""}**${contact.name}** - ${contact.occupation} - ${contact.hold} - ${summary.status}`
-      );
+      const lines = contacts.slice(0, 25).map(({ contact, summary }) => {
+        const kind = contact.record_type === "Group" ? contact.group_category ?? "Group" : contact.occupation ?? "Unknown occupation";
+        return `${contact.high_priority ? "⚠️ " : ""}**${contact.name}** - ${kind} - ${contact.hold} - ${summary.status}`;
+      });
       await interaction.reply({
         content: lines.length ? lines.join("\n") : "No active contacts match those filters.",
         ephemeral: true
@@ -182,6 +235,11 @@ function optionalContactChanges(interaction: Parameters<BotCommand["execute"]>[0
   faction?: string | null;
   usualLocations?: string | null;
   commentary?: string | null;
+  groupCategory?: string;
+  estimatedSize?: string | null;
+  identifyingFeatures?: string | null;
+  weaponsCapabilities?: string | null;
+  tactics?: string | null;
   highPriority?: boolean;
 } {
   const changes: ReturnType<typeof optionalContactChanges> = {};
@@ -198,6 +256,12 @@ function optionalContactChanges(interaction: Parameters<BotCommand["execute"]>[0
   if (interaction.options.get("faction")) changes.faction = interaction.options.getString("faction");
   if (interaction.options.get("usual_locations")) changes.usualLocations = interaction.options.getString("usual_locations");
   if (interaction.options.get("commentary")) changes.commentary = interaction.options.getString("commentary");
+  const groupCategory = interaction.options.getString("group_category");
+  if (groupCategory !== null) changes.groupCategory = groupCategory;
+  if (interaction.options.get("estimated_size")) changes.estimatedSize = interaction.options.getString("estimated_size");
+  if (interaction.options.get("identifying_features")) changes.identifyingFeatures = interaction.options.getString("identifying_features");
+  if (interaction.options.get("weapons_capabilities")) changes.weaponsCapabilities = interaction.options.getString("weapons_capabilities");
+  if (interaction.options.get("tactics")) changes.tactics = interaction.options.getString("tactics");
   if (interaction.options.get("high_priority")) changes.highPriority = interaction.options.getBoolean("high_priority") ?? false;
   return changes;
 }

@@ -593,6 +593,34 @@ export interface AllianceReportTopicPublicationRow {
 export interface Database {
   public: {
     Tables: {
+      atlas_ranger_directory: {
+        Row: {
+          discord_user_id: string;
+          display_name: string;
+          active: boolean;
+          permissions: string[];
+          roles: Json;
+          discord_profile: Json;
+          updated_at: string;
+        };
+        Insert: {
+          discord_user_id: string;
+          display_name?: string;
+          active?: boolean;
+          permissions?: string[];
+          roles?: Json;
+          discord_profile?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          display_name?: string;
+          active?: boolean;
+          permissions?: string[];
+          roles?: Json;
+          discord_profile?: Json;
+          updated_at?: string;
+        };
+      };
       rangers: {
         Row: RangerRow;
         Insert: Partial<RangerRow> & Pick<RangerRow, "discord_user_id" | "current_rank" | "join_date">;
@@ -982,6 +1010,17 @@ export interface Database {
         Args: {
           discord_user_id_input: string;
           discord_display_name_input: string;
+          discord_profile_input: Json;
+        };
+        Returns: number;
+      };
+      set_atlas_ranger_access: {
+        Args: {
+          discord_user_id_input: string;
+          display_name_input: string;
+          active_input: boolean;
+          permissions_input: string[];
+          roles_input: Json;
           discord_profile_input: Json;
         };
         Returns: number;

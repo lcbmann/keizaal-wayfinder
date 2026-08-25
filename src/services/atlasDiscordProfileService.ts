@@ -1,6 +1,6 @@
 import type { Guild, GuildMember } from "discord.js";
 import { assertNoDbError, supabase, type CorpsMedalRow, type Json } from "../db/supabase.js";
-import { mainRankFromMember } from "../utils/permissions.js";
+import { canCreateTrailmarks, mainRankFromMember } from "../utils/permissions.js";
 import { MAIN_RANKS } from "../config/ranks.js";
 import { roleIdForRank } from "../config/roles.js";
 import { rankEmojiName, type WayfinderEmojiName } from "../utils/guildEmojis.js";
@@ -106,36 +106,102 @@ export function buildAtlasDiscordProfile(member: GuildMember, corpsMedals: reado
   };
 }
 
+function buildAtlasRangerRoles(member: GuildMember): Json {
+  const rank = mainRankFromMember(member);
+  return rank ? [{ id: rankBadgeIds[rank], name: rank }] : [];
+}
+
+function buildAtlasRangerPermissions(member: GuildMember): string[] {
+  return canCreateTrailmarks(member) ? ["trailmarks.manage"] : [];
+}
+
+export type AtlasRangerSyncResult = {
+  active: boolean;
+  linkedAccounts: number;
+};
+
 export async function syncAtlasDiscordProfile(
   member: GuildMember,
   corpsMedals: readonly CorpsMedalRow[] | null = null
-): Promise<number> {
+): Promise<AtlasRangerSyncResult> {
   const availableMedals = corpsMedals ?? await listMedals();
-  const { data, error } = await supabase.rpc("update_atlas_discord_profile", {
+  const rank = mainRankFromMember(member);
+  const profile = buildAtlasDiscordProfile(member, availableMedals);
+  const { data, error } = await supabase.rpc("set_atlas_ranger_access", {
     discord_user_id_input: member.id,
-    discord_display_name_input: member.displayName,
-    discord_profile_input: buildAtlasDiscordProfile(member, availableMedals)
+    display_name_input: member.displayName,
+    active_input: Boolean(rank),
+    permissions_input: buildAtlasRangerPermissions(member),
+    roles_input: buildAtlasRangerRoles(member),
+    discord_profile_input: profile
   });
-  assertNoDbError(error, "update linked Atlas Discord profile");
+  assertNoDbError(error, "synchronize Ranger Atlas identity");
+  return {
+    active: Boolean(rank),
+    linkedAccounts: typeof data === "number" ? data : 0
+  };
+}
+
+export async function deactivateAtlasRangerAccess(params: {
+  discordUserId: string;
+  displayName: string;
+}): Promise<number> {
+  const { data, error } = await supabase.rpc("set_atlas_ranger_access", {
+    discord_user_id_input: params.discordUserId,
+    display_name_input: params.displayName,
+    active_input: false,
+    permissions_input: [],
+    roles_input: [],
+    discord_profile_input: {}
+  });
+  assertNoDbError(error, "deactivate Ranger Atlas identity");
   return typeof data === "number" ? data : 0;
 }
 
-export async function syncGuildAtlasDiscordProfiles(guild: Guild): Promise<{ members: number; links: number }> {
-  const [members, corpsMedals] = await Promise.all([guild.members.fetch(), listMedals()]);
+export async function syncGuildAtlasDiscordProfiles(guild: Guild): Promise<{
+  members: number;
+  linkedAccounts: number;
+  deactivated: number;
+}> {
+  const [members, corpsMedals, directoryResult] = await Promise.all([
+    guild.members.fetch(),
+    listMedals(),
+    supabase.from("atlas_ranger_directory").select("discord_user_id, display_name, active").eq("active", true)
+  ]);
+  assertNoDbError(directoryResult.error, "load active Ranger Atlas identities");
   let syncedMembers = 0;
-  let linkedProfiles = 0;
+  let linkedAccounts = 0;
+  let deactivated = 0;
   for (const member of members.values()) {
     if (member.user.bot || !mainRankFromMember(member)) {
       continue;
     }
     syncedMembers += 1;
     try {
-      linkedProfiles += await syncAtlasDiscordProfile(member, corpsMedals);
+      const result = await syncAtlasDiscordProfile(member, corpsMedals);
+      linkedAccounts += result.linkedAccounts;
     } catch (error) {
-      console.warn(`Could not refresh linked Atlas profile for ${member.id}:`, error);
+      console.warn(`Could not synchronize Ranger Atlas identity for ${member.id}:`, error);
     }
   }
-  return { members: syncedMembers, links: linkedProfiles };
+
+  for (const directoryEntry of directoryResult.data ?? []) {
+    const member = members.get(directoryEntry.discord_user_id);
+    if (member && !member.user.bot && mainRankFromMember(member)) {
+      continue;
+    }
+    try {
+      linkedAccounts += await deactivateAtlasRangerAccess({
+        discordUserId: directoryEntry.discord_user_id,
+        displayName: member?.displayName || directoryEntry.display_name
+      });
+      deactivated += 1;
+    } catch (error) {
+      console.warn(`Could not deactivate Ranger Atlas identity for ${directoryEntry.discord_user_id}:`, error);
+    }
+  }
+
+  return { members: syncedMembers, linkedAccounts, deactivated };
 }
 
 const titleRoleNames = new Set([

@@ -1,6 +1,6 @@
 import { SlashCommandBuilder } from "discord.js";
 import { createAtlasDiscordLinkCode } from "../services/atlasTrailmarkAccessService.js";
-import { buildAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
+import { buildAtlasDiscordProfile, syncAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
 import { listMedals } from "../services/medalService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canUseTrailmarks } from "../utils/permissions.js";
@@ -26,6 +26,7 @@ export const atlasCommand: BotCommand = {
 
     await interaction.deferReply({ ephemeral: true });
     const corpsMedals = await listMedals();
+    await syncAtlasDiscordProfile(member, corpsMedals);
     const code = await createAtlasDiscordLinkCode({
       discordUserId: member.id,
       discordDisplayName: member.displayName,

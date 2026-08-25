@@ -1,6 +1,6 @@
 import type { GuildMember, PartialGuildMember } from "discord.js";
 import { endActiveDutyAssignmentsForRanger } from "../services/dutyService.js";
-import { syncAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
+import { deactivateAtlasRangerAccess, syncAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
 import { dmNewApprentice, retireDepartedRanger, syncMemberToRoster } from "../services/rangerService.js";
 
 export async function handleMemberJoin(member: GuildMember): Promise<void> {
@@ -18,6 +18,12 @@ export async function handleMemberUpdate(oldMember: GuildMember | PartialGuildMe
 }
 
 export async function handleMemberRemove(member: GuildMember | PartialGuildMember): Promise<boolean> {
+  await deactivateAtlasRangerAccess({
+    discordUserId: member.id,
+    displayName: member.displayName
+  }).catch((error) => {
+    console.warn(`Could not deactivate Atlas access for departed member ${member.id}:`, error);
+  });
   const retired = await retireDepartedRanger(member.id);
   if (retired) {
     await endActiveDutyAssignmentsForRanger({

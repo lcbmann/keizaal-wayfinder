@@ -119,7 +119,11 @@ client.once("ready", (readyClient) => {
           `Synchronized ${medals} Corps medal${medals === 1 ? "" : "s"}, ${mentors} mentor${mentors === 1 ? "" : "s"}, and ${apprentices} apprentice${apprentices === 1 ? "" : "s"}.`
         );
         const profiles = await syncGuildAtlasDiscordProfiles(corpsGuild);
-        console.log(`Refreshed ${profiles.links} linked Atlas profile${profiles.links === 1 ? "" : "s"} across ${profiles.members} Corps members.`);
+        console.log(
+          `Synchronized ${profiles.members} active Ranger Atlas identit${profiles.members === 1 ? "y" : "ies"}, `
+          + `refreshed ${profiles.linkedAccounts} signed-in account${profiles.linkedAccounts === 1 ? "" : "s"}, `
+          + `and deactivated ${profiles.deactivated} stale entr${profiles.deactivated === 1 ? "y" : "ies"}.`
+        );
       })
       .catch((error) => console.warn("Failed to synchronize Corps medals:", error));
     void syncApprenticeshipPreferenceNotices(corpsGuild)

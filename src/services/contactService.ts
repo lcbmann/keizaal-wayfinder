@@ -17,6 +17,7 @@ import {
   supabase,
   type ContactAssessment,
   type ContactAssessmentRow,
+  type ContactGroupMembershipRow,
   type RangerContactRecordType,
   type RangerContactRow
 } from "../db/supabase.js";
@@ -307,8 +308,62 @@ export async function editContact(params: {
   if (!updated) {
     throw new Error("The edited Ranger contact could not be loaded.");
   }
-  await refreshContactForumPost(params.guild, updated.contact.id);
+  await refreshContactAndRelatedForumPosts(params.guild, updated.contact.id);
   return updated;
+}
+
+export async function linkContactGroupMember(params: {
+  guild: Guild;
+  actor: GuildMember;
+  groupContactId: string;
+  memberContactId: string;
+}): Promise<{ group: RangerContactRow; member: RangerContactRow }> {
+  requireContactMember(params.actor);
+  const { group, member } = await validateContactGroupMembership(params.groupContactId, params.memberContactId);
+  const { data: existing, error: existingError } = await supabase
+    .from("contact_group_memberships")
+    .select("group_contact_id")
+    .eq("group_contact_id", group.id)
+    .eq("member_contact_id", member.id)
+    .maybeSingle();
+  assertNoDbError(existingError, "check contact group membership");
+  if (existing) {
+    throw new UserFacingError(`**${member.name}** is already linked as a member of **${group.name}**.`);
+  }
+
+  const { error } = await supabase.from("contact_group_memberships").insert({
+    group_contact_id: group.id,
+    member_contact_id: member.id,
+    created_by_discord_user_id: params.actor.id
+  });
+  assertNoDbError(error, "link contact to group");
+  await refreshContactForumPost(params.guild, group.id);
+  await refreshContactForumPost(params.guild, member.id);
+  return { group, member };
+}
+
+export async function unlinkContactGroupMember(params: {
+  guild: Guild;
+  actor: GuildMember;
+  groupContactId: string;
+  memberContactId: string;
+}): Promise<{ group: RangerContactRow; member: RangerContactRow }> {
+  requireContactMember(params.actor);
+  const { group, member } = await validateContactGroupMembership(params.groupContactId, params.memberContactId);
+  const { data, error } = await supabase
+    .from("contact_group_memberships")
+    .delete()
+    .eq("group_contact_id", group.id)
+    .eq("member_contact_id", member.id)
+    .select("group_contact_id");
+  assertNoDbError(error, "unlink contact from group");
+  if (!data?.length) {
+    throw new UserFacingError(`**${member.name}** is not linked as a member of **${group.name}**.`);
+  }
+
+  await refreshContactForumPost(params.guild, group.id);
+  await refreshContactForumPost(params.guild, member.id);
+  return { group, member };
 }
 
 export async function archiveContact(params: {
@@ -332,7 +387,7 @@ export async function archiveContact(params: {
     })
     .eq("id", params.contactId);
   assertNoDbError(error, "archive Ranger contact");
-  await refreshContactForumPost(params.guild, params.contactId);
+  await refreshContactAndRelatedForumPosts(params.guild, params.contactId);
 
   const thread = await fetchContactThread(params.guild, contact.contact);
   if (thread) {
@@ -419,6 +474,32 @@ export async function getContactDetails(contactId: string): Promise<ContactDetai
   return data ? getContactDetailsFromRow(data) : null;
 }
 
+export async function expandContactIdsWithLinkedGroups(contactIds: readonly string[]): Promise<string[]> {
+  const uniqueContactIds = [...new Set(contactIds)];
+  if (!uniqueContactIds.length) {
+    return [];
+  }
+  const { data, error } = await supabase
+    .from("contact_group_memberships")
+    .select("group_contact_id,member_contact_id")
+    .in("member_contact_id", uniqueContactIds);
+  assertNoDbError(error, "list groups linked to report contacts");
+  return mergeContactIdsWithGroupMemberships(uniqueContactIds, data ?? []);
+}
+
+export function mergeContactIdsWithGroupMemberships(
+  contactIds: readonly string[],
+  memberships: ReadonlyArray<Pick<ContactGroupMembershipRow, "group_contact_id" | "member_contact_id">>
+): string[] {
+  const linked = new Set(contactIds);
+  for (const membership of memberships) {
+    if (linked.has(membership.member_contact_id)) {
+      linked.add(membership.group_contact_id);
+    }
+  }
+  return [...linked];
+}
+
 export async function refreshContactForumPost(guild: Guild, contactId: string): Promise<void> {
   const details = await getContactDetails(contactId);
   if (!details) {
@@ -435,6 +516,18 @@ export async function refreshContactForumPost(guild: Guild, contactId: string): 
   const forum = thread.parent?.type === ChannelType.GuildForum ? thread.parent : null;
   if (forum) {
     await thread.setAppliedTags(contactTagIds(forum, details.contact), "Refresh Ranger contact tags");
+  }
+}
+
+async function refreshContactAndRelatedForumPosts(guild: Guild, contactId: string): Promise<void> {
+  const details = await getContactDetails(contactId);
+  if (!details) {
+    return;
+  }
+  const related = await listRelatedContacts(details.contact);
+  await refreshContactForumPost(guild, contactId);
+  for (const contact of related) {
+    await refreshContactForumPost(guild, contact.id);
   }
 }
 
@@ -599,6 +692,7 @@ async function contactMessagePayload(guild: Guild, contactId: string): Promise<C
   const { contact, summary } = details;
   const rating = ratingText(summary);
   const group = contact.record_type === "Group";
+  const relatedContacts = await listRelatedContacts(contact);
   const embed = emojiEmbed(guild, group ? "intel" : "wayfinder", `${group ? "Group" : "Contact"} - ${contact.name}`)
     .setColor(contact.high_priority ? 0xa64d3f : 0x587c4a)
     .setDescription(`${contact.high_priority ? `**High-priority ${group ? "group" : "contact"}.**\n` : ""}**Current assessment:** ${summary.status}\n${rating}`);
@@ -614,6 +708,7 @@ async function contactMessagePayload(guild: Guild, contactId: string): Promise<C
       { name: "Identifying signs", value: contact.identifying_features ?? "None recorded.", inline: false },
       { name: "Arms / capabilities", value: contact.weapons_capabilities ?? "Unknown", inline: false },
       { name: "Tactics / behavior", value: contact.tactics ?? "Unknown", inline: false },
+      { name: "Known members", value: formatRelatedContacts(guild, relatedContacts), inline: false },
       { name: "Additional intelligence", value: contact.commentary ?? "None recorded.", inline: false },
       { name: "Last confirmed active", value: summary.lastVerifiedAt ? formatDiscordTime(summary.lastVerifiedAt) : "No Ranger has confirmed this group yet.", inline: false },
       { name: "Originally recorded by", value: `<@${contact.created_by_discord_user_id}>`, inline: true }
@@ -626,6 +721,7 @@ async function contactMessagePayload(guild: Guild, contactId: string): Promise<C
       { name: "Occupation", value: contact.occupation ?? "Unknown", inline: true },
       { name: "Faction", value: contact.faction ?? "Unknown", inline: true },
       { name: "Hold / Region", value: contact.hold, inline: true },
+      { name: "Known groups / affiliations", value: formatRelatedContacts(guild, relatedContacts), inline: false },
       { name: "Usual locations", value: contact.usual_locations ?? "Unknown", inline: false },
       { name: "Commentary", value: contact.commentary ?? "None recorded.", inline: false },
       { name: "Last verified", value: summary.lastVerifiedAt ? formatDiscordTime(summary.lastVerifiedAt) : "No Ranger has confirmed this contact yet.", inline: false },
@@ -687,6 +783,55 @@ async function getContactDetailsFromRow(contact: RangerContactRow): Promise<Cont
     assessments: data ?? [],
     summary: summarizeContactAssessments(data ?? [], contact.record_type)
   };
+}
+
+async function validateContactGroupMembership(groupContactId: string, memberContactId: string): Promise<{
+  group: RangerContactRow;
+  member: RangerContactRow;
+}> {
+  const groupDetails = await getContactDetails(groupContactId);
+  const memberDetails = await getContactDetails(memberContactId);
+  if (!groupDetails?.contact.active || groupDetails.contact.record_type !== "Group") {
+    throw new UserFacingError("Choose an active group contact record.");
+  }
+  if (!memberDetails?.contact.active || memberDetails.contact.record_type !== "Person") {
+    throw new UserFacingError("Choose an active person contact record as the member.");
+  }
+  return { group: groupDetails.contact, member: memberDetails.contact };
+}
+
+async function listRelatedContacts(contact: RangerContactRow): Promise<RangerContactRow[]> {
+  const group = contact.record_type === "Group";
+  const relationshipColumn = group ? "group_contact_id" : "member_contact_id";
+  const relatedColumn = group ? "member_contact_id" : "group_contact_id";
+  const { data: memberships, error: membershipError } = await supabase
+    .from("contact_group_memberships")
+    .select("group_contact_id,member_contact_id")
+    .eq(relationshipColumn, contact.id);
+  assertNoDbError(membershipError, "list contact group relationships");
+  const relatedIds = (memberships ?? []).map((membership) => membership[relatedColumn]);
+  if (!relatedIds.length) {
+    return [];
+  }
+  const { data, error } = await supabase
+    .from("ranger_contacts")
+    .select("*")
+    .in("id", relatedIds)
+    .order("name", { ascending: true });
+  assertNoDbError(error, "load related contact records");
+  return data ?? [];
+}
+
+function formatRelatedContacts(guild: Guild, contacts: RangerContactRow[]): string {
+  if (!contacts.length) {
+    return "None linked.";
+  }
+  return contacts.map((contact) => {
+    const label = `${contact.name}${contact.active ? "" : " (Archived)"}`;
+    return contact.forum_thread_id && contact.forum_message_id
+      ? `[${label}](https://discord.com/channels/${guild.id}/${contact.forum_thread_id}/${contact.forum_message_id})`
+      : label;
+  }).join("\n").slice(0, 1024);
 }
 
 async function fetchContactThread(guild: Guild, contact: RangerContactRow): Promise<ThreadChannel | null> {

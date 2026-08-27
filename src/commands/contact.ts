@@ -6,8 +6,10 @@ import {
   createContact,
   createContactGroup,
   editContact,
+  linkContactGroupMember,
   listContacts,
-  setupContactsForum
+  setupContactsForum,
+  unlinkContactGroupMember
 } from "../services/contactService.js";
 import { canUseTrailmarks, memberRankAtLeast } from "../utils/permissions.js";
 import { UserFacingError } from "../utils/errors.js";
@@ -83,20 +85,34 @@ export const contactCommand: BotCommand = {
       .addStringOption((option) => option.setName("group_category").setDescription("Only groups in this category.").addChoices(...groupCategoryChoices))
       .addBooleanOption((option) => option.setName("high_priority").setDescription("Only show high-priority contacts.")))
     .addSubcommand((subcommand) => subcommand
+      .setName("link-member")
+      .setDescription("Apprentice+: link a person contact as a known member of a group.")
+      .addStringOption((option) => option.setName("group").setDescription("Group contact record.").setRequired(true).setAutocomplete(true))
+      .addStringOption((option) => option.setName("person").setDescription("Person contact record to add as a member.").setRequired(true).setAutocomplete(true)))
+    .addSubcommand((subcommand) => subcommand
+      .setName("unlink-member")
+      .setDescription("Apprentice+: remove a person's membership link from a group.")
+      .addStringOption((option) => option.setName("group").setDescription("Group contact record.").setRequired(true).setAutocomplete(true))
+      .addStringOption((option) => option.setName("person").setDescription("Person contact record to unlink.").setRequired(true).setAutocomplete(true)))
+    .addSubcommand((subcommand) => subcommand
       .setName("archive")
       .setDescription("Marshal+: archive a contact without deleting its history.")
       .addStringOption((option) => option.setName("contact").setDescription("Contact to archive.").setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option.setName("reason").setDescription("Why the contact is being archived.").setMaxLength(500))),
 
   async autocomplete(interaction) {
-    const focused = interaction.options.getFocused().toLowerCase();
-    const contacts = await listContacts();
+    const focused = interaction.options.getFocused(true);
+    const subcommand = interaction.options.getSubcommand();
+    const recordType = (subcommand === "link-member" || subcommand === "unlink-member")
+      ? focused.name === "group" ? "Group" : "Person"
+      : null;
+    const contacts = await listContacts({ recordType });
     const choices = contacts
       .map(({ contact, summary }) => ({
         name: `${contact.high_priority ? "High Priority - " : ""}[${contact.record_type}] ${contact.name} (${contact.hold}) - ${summary.status}`.slice(0, 100),
         value: contact.id
       }))
-      .filter((choice) => choice.name.toLowerCase().includes(focused))
+      .filter((choice) => choice.name.toLowerCase().includes(focused.value.toLowerCase()))
       .slice(0, 25);
     await interaction.respond(choices);
   },
@@ -190,6 +206,34 @@ export const contactCommand: BotCommand = {
       await interaction.reply({
         content: lines.length ? lines.join("\n") : "No active contacts match those filters.",
         ephemeral: true
+      });
+      return;
+    }
+
+    if (subcommand === "link-member") {
+      await interaction.deferReply({ ephemeral: true });
+      const linked = await linkContactGroupMember({
+        guild: interaction.guild,
+        actor,
+        groupContactId: interaction.options.getString("group", true),
+        memberContactId: interaction.options.getString("person", true)
+      });
+      await interaction.editReply({
+        content: `Linked **${linked.member.name}** as a known member of **${linked.group.name}**. Both contact records have been updated.`
+      });
+      return;
+    }
+
+    if (subcommand === "unlink-member") {
+      await interaction.deferReply({ ephemeral: true });
+      const unlinked = await unlinkContactGroupMember({
+        guild: interaction.guild,
+        actor,
+        groupContactId: interaction.options.getString("group", true),
+        memberContactId: interaction.options.getString("person", true)
+      });
+      await interaction.editReply({
+        content: `Removed **${unlinked.member.name}** from the known members of **${unlinked.group.name}**. Both contact records have been updated.`
       });
       return;
     }

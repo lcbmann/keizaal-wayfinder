@@ -448,6 +448,13 @@ export interface ContactAssessmentRow {
   updated_at: string;
 }
 
+export interface ContactGroupMembershipRow {
+  group_contact_id: string;
+  member_contact_id: string;
+  created_by_discord_user_id: string;
+  created_at: string;
+}
+
 export interface SupplyAssignmentRow {
   id: string;
   code: string;
@@ -855,6 +862,13 @@ export interface Database {
           updated_at?: string;
         };
         Update: Partial<ContactAssessmentRow>;
+      };
+      contact_group_memberships: {
+        Row: ContactGroupMembershipRow;
+        Insert: Omit<ContactGroupMembershipRow, "created_at"> & {
+          created_at?: string;
+        };
+        Update: never;
       };
       member_activity_events: {
         Row: {

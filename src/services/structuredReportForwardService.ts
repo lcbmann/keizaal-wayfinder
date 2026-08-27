@@ -5,7 +5,7 @@ import {
   type StructuredReportContactForwardRow,
   type StructuredTrailmarkReportRow
 } from "../db/supabase.js";
-import { postLinkedReportToContact } from "./contactService.js";
+import { expandContactIdsWithLinkedGroups, postLinkedReportToContact } from "./contactService.js";
 
 export async function forwardDeliveredStructuredReports(params: {
   guild: Guild;
@@ -39,7 +39,8 @@ export async function forwardDeliveredStructuredReports(params: {
     assertNoDbError(existingError, "list structured report contact forwards");
     const alreadyForwarded = new Set((existing ?? []).map((entry) => entry.contact_id));
 
-    for (const contactId of report.contact_ids) {
+    const destinationContactIds = await expandContactIdsWithLinkedGroups(report.contact_ids);
+    for (const contactId of destinationContactIds) {
       if (alreadyForwarded.has(contactId)) {
         continue;
       }

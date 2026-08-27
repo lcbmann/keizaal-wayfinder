@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ButtonInteraction } from "discord.js";
-import { contactTagNames, handleContactButton, summarizeContactAssessments } from "./contactService.js";
+import {
+  contactTagNames,
+  handleContactButton,
+  mergeContactIdsWithGroupMemberships,
+  summarizeContactAssessments
+} from "./contactService.js";
 
 test("summarizes contact assessments and tracks the latest confirmation", () => {
   const summary = summarizeContactAssessments([
@@ -68,6 +73,17 @@ test("uses operational status language for group assessments", () => {
 
   assert.equal(active.status, "Active");
   assert.equal(inactive.status, "Inactive");
+});
+
+test("expands linked person contacts to their groups without duplicates", () => {
+  assert.deepEqual(mergeContactIdsWithGroupMemberships(
+    ["person-one", "group-explicit"],
+    [
+      { member_contact_id: "person-one", group_contact_id: "group-linked" },
+      { member_contact_id: "person-one", group_contact_id: "group-explicit" },
+      { member_contact_id: "unselected-person", group_contact_id: "unrelated-group" }
+    ]
+  ), ["person-one", "group-explicit", "group-linked"]);
 });
 
 test("keeps a contact record intact when a non-Apprentice clicks an assessment button", async () => {

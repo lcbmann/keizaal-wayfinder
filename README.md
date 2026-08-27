@@ -264,6 +264,8 @@ Implemented commands:
 - `/contact create-group`
 - `/contact edit`
 - `/contact list`
+- `/contact link-member`
+- `/contact unlink-member`
 - `/contact archive`
 - `/medal setup`
 - `/medal create`
@@ -342,15 +344,17 @@ When a Ranger becomes Inactive or Retired, leaves the server, or is cleaned up w
 
 ## Ranger Contacts
 
-Apply `src/db/migrations/026_create_contacts.sql` and `src/db/migrations/038_expand_contacts_with_groups.sql`, redeploy slash commands, and run `/contact setup` once as a Marshal. The command creates or repairs an Apprentice+ `contacts` Forum containing records for both individual contacts and known groups. An optional category can be supplied when setting it up. Apprentices can read, discuss, create, edit, and assess entries while Wayfinder maintains each opening record card.
+Apply `src/db/migrations/026_create_contacts.sql`, `src/db/migrations/038_expand_contacts_with_groups.sql`, and `src/db/migrations/039_link_contact_group_members.sql`, redeploy slash commands, and run `/contact setup` once as a Marshal. The command creates or repairs an Apprentice+ `contacts` Forum containing records for both individual contacts and known groups. An optional category can be supplied when setting it up. Apprentices can read, discuss, create, edit, link, and assess entries while Wayfinder maintains each opening record card.
 
 Apprentice or higher can use `/contact create`, `/contact create-group`, `/contact edit`, and `/contact list` from any accessible channel, and can use the assessment buttons on record cards. Person records contain the contact's name, race, sex, occupation, faction, Hold or region, usual locations, commentary, and an optional **High Priority** flag. Group records contain a category, estimated strength, identifying signs, arms or capabilities, tactics, territory, affiliation, additional intelligence, and the same region and priority fields. Wayfinder creates one Forum post and adds the appropriate region, occupation or **Group**, and High Priority tags.
 
 Person cards use **Still good**, **Cold**, **Not found**, **MIA**, and **Propose archive** assessments. Group cards use **Active**, **Inactive**, **Not sighted**, **Disbanded**, and **Propose archive**. Each member has one current assessment per record and can change it later. The card always shows the current rating, assessment totals, and last confirmation. Archive proposals do not delete anything; Marshal+ uses `/contact archive` to close an entry while preserving its history. `/contact edit` updates the same Forum post, and `/contact list` can filter by record type, Hold, occupation, group category, and priority.
 
+Use `/contact link-member` to connect an existing person record to an existing group as a known member; use `/contact unlink-member` to remove that relationship. Both commands are available to Apprentice+ and update both Forum cards immediately. Group cards list their known members, while person cards list their known group affiliations. A person may belong to more than one group.
+
 Discord Forums allow only 20 custom tags, so the built-in tags cover the nine Holds, Cross-Skyrim, Other Region, common occupations, Other Occupation, Group, and High Priority. Group categories, factions, and detailed locations remain on the record card.
 
-Standardized `/trailmark report` submissions may link up to three person or group records. Once the report reaches Corps Headquarters, Wayfinder posts a copy in every linked record's discussion thread. Reports written at Headquarters are linked immediately; reports left elsewhere remain undisclosed until they are carried back through the normal Trailmark delivery flow.
+Standardized `/trailmark report` submissions may link up to three person or group records. Once the report reaches Corps Headquarters, Wayfinder posts a copy in every linked record's discussion thread. A report linked to a person is also copied to every group that person is linked to, without duplicating a group that was selected directly. Reports written at Headquarters are linked immediately; reports left elsewhere remain undisclosed until they are carried back through the normal Trailmark delivery flow.
 
 ## Apprenticeships
 

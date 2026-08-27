@@ -1,4 +1,4 @@
-import type { Guild } from "discord.js";
+import { ChannelType, type Guild } from "discord.js";
 import { env } from "../config/env.js";
 import { assertNoDbError, supabase } from "../db/supabase.js";
 import { guildEmoji } from "../utils/guildEmojis.js";
@@ -14,7 +14,7 @@ interface ReadAcknowledgementMessage {
 
 export interface ReadAcknowledgementDependencies {
   corpsGuildId: string;
-  loadChannelIds(): Promise<ReadonlySet<string>>;
+  loadChannelIds(guild: Guild): Promise<ReadonlySet<string>>;
   resolveSaluteEmoji(guild: Guild): Promise<string | null>;
 }
 
@@ -29,7 +29,7 @@ export async function addReadAcknowledgementReaction(
     return false;
   }
 
-  const channelIds = await dependencies.loadChannelIds();
+  const channelIds = await dependencies.loadChannelIds(message.guild);
   if (!channelIds.has(message.channelId)) {
     return false;
   }
@@ -47,7 +47,7 @@ export async function addReadAcknowledgementReaction(
   return true;
 }
 
-async function loadReadAcknowledgementChannelIds(): Promise<ReadonlySet<string>> {
+async function loadReadAcknowledgementChannelIds(guild: Guild): Promise<ReadonlySet<string>> {
   if (channelCache && channelCache.expiresAt > Date.now()) {
     return channelCache.channelIds;
   }
@@ -68,6 +68,17 @@ async function loadReadAcknowledgementChannelIds(): Promise<ReadonlySet<string>>
   const allyReportsChannelId = allianceSettingsResult.data?.corps_ally_reports_channel_id;
   if (allyReportsChannelId) {
     channelIds.add(allyReportsChannelId);
+  }
+
+  if (env.NOTICE_BOARD_CHANNEL_ID) {
+    channelIds.add(env.NOTICE_BOARD_CHANNEL_ID);
+  } else {
+    const noticeBoard = guild.channels.cache.find(
+      (channel) => channel.type === ChannelType.GuildText && channel.name.toLowerCase().endsWith("notice-board")
+    );
+    if (noticeBoard) {
+      channelIds.add(noticeBoard.id);
+    }
   }
 
   channelCache = {

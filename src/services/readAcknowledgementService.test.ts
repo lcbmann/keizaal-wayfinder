@@ -13,7 +13,7 @@ function dependencies(channelIds: string[], saluteEmoji = "<:salute:123456789012
   };
 }
 
-test("adds the salute reaction to messages in configured Trailmark or Intel channels", async () => {
+test("adds the salute reaction to messages in configured Trailmark, Intel, or notice-board channels", async () => {
   const reactions: string[] = [];
   const added = await addReadAcknowledgementReaction({
     guild,
@@ -22,7 +22,22 @@ test("adds the salute reaction to messages in configured Trailmark or Intel chan
     react: async (emoji) => {
       reactions.push(emoji);
     }
-  }, dependencies(["trailmark-channel", "intel-channel"]));
+  }, dependencies(["trailmark-channel", "intel-channel", "notice-board-channel"]));
+
+  assert.equal(added, true);
+  assert.deepEqual(reactions, ["<:salute:123456789012345678>"]);
+});
+
+test("adds the salute reaction to messages in the notice board", async () => {
+  const reactions: string[] = [];
+  const added = await addReadAcknowledgementReaction({
+    guild,
+    guildId: guild.id,
+    channelId: "notice-board-channel",
+    react: async (emoji) => {
+      reactions.push(emoji);
+    }
+  }, dependencies(["notice-board-channel"]));
 
   assert.equal(added, true);
   assert.deepEqual(reactions, ["<:salute:123456789012345678>"]);

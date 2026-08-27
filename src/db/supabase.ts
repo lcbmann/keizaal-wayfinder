@@ -1032,6 +1032,13 @@ export interface Database {
         };
         Returns: number;
       };
+      set_atlas_discord_presence_summary: {
+        Args: {
+          online_count_input: number;
+          playing_skyrim_count_input: number;
+        };
+        Returns: undefined;
+      };
       claim_pending_atlas_trailmark_access_requests: {
         Args: { request_limit: number };
         Returns: Json;

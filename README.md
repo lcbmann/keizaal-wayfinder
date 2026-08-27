@@ -72,6 +72,8 @@ new groups are configured from the Alliance server with `/alliance group-add`.
 
 Enable the **Guild Members privileged intent** and **Message Content privileged intent** in the Discord Developer Portal. The bot uses `Guilds`, `GuildMembers`, `GuildMessages`, and `MessageContent`.
 
+To show the aggregate **On Discord** Ranger count in the Atlas, also enable the **Presence Intent** in the Developer Portal and set `ATLAS_DISCORD_PRESENCE_ENABLED=true`. Leave the setting false until the portal intent is enabled; Discord rejects Gateway connections that request an unavailable privileged intent. The Atlas's **In Skyrim** count does not depend on Discord presence and continues to use recent game-link heartbeats.
+
 Recommended bot permissions:
 
 - Use Slash Commands

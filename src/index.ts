@@ -55,6 +55,7 @@ import { handleCorpsApplicationModal, isCorpsApplicationModal } from "./services
 import { repairPendingLeadershipApplicationReviews } from "./services/applicationService.js";
 import { forwardDeliveredStructuredReports } from "./services/structuredReportForwardService.js";
 import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
+import { startAtlasDiscordPresenceJob } from "./services/atlasDiscordPresenceService.js";
 import { addReadAcknowledgementReaction } from "./services/readAcknowledgementService.js";
 import {
   backfillFieldNameContestVetoNotices,
@@ -102,7 +103,8 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    ...(env.ATLAS_DISCORD_PRESENCE_ENABLED ? [GatewayIntentBits.GuildPresences] : [])
   ],
   partials: [Partials.Channel, Partials.Message]
 });
@@ -114,6 +116,7 @@ client.once("ready", (readyClient) => {
   startAtlasTrailmarkDropPollingJob(readyClient);
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
+    startAtlasDiscordPresenceJob(corpsGuild);
     void setupMedals(corpsGuild, "system")
       .then(async ({ medals, mentors, apprentices }) => {
         console.log(

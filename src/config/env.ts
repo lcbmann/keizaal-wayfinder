@@ -2,6 +2,10 @@ import "dotenv/config";
 import { z } from "zod";
 
 const optionalId = z.string().optional().default("");
+const optionalBoolean = z.preprocess(
+  (value) => typeof value === "string" ? value.trim().toLowerCase() : value,
+  z.enum(["true", "false"]).default("false")
+).transform((value) => value === "true");
 
 const envSchema = z.object({
   DISCORD_TOKEN: z.string().min(1),
@@ -33,6 +37,7 @@ const envSchema = z.object({
 
   DEFAULT_TRAILMARK_ACCESS_MINUTES: z.coerce.number().int().positive().default(30),
   PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER: z.coerce.number().int().nonnegative().default(7),
+  ATLAS_DISCORD_PRESENCE_ENABLED: optionalBoolean,
   GENERAL_CHANNEL_ID: z.string().min(1).default("1510362617410097262"),
   INVITE_CHANNEL_ID: optionalId,
   CORPS_FUNDS_CHANNEL_ID: optionalId,

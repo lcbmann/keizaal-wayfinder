@@ -7,5 +7,7 @@ create table if not exists contact_group_memberships (
   check (group_contact_id <> member_contact_id)
 );
 
+alter table contact_group_memberships enable row level security;
+
 create index if not exists contact_group_memberships_member_idx
 on contact_group_memberships(member_contact_id, group_contact_id);

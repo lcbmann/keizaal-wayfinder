@@ -25,6 +25,7 @@ import { apprenticeshipCommand } from "./commands/apprenticeship.js";
 import { fieldNameCommand } from "./commands/fieldName.js";
 import { contactCommand } from "./commands/contact.js";
 import { medalCommand } from "./commands/medal.js";
+import { voteCommand } from "./commands/vote.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
@@ -33,6 +34,7 @@ import { handleApplicationButton } from "./components/applicationButtons.js";
 import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.js";
 import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./components/fieldNameButtons.js";
 import { handleContactButton } from "./components/contactButtons.js";
+import { handleGeneralVoteButton } from "./components/generalVoteButtons.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
@@ -92,7 +94,8 @@ for (const command of [
   apprenticeshipCommand,
   fieldNameCommand,
   contactCommand,
-  medalCommand
+  medalCommand,
+  voteCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -403,7 +406,7 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
       throw new UserFacingError("Wayfinder commands can only be used in a configured server.");
     }
     if (isAllianceGuildId(interaction.guildId)) {
-      if (interaction.commandName !== "alliance" && interaction.commandName !== "ping") {
+      if (interaction.commandName !== "alliance" && interaction.commandName !== "ping" && interaction.commandName !== "vote") {
         throw new UserFacingError("That command is not available in the Ranger Alliance server.");
       }
     } else if (interaction.guildId === env.DISCORD_GUILD_ID) {
@@ -427,6 +430,17 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handlePromotionButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith("general-vote:ballot:")) {
+    if (!interaction.guildId || (interaction.guildId !== env.DISCORD_GUILD_ID && !isAllianceGuildId(interaction.guildId))) {
+      throw new UserFacingError("Channel voting is only available in a configured server.");
+    }
+    if (interaction.guildId === env.DISCORD_GUILD_ID) {
+      await safelyRecordInteraction(interaction.user.id);
+    }
+    await handleGeneralVoteButton(interaction);
     return;
   }
 

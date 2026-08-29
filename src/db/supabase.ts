@@ -6,6 +6,8 @@ export type RangerStatus = "Active" | "Inactive" | "On Leave" | "Retired";
 export type PromotionProgress = "In Field Trial" | "On Hold" | null;
 export type PromotionVoteStatus = "Open" | "Closed" | "Approved" | "Denied";
 export type BallotVote = "promote" | "hold" | "abstain";
+export type GeneralVoteStatus = "Open" | "Closed";
+export type GeneralBallotVote = "yes" | "no" | "abstain";
 export type CorpsFundTransactionType = "Donation" | "Expense" | "Adjustment";
 export type SupplyAssignmentStatus = "Active" | "Completed" | "Cancelled";
 export type DutyApplicationStatus = "Pending" | "Approved" | "Denied" | "Withdrawn";
@@ -164,6 +166,30 @@ export interface IntelTrailmarkVisitRow {
   discord_user_id: string;
   trailmark_id: string;
   visited_at: string;
+}
+
+export interface GeneralVoteRow {
+  id: string;
+  guild_id: string;
+  channel_id: string;
+  message_id: string | null;
+  thread_id: string | null;
+  question: string;
+  context: string | null;
+  status: GeneralVoteStatus;
+  opened_by_discord_user_id: string;
+  closed_by_discord_user_id: string | null;
+  created_at: string;
+  closed_at: string | null;
+}
+
+export interface GeneralVoteBallotRow {
+  id: string;
+  general_vote_id: string;
+  voter_discord_user_id: string;
+  vote: GeneralBallotVote;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CorpsDutyRow {
@@ -673,6 +699,18 @@ export interface Database {
         Row: PromotionBallotRow;
         Insert: Omit<PromotionBallotRow, "id" | "created_at" | "updated_at">;
         Update: Partial<PromotionBallotRow>;
+      };
+      general_votes: {
+        Row: GeneralVoteRow;
+        Insert: Omit<GeneralVoteRow, "id" | "created_at" | "closed_at"> & {
+          closed_at?: string | null;
+        };
+        Update: Partial<GeneralVoteRow>;
+      };
+      general_vote_ballots: {
+        Row: GeneralVoteBallotRow;
+        Insert: Omit<GeneralVoteBallotRow, "id" | "created_at" | "updated_at">;
+        Update: Partial<GeneralVoteBallotRow>;
       };
       corps_duties: {
         Row: CorpsDutyRow;

@@ -39,7 +39,6 @@ import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
 import { highestCorpsTitle, listDiscordRoleMedals } from "../services/atlasDiscordProfileService.js";
 import { emojiText } from "../utils/guildEmojis.js";
 import { env } from "../config/env.js";
-import { getActiveFieldName } from "../services/fieldNameService.js";
 import { listRangerMedalAwards, medalEmoji } from "../services/medalService.js";
 import { closeSupersededPromotionVotes } from "../services/promotionService.js";
 
@@ -187,10 +186,9 @@ export const rangerCommand: BotCommand = {
 
       await interaction.deferReply();
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-      const [dutyEntries, stats, fieldName, medalAwards] = await Promise.all([
+      const [dutyEntries, stats, medalAwards] = await Promise.all([
         listActiveDutyAssignments(),
         getRangerProfileStats(ranger),
-        getActiveFieldName(ranger.discord_user_id),
         listRangerMedalAwards(ranger.id)
       ]);
       const duties = dutyEntries
@@ -230,8 +228,7 @@ export const rangerCommand: BotCommand = {
           stats,
           avatarUrl,
           displayName: member?.displayName ?? ranger.discord_display_name ?? ranger.discord_username ?? "Ranger",
-          title: member ? highestCorpsTitle(member) : rangerTitle(ranger.current_rank),
-          fieldName: fieldName?.field_name ?? null
+          title: member ? highestCorpsTitle(member) : rangerTitle(ranger.current_rank)
         })]
       });
       return;
@@ -510,7 +507,6 @@ function rangerEmbed(params: {
   avatarUrl?: string;
   displayName: string;
   title: string | null;
-  fieldName: string | null;
 }): EmbedBuilder {
   const {
     discordUserId,
@@ -521,8 +517,7 @@ function rangerEmbed(params: {
     stats = { rosterNumber: 0, rosterTotal: 0, reportCount: 0 },
     avatarUrl,
     displayName,
-    title,
-    fieldName
+    title
   } = params;
   if (!ranger) {
     throw new UserFacingError("No roster entry found.");
@@ -537,7 +532,6 @@ function rangerEmbed(params: {
       { name: "Join Date", value: `${ranger.join_date} (${daysBetween(ranger.join_date)} days)`, inline: true },
       { name: "Assigned Hold", value: ranger.assigned_hold ?? "Unassigned", inline: true },
       { name: "In-Game Name", value: displayName, inline: true },
-      { name: "Field Name", value: fieldName ?? "None assigned", inline: true },
       { name: "Corps Standing", value: `Ranger #${stats.rosterNumber} of ${stats.rosterTotal}`, inline: true },
       { name: "Reports Filed", value: String(stats.reportCount), inline: true },
       { name: "Last Activity", value: ranger.last_discord_activity_at ? `<t:${Math.floor(new Date(ranger.last_discord_activity_at).getTime() / 1000)}:R>` : "Unknown", inline: true },

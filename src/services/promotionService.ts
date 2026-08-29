@@ -216,16 +216,26 @@ export async function getPromotionChannel(guild: Guild): Promise<TextChannel | n
 }
 
 export async function configurePromotionChannel(guild: Guild, channel: TextChannel): Promise<PromotionVoteRepairResult> {
+  await enforcePromotionChannelPermissions(guild, channel);
+  await saveBotMessageState(PROMOTION_CHANNEL_STATE_KEY, channel.id, []);
+  return repairOpenPromotionVoteMessages(guild);
+}
+
+async function enforcePromotionChannelPermissions(guild: Guild, channel: TextChannel): Promise<void> {
   await channel.permissionOverwrites.edit(guild.roles.everyone, {
     ViewChannel: false,
     ReadMessageHistory: false
   }, { reason: "Restrict Ranger promotion votes" });
-  await channel.permissionOverwrites.edit(roleIdForRank("Ranger"), {
-    ViewChannel: true,
-    ReadMessageHistory: true,
-    SendMessages: true,
-    SendMessagesInThreads: true
-  }, { reason: "Allow full Rangers to review promotion votes" });
+  for (const rank of ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"] as const) {
+    await channel.permissionOverwrites.edit(roleIdForRank(rank), {
+      ViewChannel: true,
+      ReadMessageHistory: true,
+      SendMessages: false,
+      CreatePublicThreads: false,
+      CreatePrivateThreads: false,
+      SendMessagesInThreads: true
+    }, { reason: "Keep promotion posts read-only while allowing Ranger discussion threads" });
+  }
   await channel.permissionOverwrites.edit(roleIdForRank("Apprentice"), {
     ViewChannel: false,
     ReadMessageHistory: false
@@ -239,8 +249,6 @@ export async function configurePromotionChannel(guild: Guild, channel: TextChann
     SendMessagesInThreads: true,
     ManageThreads: true
   }, { reason: "Allow Wayfinder to maintain promotion votes" });
-  await saveBotMessageState(PROMOTION_CHANNEL_STATE_KEY, channel.id, []);
-  return repairOpenPromotionVoteMessages(guild);
 }
 
 export async function postPromotionVote(params: {
@@ -492,6 +500,10 @@ export async function refreshPromotionVoteMessage(guild: Guild, voteId: string):
 }
 
 export async function refreshOpenPromotionVoteMessages(guild: Guild): Promise<PromotionVoteRepairResult> {
+  const channel = await getPromotionChannel(guild);
+  if (channel) {
+    await enforcePromotionChannelPermissions(guild, channel);
+  }
   return repairOpenPromotionVoteMessages(guild);
 }
 

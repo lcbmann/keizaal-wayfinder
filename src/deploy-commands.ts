@@ -18,6 +18,7 @@ import { apprenticeshipCommand } from "./commands/apprenticeship.js";
 import { fieldNameCommand } from "./commands/fieldName.js";
 import { contactCommand } from "./commands/contact.js";
 import { medalCommand } from "./commands/medal.js";
+import { voteCommand } from "./commands/vote.js";
 
 const corpsCommands = [
   pingCommand,
@@ -36,10 +37,11 @@ const corpsCommands = [
   apprenticeshipCommand,
   fieldNameCommand,
   contactCommand,
-  medalCommand
+  medalCommand,
+  voteCommand
 ].map((command) => command.data.toJSON());
 
-const allianceCommands = [pingCommand, allianceCommand].map((command) => command.data.toJSON());
+const allianceCommands = [pingCommand, allianceCommand, voteCommand].map((command) => command.data.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(env.DISCORD_TOKEN);
 

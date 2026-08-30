@@ -51,6 +51,9 @@ export async function postAssignmentsBoard(channel: TextChannel): Promise<Messag
 }
 
 async function replaceAssignmentsBoard(channel: TextChannel): Promise<Message[]> {
+  await channel.guild.emojis.fetch().catch((error) => {
+    console.warn("Could not refresh guild emojis before rendering the Ranger assignments board:", error);
+  });
   const [rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences] = await Promise.all([
     listAllRangers(),
     listActiveDutyAssignments(),

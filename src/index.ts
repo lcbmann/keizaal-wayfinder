@@ -110,6 +110,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildExpressions,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
     ...(env.ATLAS_DISCORD_PRESENCE_ENABLED ? [GatewayIntentBits.GuildPresences] : [])
@@ -330,6 +331,30 @@ client.on("guildMemberRemove", (member) => {
       }
     })
     .catch((error) => console.error(`Failed to retire departed member ${member.id}:`, error));
+});
+
+client.on("emojiCreate", (emoji) => {
+  if (emoji.guild.id !== env.DISCORD_GUILD_ID) {
+    return;
+  }
+  void refreshStoredAssignmentsBoard(emoji.guild)
+    .catch((error) => console.warn("Failed to refresh the Ranger assignments board after an emoji was created:", error));
+});
+
+client.on("emojiUpdate", (_oldEmoji, newEmoji) => {
+  if (newEmoji.guild.id !== env.DISCORD_GUILD_ID) {
+    return;
+  }
+  void refreshStoredAssignmentsBoard(newEmoji.guild)
+    .catch((error) => console.warn("Failed to refresh the Ranger assignments board after an emoji was updated:", error));
+});
+
+client.on("emojiDelete", (emoji) => {
+  if (emoji.guild.id !== env.DISCORD_GUILD_ID) {
+    return;
+  }
+  void refreshStoredAssignmentsBoard(emoji.guild)
+    .catch((error) => console.warn("Failed to refresh the Ranger assignments board after an emoji was deleted:", error));
 });
 
 client.on("messageCreate", (message) => {

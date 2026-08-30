@@ -18,6 +18,7 @@ import { UserFacingError } from "../utils/errors.js";
 import { canCreateTrailmarks } from "../utils/permissions.js";
 import { emojiEmbed, emojiText, guildEmoji, type WayfinderEmojiName } from "../utils/guildEmojis.js";
 import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
+import { queueBriefingDispatch } from "./briefingService.js";
 
 const STRONGBOX_STATE_KEY = "hq-strongbox-channel";
 const STRONGBOX_DROP_STATE_KEY = "hq-strongbox-drop-channel";
@@ -274,7 +275,35 @@ export async function postStrongboxThread(params: {
     autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
     reason: params.reason
   });
+  await queueStrongboxBriefingUpdate(params.guild, thread, message.url).catch((error) => {
+    console.warn(`Could not add Strongbox thread ${thread.id} to Marshal briefings:`, error);
+  });
   return { channel, message, thread };
+}
+
+export async function recordStrongboxBriefingActivity(message: Message): Promise<boolean> {
+  if (!message.guild || !message.channel.isThread()) {
+    return false;
+  }
+  const strongbox = await getStrongboxChannel(message.guild);
+  if (!strongbox || message.channel.parentId !== strongbox.id) {
+    return false;
+  }
+  await queueStrongboxBriefingUpdate(message.guild, message.channel, message.url);
+  return true;
+}
+
+async function queueStrongboxBriefingUpdate(guild: Guild, thread: ThreadChannel, sourceUrl: string): Promise<void> {
+  const subject = thread.name.replace(/^(Strongbox|Application|Apprentice Sponsor)\s*-\s*/iu, "").trim() || "Sealed Correspondence";
+  await queueBriefingDispatch({
+    guildId: guild.id,
+    audience: "marshal_plus",
+    title: `Sealed Correspondence: ${subject}`,
+    body: "A matter in the Headquarters Strongbox has received new correspondence and awaits leadership review.",
+    sourceKind: "strongbox-thread",
+    sourceId: thread.id,
+    sourceUrl
+  });
 }
 
 function normalizedThreadName(value: string): string {

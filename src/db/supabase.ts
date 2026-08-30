@@ -24,6 +24,9 @@ export type FieldNameBallotVote = "yes" | "no" | "abstain";
 export type FieldNameContestStatus = "Open" | "Approved" | "Denied" | "Cancelled";
 export type ContactAssessment = "good" | "cold" | "not_found" | "mia" | "archive";
 export type RangerContactRecordType = "Person" | "Group";
+export type BriefingKind = "ic" | "ooc";
+export type BriefingAudience = "everyone" | "apprentice_plus" | "ranger_plus" | "marshal_plus" | "captain_plus" | "individual";
+export type ManagedAssignmentStatus = "Open" | "Completed" | "Cancelled";
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export interface RangerRow {
@@ -493,6 +496,55 @@ export interface ContactGroupMembershipRow {
   created_at: string;
 }
 
+export interface BriefingDispatchRow {
+  id: string;
+  guild_id: string;
+  kind: BriefingKind;
+  audience: BriefingAudience;
+  target_discord_user_id: string | null;
+  title: string;
+  body: string;
+  source_kind: string | null;
+  source_id: string | null;
+  source_url: string | null;
+  author_discord_user_id: string | null;
+  created_at: string;
+}
+
+export interface BriefingUserSettingsRow {
+  guild_id: string;
+  discord_user_id: string;
+  dm_enabled: boolean;
+  last_collected_at: string | null;
+  updated_at: string;
+}
+
+export interface ManagedAssignmentRow {
+  id: string;
+  guild_id: string;
+  forum_channel_id: string;
+  thread_id: string | null;
+  starter_message_id: string | null;
+  title: string;
+  objective: string;
+  details: string | null;
+  location: string;
+  hold: string | null;
+  timing: string | null;
+  minimum_rank: "Apprentice" | "Ranger";
+  organizer_discord_user_id: string;
+  status: ManagedAssignmentStatus;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface ManagedAssignmentParticipantRow {
+  assignment_id: string;
+  discord_user_id: string;
+  joined_at: string;
+}
+
 export interface SupplyAssignmentRow {
   id: string;
   code: string;
@@ -926,6 +978,34 @@ export interface Database {
         Insert: Omit<ContactGroupMembershipRow, "created_at"> & {
           created_at?: string;
         };
+        Update: never;
+      };
+      briefing_dispatches: {
+        Row: BriefingDispatchRow;
+        Insert: Omit<BriefingDispatchRow, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<BriefingDispatchRow>;
+      };
+      briefing_user_settings: {
+        Row: BriefingUserSettingsRow;
+        Insert: Omit<BriefingUserSettingsRow, "updated_at"> & { updated_at?: string };
+        Update: Partial<BriefingUserSettingsRow>;
+      };
+      managed_assignments: {
+        Row: ManagedAssignmentRow;
+        Insert: Omit<ManagedAssignmentRow, "id" | "created_at" | "updated_at" | "completed_at"> & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          completed_at?: string | null;
+        };
+        Update: Partial<ManagedAssignmentRow>;
+      };
+      managed_assignment_participants: {
+        Row: ManagedAssignmentParticipantRow;
+        Insert: Omit<ManagedAssignmentParticipantRow, "joined_at"> & { joined_at?: string };
         Update: never;
       };
       member_activity_events: {

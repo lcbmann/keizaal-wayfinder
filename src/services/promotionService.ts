@@ -28,6 +28,7 @@ import { getRangerByDiscordId, getRangerById, promoteRanger } from "./rangerServ
 import { refreshFieldNamesBulletin } from "./fieldNameService.js";
 import { getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import { roleIdForRank } from "../config/roles.js";
+import { queueBriefingDispatch } from "./briefingService.js";
 
 const PROMOTION_CHANNEL_STATE_KEY = "promotion-votes-channel";
 
@@ -278,6 +279,20 @@ export async function postPromotionVote(params: {
     reason: "Create promotion vote discussion"
   });
   await attachPromotionVoteMessage(params.vote.id, channel.id, message.id, thread.id);
+  if (candidate) {
+    await queueBriefingDispatch({
+      guildId: params.guild.id,
+      audience: "ranger_plus",
+      title: `Promotion Deliberation: ${candidate.discord_display_name ?? candidate.in_game_name ?? candidate.discord_username ?? "Ranger"}`,
+      body: `The Corps is considering this Ranger for advancement to **${params.vote.target_rank}**. Rangers are asked to review the record, discuss the matter, and cast their judgment.`,
+      sourceKind: "promotion-vote",
+      sourceId: params.vote.id,
+      sourceUrl: message.url,
+      authorDiscordUserId: params.vote.opened_by_discord_user_id
+    }).catch((error) => {
+      console.warn(`Could not add promotion vote ${params.vote.id} to Ranger briefings:`, error);
+    });
+  }
   return message;
 }
 

@@ -24,6 +24,7 @@ import { emojiEmbed } from "../utils/guildEmojis.js";
 import { syncMemberToRoster, requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 import { awardActiveApprenticeshipMedals } from "./medalService.js";
+import { queueBriefingDispatch } from "./briefingService.js";
 
 export interface ApprenticeshipDetails {
   apprenticeship: ApprenticeshipRow;
@@ -261,6 +262,7 @@ export async function respondToApprenticeshipProposal(params: {
       .single();
     assertNoDbError(attachError, "attach apprenticeship Strongbox thread");
     details.apprenticeship = attached;
+    await queueActiveApprenticeshipBriefings(params.guild, attached);
   } else {
     details.apprenticeship = updated;
   }
@@ -499,6 +501,7 @@ export async function endApprenticeship(params: {
   } else {
     await postApprenticeshipRecord(params.guild, ended, details.mentor, details.apprentice, "Apprenticeship Ended");
   }
+  await queueEndedApprenticeshipBriefings(params.guild, ended);
   return { ...details, apprenticeship: ended };
 }
 
@@ -772,6 +775,60 @@ async function notifyActiveApprenticeshipParticipants(guild: Guild, apprenticesh
   ].map(async (discordUserId) => {
     const user = await guild.client.users.fetch(discordUserId).catch(() => null);
     await user?.send(`Your apprenticeship is now active. ${APPRENTICESHIP_INFO_HINT}`).catch(() => undefined);
+  }));
+  await queueActiveApprenticeshipBriefings(guild, apprenticeship);
+}
+
+async function queueActiveApprenticeshipBriefings(guild: Guild, apprenticeship: ApprenticeshipRow): Promise<void> {
+  const [mentor, apprentice] = await Promise.all([
+    guild.members.fetch(apprenticeship.mentor_discord_user_id).catch(() => null),
+    guild.members.fetch(apprenticeship.apprentice_discord_user_id).catch(() => null)
+  ]);
+  const mentorName = mentor?.displayName ?? "your mentor";
+  const apprenticeName = apprentice?.displayName ?? "your Apprentice";
+  await Promise.all([
+    {
+      discordUserId: apprenticeship.mentor_discord_user_id,
+      body: `Headquarters has entered your formal apprenticeship with **${apprenticeName}** into the Corps record. You are responsible for their guidance and preparation.`
+    },
+    {
+      discordUserId: apprenticeship.apprentice_discord_user_id,
+      body: `Headquarters has entered your formal apprenticeship under **${mentorName}** into the Corps record. Seek their guidance and keep them informed of your progress.`
+    }
+  ].map(async ({ discordUserId, body }) => {
+    await queueBriefingDispatch({
+      guildId: guild.id,
+      audience: "individual",
+      targetDiscordUserId: discordUserId,
+      title: "Apprenticeship Entered into the Corps Record",
+      body,
+      sourceKind: "apprenticeship-active",
+      sourceId: `${apprenticeship.id}:${discordUserId}`,
+      authorDiscordUserId: apprenticeship.reviewed_by_discord_user_id ?? apprenticeship.proposed_by_discord_user_id
+    }).catch((error) => {
+      console.warn(`Could not add active apprenticeship ${apprenticeship.id} to briefing for ${discordUserId}:`, error);
+    });
+  }));
+}
+
+async function queueEndedApprenticeshipBriefings(guild: Guild, apprenticeship: ApprenticeshipRow): Promise<void> {
+  const reason = apprenticeship.end_reason ? ` The recorded reason is: ${apprenticeship.end_reason}` : "";
+  await Promise.all([
+    apprenticeship.mentor_discord_user_id,
+    apprenticeship.apprentice_discord_user_id
+  ].map(async (discordUserId) => {
+    await queueBriefingDispatch({
+      guildId: guild.id,
+      audience: "individual",
+      targetDiscordUserId: discordUserId,
+      title: "Apprenticeship Record Closed",
+      body: `Headquarters has marked this formal apprenticeship ended.${reason} The permanent service medals already earned remain on the record.`,
+      sourceKind: "apprenticeship-ended",
+      sourceId: `${apprenticeship.id}:${discordUserId}`,
+      authorDiscordUserId: apprenticeship.reviewed_by_discord_user_id ?? apprenticeship.proposed_by_discord_user_id
+    }).catch((error) => {
+      console.warn(`Could not add ended apprenticeship ${apprenticeship.id} to briefing for ${discordUserId}:`, error);
+    });
   }));
 }
 

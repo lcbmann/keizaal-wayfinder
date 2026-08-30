@@ -25,6 +25,7 @@ import { getBotMessageState, saveBotMessageState } from "./botMessageStateServic
 import { emojiEmbed } from "../utils/guildEmojis.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canUseTrailmarks, memberRankAtLeast } from "../utils/permissions.js";
+import { queueBriefingDispatch } from "./briefingService.js";
 
 const CONTACT_FORUM_STATE_KEY = "ranger-contacts-forum";
 const CONTACT_FORUM_NAME = "contacts";
@@ -265,6 +266,18 @@ async function createContactRecord(params: {
     if (!attached) {
       throw new Error("Supabase did not return the attached Ranger contact.");
     }
+    await queueBriefingDispatch({
+      guildId: params.guild.id,
+      audience: "ranger_plus",
+      title: `${attached.record_type === "Group" ? "New Group Record" : "New Contact Record"}: ${attached.name}`,
+      body: `A new ${attached.record_type === "Group" ? "group intelligence" : "contact"} record has been filed for **${attached.name}** in **${attached.hold}**. Review it before operating in the area and add any useful knowledge you hold.`,
+      sourceKind: "contact-record",
+      sourceId: attached.id,
+      sourceUrl: `https://discord.com/channels/${params.guild.id}/${thread.id}`,
+      authorDiscordUserId: params.creator.id
+    }).catch((dispatchError) => {
+      console.warn(`Could not add contact ${attached.id} to Ranger briefings:`, dispatchError);
+    });
     return { contact: attached, thread };
   } catch (error) {
     await supabase.from("ranger_contacts").delete().eq("id", inserted.id);

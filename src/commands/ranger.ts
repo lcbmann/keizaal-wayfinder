@@ -41,6 +41,7 @@ import { emojiText } from "../utils/guildEmojis.js";
 import { env } from "../config/env.js";
 import { listRangerMedalAwards, medalEmoji } from "../services/medalService.js";
 import { closeSupersededPromotionVotes } from "../services/promotionService.js";
+import { collectRangerBriefing } from "../services/briefingService.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -53,6 +54,9 @@ export const rangerCommand: BotCommand = {
         .setName("info")
         .setDescription("Show a Ranger roster entry.")
         .addUserOption((option) => option.setName("user").setDescription("Member to inspect."))
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("briefing").setDescription("Collect dispatches waiting for you at Headquarters.")
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("assignments").setDescription("Post Ranger leadership and hold assignments.")
@@ -231,6 +235,11 @@ export const rangerCommand: BotCommand = {
           title: member ? highestCorpsTitle(member) : rangerTitle(ranger.current_rank)
         })]
       });
+      return;
+    }
+
+    if (subcommand === "briefing") {
+      await collectRangerBriefing(interaction);
       return;
     }
 

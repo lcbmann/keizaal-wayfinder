@@ -26,6 +26,9 @@ import { fieldNameCommand } from "./commands/fieldName.js";
 import { contactCommand } from "./commands/contact.js";
 import { medalCommand } from "./commands/medal.js";
 import { voteCommand } from "./commands/vote.js";
+import { briefingCommand } from "./commands/briefing.js";
+import { assignmentCommand } from "./commands/assignment.js";
+import { patrolCommand } from "./commands/patrol.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
@@ -37,6 +40,14 @@ import { handleContactButton } from "./components/contactButtons.js";
 import { handleGeneralVoteButton } from "./components/generalVoteButtons.js";
 import { GENERAL_VOTE_MODAL_ID, handleGeneralVoteModal } from "./components/generalVoteModal.js";
 import { handleGeneralVoteSelect } from "./components/generalVoteSelect.js";
+import { handleBriefingButton } from "./components/briefingButtons.js";
+import { handleAssignmentButton } from "./components/assignmentButtons.js";
+import {
+  BRIEFING_COLLECT_BUTTON_ID,
+  handleBriefingDispatchModal,
+  isBriefingDispatchModal
+} from "./services/briefingService.js";
+import { ASSIGNMENT_BUTTON_PREFIX, handleAssignmentModal, isAssignmentModal } from "./services/managedAssignmentService.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
@@ -50,7 +61,11 @@ import {
   synchronizeEditedTrailmarkIntelReports,
   syncIntelReportChannelNames
 } from "./services/intelService.js";
-import { handleStrongboxDropMessage, refreshStrongboxDropInstructions } from "./services/strongboxService.js";
+import {
+  handleStrongboxDropMessage,
+  recordStrongboxBriefingActivity,
+  refreshStrongboxDropInstructions
+} from "./services/strongboxService.js";
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import { setupMedals } from "./services/medalService.js";
@@ -100,7 +115,10 @@ for (const command of [
   fieldNameCommand,
   contactCommand,
   medalCommand,
-  voteCommand
+  voteCommand,
+  briefingCommand,
+  assignmentCommand,
+  patrolCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -392,6 +410,7 @@ client.on("messageCreate", (message) => {
       if (await handleStrongboxDropMessage(message)) {
         return;
       }
+      await recordStrongboxBriefingActivity(message);
       await captureTrailmarkIntelReports(message);
     })
     .catch((error) => {
@@ -485,6 +504,24 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     return;
   }
 
+  if (interaction.isButton() && interaction.customId === BRIEFING_COLLECT_BUTTON_ID) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Briefings are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleBriefingButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith(ASSIGNMENT_BUTTON_PREFIX)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Assignments are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleAssignmentButton(interaction);
+    return;
+  }
+
   if (interaction.isButton() && interaction.customId.startsWith("general-vote:ballot:")) {
     if (!interaction.guildId || (interaction.guildId !== env.DISCORD_GUILD_ID && !isAllianceGuildId(interaction.guildId))) {
       throw new UserFacingError("Channel voting is only available in a configured server.");
@@ -564,6 +601,24 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleFieldNameSuggestionModal(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && isBriefingDispatchModal(interaction.customId)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Briefing dispatches are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleBriefingDispatchModal(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && isAssignmentModal(interaction.customId)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Assignments are only available in the Ranger Corps server.");
+    }
+    await safelyRecordInteraction(interaction.user.id);
+    await handleAssignmentModal(interaction);
     return;
   }
 

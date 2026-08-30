@@ -13,7 +13,10 @@ Keizaal Wayfinder is a TypeScript Discord bot for the Ranger Corps of Skyrim, an
 - Primary Rangers of each Hold plus local Warden appointments beneath a parent Hold.
 - Voluntary Ranger-Apprentice pairings with matching requests, consent, and sponsored-recruit review.
 - One private discussion thread per Strongbox entry.
-- Lightweight activity tracking without storing message content.
+- An in-character Headquarters Dispatch Desk with accumulated, rank-aware personal briefings and optional DM delivery.
+- Wayfinder-managed assignment posts with Join, Withdraw, and Mark Complete controls; legacy Forum posts remain unchanged.
+- No-cost patrol suggestions grounded in stale Trailmark visits and contact confirmations.
+- Lightweight activity tracking whose counters do not store ordinary message content.
 
 ## Install
 
@@ -128,6 +131,10 @@ The migration creates:
 - `field_name_proposals`
 - `field_name_ballots`
 - `ranger_field_names`
+- `briefing_dispatches`
+- `briefing_user_settings`
+- `managed_assignments`
+- `managed_assignment_participants`
 - `bot_message_state`
 - `intel_settings`
 - `intel_topics`
@@ -181,6 +188,7 @@ Implemented commands:
 
 - `/ping`
 - `/ranger info`
+- `/ranger briefing`
 - `/ranger assignments`
 - `/ranger audit`
 - `/ranger inactive-review`
@@ -236,6 +244,12 @@ Implemented commands:
 - `/funds monthly`
 - `/strongbox drop`
 - `/strongbox setup`
+- `/briefing setup`
+- `/briefing send`
+- `/briefing settings`
+- `/assignment setup`
+- `/assignment create`
+- `/patrol suggest`
 - `/duty assign`
 - `/duty remove`
 - `/duty list`
@@ -323,6 +337,20 @@ Wayfinder adds the Corps `salute` reaction to every new message in the notice bo
 `/atlas link` creates a ten-minute code for the member to enter under **Link Discord** in the Atlas. After the Atlas device is linked, opening an Atlas location that has a matching active Trailmark creates a pending Discord access request. Wayfinder polls those requests every five seconds, verifies the linked Discord member still has Apprentice-or-higher Trailmark access, opens the matching Trailmark channel for the configured duration, and runs the same Intel capture and HQ delivery flow as the Discord dropdown.
 
 After a linked member records a visit, the Atlas can also queue a **Leave Drop** message for that Trailmark. Wayfinder verifies the member and Trailmark again, posts the message into the matching private channel under an Atlas field-drop embed, and routes the submitted text through the same Intel keyword/catchall categories as ordinary Trailmark messages. Non-HQ drops still follow the normal delivery step before appearing in public Intel bulletins. The Trailmark channel itself remains private: another Ranger must open that Trailmark through the Discord panel to read it. Apply Ranger Map migrations `202607300001_create_atlas_trailmark_visits.sql`, `202607300002_fix_atlas_trailmark_visit_conflict.sql`, `202607300003_create_atlas_overwatch_and_trailmark_drops.sql`, and `202607300004_track_atlas_trailmark_departures.sql` to the shared Supabase project before using these bridges.
+
+## Ranger Briefings
+
+Apply `src/db/migrations/045_add_briefings_and_managed_assignments.sql`, redeploy slash commands, create a read-only Headquarters briefing channel, and run `/briefing setup` there as a Marshal. Wayfinder posts and pins one **Headquarters Dispatch Desk** card with a persistent **Collect My Briefing** button. `/ranger briefing` performs the same collection from any accessible command channel.
+
+Briefings accumulate until the member next collects them. They are primarily in-character and are filtered by current rank: all Corps members receive general dispatches and major leadership promotions, Ranger+ receives new promotion votes and contact records, Marshal+ receives new or updated Strongbox matters, and apprenticeship participants receive their own pairing records. New managed assignments go only to members eligible to join. Marshal+ can use `/briefing send` to file an IC dispatch for a rank group or one named member; the OOC option is deliberately separate and should be used sparingly.
+
+By default, deliberate collection sends the packet by DM and confirms privately in Discord. If the DM cannot be delivered, Wayfinder falls back to the private interaction response without losing the unread items. Members can use `/briefing settings` to keep future packets entirely in the private interaction response. There is no scheduled digest or unsolicited DM.
+
+## Managed Assignments and Patrol Suggestions
+
+After applying migration `045`, run `/assignment setup` once as a Marshal and select the existing Assignments Forum. Wayfinder adds its status, rank, and Hold tags without converting or editing any legacy posts. Ranger+ can then use `/assignment create` to open a five-field Discord form. Each new managed post has Join, Withdraw, and Mark Complete controls, a live participant list, and a briefing dispatch for eligible members. Only the organizer or Marshal+ can complete it.
+
+Apprentice+ can use `/patrol suggest` in `#general`, optionally choosing a Hold. Without a choice, Wayfinder uses the member's assigned Hold or a stable daily rotation. The suggestion combines the Hold's least recently opened Trailmark with its stalest active contact or group record. It creates no assignment and uses no AI or external API.
 
 ## HQ Strongbox
 

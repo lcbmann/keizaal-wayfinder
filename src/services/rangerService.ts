@@ -1,11 +1,12 @@
 import { MessageType, type GuildMember, type TextChannel } from "discord.js";
 import { env } from "../config/env.js";
-import { isMainRank, type MainRank } from "../config/ranks.js";
+import { isMainRank, rankAtLeast, type MainRank } from "../config/ranks.js";
 import { assertNoDbError, supabase, type RangerRow, type RangerStatus } from "../db/supabase.js";
 import { todayIsoDate } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
 import { getMemberMainRank, hasGuestOnly, syncCumulativeMainRanks } from "./discordRoleService.js";
 import { appendPromotionToHonorsLedger } from "./honorsLedgerService.js";
+import { queueBriefingDispatch } from "./briefingService.js";
 
 export async function getRangerByDiscordId(discordUserId: string): Promise<RangerRow | null> {
   const { data, error } = await supabase
@@ -149,6 +150,20 @@ export async function promoteRanger(params: {
   }).catch((error) => {
     console.warn(`Could not append promotion for ${data.discord_user_id} to the honors ledger:`, error);
   });
+  if (rankAtLeast(params.targetRank, "Ranger Marshal")) {
+    const promotedName = data.discord_display_name ?? data.in_game_name ?? data.discord_username ?? "A Ranger";
+    await queueBriefingDispatch({
+      guildId: params.member.guild.id,
+      audience: "apprentice_plus",
+      title: `Promotion Confirmed: ${promotedName}`,
+      body: `Headquarters records that **${promotedName}** has been elevated to **${params.targetRank}** and now bears the responsibilities of that office.`,
+      sourceKind: "major-promotion",
+      sourceId: history.id,
+      authorDiscordUserId: params.changedByDiscordUserId
+    }).catch((error) => {
+      console.warn(`Could not add major promotion ${history.id} to Ranger briefings:`, error);
+    });
+  }
   return data;
 }
 

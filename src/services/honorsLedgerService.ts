@@ -85,6 +85,30 @@ export async function appendPromotionToHonorsLedger(params: {
   });
 }
 
+export async function removeMedalAwardFromHonorsLedger(guild: Guild, awardId: string): Promise<boolean> {
+  const { data: entry, error } = await supabase
+    .from("honors_ledger_entries")
+    .select("id, discord_thread_id, discord_message_id")
+    .eq("source_type", "medal_award")
+    .eq("source_id", awardId)
+    .maybeSingle();
+  assertNoDbError(error, "get revoked medal honors entry");
+  if (!entry) {
+    return false;
+  }
+
+  const thread = await guild.channels.fetch(entry.discord_thread_id).catch(() => null);
+  if (thread?.isThread()) {
+    const message = await thread.messages.fetch(entry.discord_message_id).catch(() => null);
+    await message?.delete().catch((deleteError) => {
+      console.warn(`Could not delete revoked medal honors message ${entry.discord_message_id}:`, deleteError);
+    });
+  }
+  const { error: deleteError } = await supabase.from("honors_ledger_entries").delete().eq("id", entry.id);
+  assertNoDbError(deleteError, "remove revoked medal honors entry");
+  return true;
+}
+
 async function backfillHonorsLedger(
   guild: Guild,
   thread: PublicThreadChannel

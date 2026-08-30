@@ -25,6 +25,7 @@ const medalRoleIds = new Map([
   ["Agent", { id: "agent", emojiName: "agent" }],
   ["Craftsman", { id: "craftsman", emojiName: "craftsman" }],
   ["Courier", { id: "courier", emojiName: "courier" }],
+  ["Instructor", { id: "instructor", emojiName: "instructor" }],
   ["Ranger Orders", { id: "ranger-orders", emojiName: "rangerorders" }],
   ["Retired Ranger", { id: "retired-ranger", emojiName: "retiredranger" }],
   ["Allies", { id: "allies", emojiName: "allies" }],
@@ -213,6 +214,7 @@ const titleRoleNames = new Set([
   "Agent",
   "Craftsman",
   "Courier",
+  "Instructor",
   "Retired Ranger"
 ]);
 

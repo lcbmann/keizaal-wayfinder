@@ -47,6 +47,7 @@ export const APPLICATION_TARGETS = [
   "Agent",
   "Courier",
   "Ambassador",
+  "Instructor",
   "Hold Warden",
   "Local Warden",
   "Ranger Marshal",
@@ -78,7 +79,7 @@ export function applicationMinimumRank(target: ApplicationTarget): MainRank {
     return "Ranger Marshal";
   }
   if (target === "Ranger Marshal" || target === "Hold Warden" || target === "Local Warden"
-    || target === "Quartermaster" || target === "Agent" || target === "Ambassador") {
+    || target === "Quartermaster" || target === "Agent" || target === "Ambassador" || target === "Instructor") {
     return "Ranger";
   }
   return "Apprentice";

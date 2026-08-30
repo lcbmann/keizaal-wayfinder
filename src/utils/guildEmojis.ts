@@ -18,6 +18,7 @@ export type WayfinderEmojiName =
   | "funds"
   | "guest"
   | "intel"
+  | "instructor"
   | "promotion"
   | "quartermaster"
   | "ranger"
@@ -126,6 +127,8 @@ export function dutyEmojiName(dutyName: string): WayfinderEmojiName | null {
       return "courier";
     case "Ambassador":
       return "ambassador";
+    case "Instructor":
+      return "instructor";
     default:
       return null;
   }

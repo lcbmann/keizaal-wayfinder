@@ -92,6 +92,7 @@ export async function awardMedal(params: {
   awardedByDiscordUserId: string;
   reason: string | null;
   notifyRecipient?: boolean;
+  recordInHonorsLedger?: boolean;
 }): Promise<RangerMedalAwardDetails> {
   const [ranger, medal] = await Promise.all([
     requireRangerByDiscordId(params.rangerDiscordUserId),
@@ -129,7 +130,7 @@ export async function awardMedal(params: {
   if (newlyAwarded && params.notifyRecipient !== false) {
     await notifyMedalRecipient(params.guild, ranger.discord_user_id, roleReadyMedal);
   }
-  if (newlyAwarded) {
+  if (newlyAwarded && params.recordInHonorsLedger !== false) {
     await appendMedalAwardToHonorsLedger({
       guild: params.guild,
       ranger,

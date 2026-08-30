@@ -7,6 +7,7 @@ export type PromotionProgress = "In Field Trial" | "On Hold" | null;
 export type PromotionVoteStatus = "Open" | "Closed" | "Approved" | "Denied";
 export type BallotVote = "promote" | "hold" | "abstain";
 export type GeneralVoteStatus = "Open" | "Closed";
+export type GeneralVoteType = "binary" | "choice";
 export type GeneralBallotVote = "yes" | "no" | "abstain";
 export type CorpsFundTransactionType = "Donation" | "Expense" | "Adjustment";
 export type SupplyAssignmentStatus = "Active" | "Completed" | "Cancelled";
@@ -176,6 +177,7 @@ export interface GeneralVoteRow {
   thread_id: string | null;
   question: string;
   context: string | null;
+  vote_type: GeneralVoteType;
   status: GeneralVoteStatus;
   opened_by_discord_user_id: string;
   closed_by_discord_user_id: string | null;
@@ -187,9 +189,19 @@ export interface GeneralVoteBallotRow {
   id: string;
   general_vote_id: string;
   voter_discord_user_id: string;
-  vote: GeneralBallotVote;
+  vote: GeneralBallotVote | null;
+  option_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface GeneralVoteOptionRow {
+  id: string;
+  general_vote_id: string;
+  label: string;
+  description: string | null;
+  position: number;
+  created_at: string;
 }
 
 export interface CorpsDutyRow {
@@ -711,6 +723,14 @@ export interface Database {
         Row: GeneralVoteBallotRow;
         Insert: Omit<GeneralVoteBallotRow, "id" | "created_at" | "updated_at">;
         Update: Partial<GeneralVoteBallotRow>;
+      };
+      general_vote_options: {
+        Row: GeneralVoteOptionRow;
+        Insert: Omit<GeneralVoteOptionRow, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<GeneralVoteOptionRow>;
       };
       corps_duties: {
         Row: CorpsDutyRow;

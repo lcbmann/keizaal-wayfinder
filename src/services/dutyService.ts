@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -5,7 +6,8 @@ import {
   ChannelType,
   EmbedBuilder,
   type Guild,
-  type GuildMember
+  type GuildMember,
+  type Role
 } from "discord.js";
 import {
   assertNoDbError,
@@ -24,8 +26,8 @@ import { requireRangerByDiscordId, setRangerHold } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 import { clearMemberHoldRole, setMemberHoldRole } from "./holdRoleService.js";
 
-export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Agent", "Courier", "Ambassador"] as const;
-const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Agent", "Ambassador"]);
+export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Agent", "Courier", "Ambassador", "Instructor"] as const;
+const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Agent", "Ambassador", "Instructor"]);
 
 export interface DutyApplicationDetails {
   application: DutyApplicationRow;
@@ -63,9 +65,13 @@ export async function getDutyByName(name: string): Promise<CorpsDutyRow | null> 
 export async function setupDutyRoles(guild: Guild): Promise<CorpsDutyRow[]> {
   const duties = await listDuties();
   const updated: CorpsDutyRow[] = [];
-  await guild.roles.fetch();
+  await Promise.all([
+    guild.roles.fetch(),
+    guild.emojis.fetch().catch(() => undefined)
+  ]);
 
   for (const duty of duties) {
+    await ensureDutyEmoji(guild, duty);
     let role = duty.discord_role_id ? guild.roles.cache.get(duty.discord_role_id) : undefined;
     role ??= guild.roles.cache.find((candidate) => candidate.name.toLocaleLowerCase() === duty.name.toLocaleLowerCase());
     role ??= await guild.roles.create({
@@ -77,6 +83,7 @@ export async function setupDutyRoles(guild: Guild): Promise<CorpsDutyRow[]> {
     if (role.name !== duty.name) {
       role = await role.setName(duty.name, `Keep the ${duty.name} duty role synchronized with Wayfinder`);
     }
+    await applyDutyRoleIcon(guild, role, duty);
 
     const { data, error } = await supabase
       .from("corps_duties")
@@ -89,6 +96,34 @@ export async function setupDutyRoles(guild: Guild): Promise<CorpsDutyRow[]> {
   }
 
   return updated;
+}
+
+async function ensureDutyEmoji(guild: Guild, duty: CorpsDutyRow): Promise<void> {
+  const emojiName = dutyEmojiName(duty.name);
+  if (emojiName !== "instructor" || guild.emojis.cache.some((emoji) => emoji.name === emojiName)) {
+    return;
+  }
+  try {
+    const attachment = await readFile(new URL("../../assets/discord-role-icons/instructor.png", import.meta.url));
+    await guild.emojis.create({
+      attachment,
+      name: emojiName,
+      reason: "Set up the Wayfinder Instructor duty insignia"
+    });
+  } catch (error) {
+    console.warn("Could not create the Instructor duty emoji:", error);
+  }
+}
+
+async function applyDutyRoleIcon(guild: Guild, role: Role, duty: CorpsDutyRow): Promise<void> {
+  const emojiName = dutyEmojiName(duty.name);
+  const emoji = emojiName ? guild.emojis.cache.find((candidate) => candidate.name === emojiName) : null;
+  if (!emoji || role.icon) {
+    return;
+  }
+  await role.setIcon(emoji, `Use ${emoji.name} for the ${duty.name} duty role`).catch((error) => {
+    console.warn(`Could not set the ${duty.name} duty role icon:`, error);
+  });
 }
 
 export async function createDutyApplication(params: {

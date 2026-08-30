@@ -272,6 +272,9 @@ Implemented commands:
 - `/medal award`
 - `/medal revoke`
 - `/medal list`
+- `/vote open`
+- `/vote close`
+- `/vote audit`
 - `/intel set-hq`
 - `/intel topic-add`
 - `/intel topic-edit`
@@ -329,7 +332,7 @@ After deploying the threaded Strongbox update, run `/strongbox setup` once to ad
 
 ## Corps Duties
 
-Run migrations `012_create_duties_and_apprenticeships.sql`, `023_add_ambassador_duty.sql`, `033_rename_detective_to_agent.sql`, and `036_rework_applications_promotions_and_wardens.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Agent, Courier, and Ambassador roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Agent, and Ambassador are Ranger+ duties; Craftsman and Courier are available to Apprentices+. The Wayfinder bot role must remain above these roles.
+Run migrations `012_create_duties_and_apprenticeships.sql`, `023_add_ambassador_duty.sql`, `033_rename_detective_to_agent.sql`, `036_rework_applications_promotions_and_wardens.sql`, and `042_add_instructor_duty.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Agent, Courier, Ambassador, and Instructor roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Agent, Ambassador, and Instructor are Ranger+ duties; Craftsman and Courier are available to Apprentices+. Instructors plan and lead practical Corps training. The Wayfinder bot role must remain above these roles.
 
 `/application apply` replaces `/duty volunteer`. Applicants choose a position and complete its Discord form. They can apply for a normal duty, **Hold Warden**, **Local Warden**, **Ranger Marshal**, or **Ranger Captain**. An appointed Hold Warden is displayed publicly as **Ranger of [Hold]**. Normal duty and local Warden applications go to the Marshal Strongbox for approval or denial. Marshal applications go to the configured Marshal+ review channel; Captain applications go to the configured Captain+ review channel. Every application gets its own private discussion thread. Run `/application setup` once as Commander to store the two restricted leadership review channels and enforce their visibility.
 
@@ -370,7 +373,7 @@ Either participant may use `/apprenticeship end` to end their current pairing. M
 
 ## Corps Medals
 
-Apply migrations `027_create_ranger_medals.sql` and `028_create_historical_corps_members.sql`, redeploy slash commands, then run `/medal setup` once as a Marshal. Wayfinder creates one non-hoisted Discord role for each medal and backfills the built-in **Mentor** medal from active and completed apprenticeship history. New active apprenticeships award it automatically.
+Apply migrations `027_create_ranger_medals.sql`, `028_create_historical_corps_members.sql`, and `043_automate_long_watch_medals.sql`, redeploy slash commands, then run `/medal setup` once as a Marshal. Wayfinder creates one non-hoisted Discord role for each medal and backfills the built-in **Mentor** medal from active and completed apprenticeship history. New active apprenticeships award it automatically. **Long Watch** is reconciled automatically as cumulative Bronze, Silver, and Gold service records at 30, 90, and 180 days; incorrect prior awards and Discord roles are removed during synchronization.
 
 Marshal+ can use `/medal create` to define additional honors and `/medal award` or `/medal revoke` to manage recipients. The optional emoji accepts Unicode, a custom emoji, or a server emoji name; Wayfinder uses it on profiles and attempts to use it as the medal role icon. `/medal list` is available to Corps members. In `/ranger info`, rank icons, Senior Ranger and duty icons, and Marshal-awarded honors all appear together as the member's Medals, ordered by Discord role position.
 
@@ -436,9 +439,13 @@ Marshal+ can use `/promotion status` to mark an Apprentice as `In Field Trial`, 
 Approving a vote promotes the candidate through the same service used by `/ranger promote`, writes rank history, updates Supabase, syncs Discord roles, refreshes the assignments board, and posts a promotion announcement embed.
 On startup and during `/promotion setup`, Wayfinder closes and removes stale open votes when the candidate already holds the target rank. Manual `/ranger promote` performs the same cleanup so an out-of-band promotion cannot leave an obsolete vote behind.
 
+## Channel Votes
+
+Channel moderators, Corps Marshals, Alliance admins, and server administrators can use `/vote open` in any channel they manage. The default format is an auditable **Yes / No / Abstain** vote. Selecting **Multiple choice** opens a form for the question, context, and 2-10 options; write each option on its own line as `Option | optional description`. Members who can view the channel cast one private, changeable ballot through the buttons or option menu. `/vote close` preserves the final tally and locks its discussion thread, while `/vote audit` privately exports every named ballot as TSV.
+
 ## Assignment Board
 
-`/ranger assignments` posts seven persistent messages for Leadership, Quartermasters, Hold Wardens, Local Wardens, Ambassadors, Agents, and Apprenticeships. The Hold Wardens message shows the single primary **Ranger of [Hold]** for each Hold. Local Wardens are grouped beneath their parent Hold and shown as **Warden of [Range]**. The board includes every Ranger+ duty; Craftsman and Courier assignments are intentionally omitted. The Apprenticeship message shows active pairings and members looking for a mentor or Apprentice. Wayfinder remembers and replaces the set together after relevant roster, duty, or apprenticeship changes.
+`/ranger assignments` posts eight persistent messages for Leadership, Quartermasters, Hold Wardens, Local Wardens, Ambassadors, Agents, Instructors, and Apprenticeships. The Hold Wardens message shows the single primary **Ranger of [Hold]** for each Hold. Local Wardens are grouped beneath their parent Hold and shown as **Warden of [Range]**. The board includes every Ranger+ duty; Craftsman and Courier assignments are intentionally omitted. The Apprenticeship message shows active pairings and members looking for a mentor or Apprentice. Wayfinder remembers and replaces the set together after relevant roster, duty, or apprenticeship changes.
 
 ## Deployment
 

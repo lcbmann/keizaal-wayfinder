@@ -1,26 +1,25 @@
 import {
   ChannelType,
-  PermissionFlagsBits,
   SlashCommandBuilder,
-  ThreadAutoArchiveDuration,
-  type GuildMember
+  ThreadAutoArchiveDuration
 } from "discord.js";
-import { env } from "../config/env.js";
+import { buildGeneralVoteModal } from "../components/generalVoteModal.js";
 import {
   attachGeneralVoteMessage,
   closeGeneralVote,
   createGeneralVote,
   finalizeGeneralVoteThread,
   findRecentGeneralVotes,
+  formatGeneralVoteTally,
+  generalVoteSelectionLabel,
   generalVoteMessage,
   getGeneralVote,
   listGeneralVoteBallots,
-  refreshGeneralVoteMessage,
-  tallyGeneralVoteBallots
+  listGeneralVoteOptions,
+  refreshGeneralVoteMessage
 } from "../services/generalVoteService.js";
-import { isAllianceAdmin, isAllianceGuildId } from "../services/allianceIntelService.js";
 import { UserFacingError } from "../utils/errors.js";
-import { canOpenPromotionVotes } from "../utils/permissions.js";
+import { canManageGeneralVotes } from "../utils/generalVotePermissions.js";
 import type { BotCommand } from "./types.js";
 
 export const voteCommand: BotCommand = {
@@ -29,11 +28,17 @@ export const voteCommand: BotCommand = {
     .setDescription("Open, close, or audit a channel vote.")
     .addSubcommand((subcommand) => subcommand
       .setName("open")
-      .setDescription("Open an auditable Yes, No, or Abstain vote in this channel.")
+      .setDescription("Open an auditable binary or multiple-choice vote in this channel.")
+      .addStringOption((option) => option
+        .setName("format")
+        .setDescription("Use a standard vote or open a form for multiple choices.")
+        .addChoices(
+          { name: "Yes / No / Abstain", value: "binary" },
+          { name: "Multiple choice", value: "choice" }
+        ))
       .addStringOption((option) => option
         .setName("question")
-        .setDescription("The issue being decided.")
-        .setRequired(true)
+        .setDescription("The issue being decided; multiple-choice votes can enter this in the form.")
         .setMaxLength(300))
       .addStringOption((option) => option
         .setName("context")
@@ -75,7 +80,6 @@ export const voteCommand: BotCommand = {
       throw new UserFacingError("Votes can only be used inside a configured server channel.");
     }
     const subcommand = interaction.options.getSubcommand();
-    await interaction.deferReply({ ephemeral: subcommand !== "open" });
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     const channel = await interaction.guild.channels.fetch(interaction.channelId).catch(() => null);
     if (!channel?.isTextBased()) {
@@ -86,15 +90,21 @@ export const voteCommand: BotCommand = {
     }
 
     if (subcommand === "open") {
-      const question = interaction.options.getString("question", true).trim();
-      if (!question) {
-        throw new UserFacingError("The vote question cannot be empty.");
+      const question = interaction.options.getString("question")?.trim() || null;
+      const context = interaction.options.getString("context")?.trim() || null;
+      if ((interaction.options.getString("format") ?? "binary") === "choice") {
+        await interaction.showModal(buildGeneralVoteModal({ question, context }));
+        return;
       }
+      if (!question) {
+        throw new UserFacingError("A question is required for a Yes / No / Abstain vote.");
+      }
+      await interaction.deferReply();
       const vote = await createGeneralVote({
         guildId: interaction.guild.id,
         channelId: channel.id,
         question,
-        context: interaction.options.getString("context")?.trim() || null,
+        context,
         openedByDiscordUserId: interaction.user.id
       });
       await interaction.editReply(await generalVoteMessage(vote.id));
@@ -115,6 +125,7 @@ export const voteCommand: BotCommand = {
       return;
     }
 
+    await interaction.deferReply({ ephemeral: true });
     const voteId = interaction.options.getString("vote", true);
     const vote = await requireVoteInCurrentChannel(voteId, interaction.guild.id, channel.id);
 
@@ -122,21 +133,26 @@ export const voteCommand: BotCommand = {
       const closed = await closeGeneralVote(vote.id, interaction.user.id);
       await refreshGeneralVoteMessage(interaction.guild, closed.id);
       await finalizeGeneralVoteThread(interaction.guild, closed);
-      const tally = tallyGeneralVoteBallots(await listGeneralVoteBallots(closed.id));
+      const [ballots, options] = await Promise.all([
+        listGeneralVoteBallots(closed.id),
+        closed.vote_type === "choice" ? listGeneralVoteOptions(closed.id) : Promise.resolve([])
+      ]);
       await interaction.editReply({
-        content: `Closed **${closed.question}**. Final tally: **${tally.yes} Yes**, **${tally.no} No**, **${tally.abstain} Abstain**.`
+        content: `Closed **${closed.question}**.\n${formatGeneralVoteTally(closed.vote_type, ballots, options)}`
       });
       return;
     }
 
     if (subcommand === "audit") {
-      const ballots = await listGeneralVoteBallots(vote.id);
-      const tally = tallyGeneralVoteBallots(ballots);
+      const [ballots, options] = await Promise.all([
+        listGeneralVoteBallots(vote.id),
+        vote.vote_type === "choice" ? listGeneralVoteOptions(vote.id) : Promise.resolve([])
+      ]);
       const rows = await Promise.all(ballots.map(async (ballot) => {
         const member = await interaction.guild.members.fetch(ballot.voter_discord_user_id).catch(() => null);
         const user = member ? null : await interaction.client.users.fetch(ballot.voter_discord_user_id).catch(() => null);
         return [
-          ballot.vote.toUpperCase(),
+          cleanAuditCell(generalVoteSelectionLabel(ballot, options)),
           cleanAuditCell(member?.displayName ?? user?.displayName ?? user?.username ?? "Unknown member"),
           ballot.voter_discord_user_id,
           ballot.updated_at
@@ -154,7 +170,7 @@ export const voteCommand: BotCommand = {
         ...rows
       ].join("\n");
       await interaction.editReply({
-        content: `Audit for **${vote.question}**: **${tally.yes} Yes**, **${tally.no} No**, **${tally.abstain} Abstain**.`,
+        content: `Audit for **${vote.question}**:\n${formatGeneralVoteTally(vote.vote_type, ballots, options)}`,
         files: [{ attachment: Buffer.from(audit, "utf8"), name: `vote-${vote.id.slice(0, 8)}-audit.tsv` }]
       });
       return;
@@ -163,20 +179,6 @@ export const voteCommand: BotCommand = {
     throw new UserFacingError("Unknown vote action.");
   }
 };
-
-function canManageGeneralVotes(member: GuildMember, guildId: string, channelId: string): boolean {
-  if (member.permissions.has(PermissionFlagsBits.Administrator)) {
-    return true;
-  }
-  const channel = member.guild.channels.cache.get(channelId);
-  if (channel && member.permissionsIn(channel).has(PermissionFlagsBits.ManageMessages)) {
-    return true;
-  }
-  if (guildId === env.DISCORD_GUILD_ID) {
-    return canOpenPromotionVotes(member);
-  }
-  return isAllianceGuildId(guildId) && isAllianceAdmin(member);
-}
 
 async function requireVoteInCurrentChannel(
   voteId: string,

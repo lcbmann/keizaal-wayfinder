@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { GeneralVoteBallotRow } from "../db/supabase.js";
-import { tallyGeneralVoteBallots } from "./generalVoteService.js";
+import type { GeneralVoteBallotRow, GeneralVoteOptionRow } from "../db/supabase.js";
+import {
+  parseGeneralVoteChoices,
+  tallyGeneralChoiceBallots,
+  tallyGeneralVoteBallots
+} from "./generalVoteService.js";
 
 test("tallies Yes, No, and Abstain channel ballots", () => {
   const ballots = [
@@ -17,3 +21,53 @@ test("tallies Yes, No, and Abstain channel ballots", () => {
 test("returns zeroes for an empty channel vote", () => {
   assert.deepEqual(tallyGeneralVoteBallots([]), { yes: 0, no: 0, abstain: 0 });
 });
+
+test("parses multiple-choice options with optional descriptions", () => {
+  assert.deepEqual(parseGeneralVoteChoices([
+    "Oak Rune | Nature-focused specialist title",
+    "Rooted Stone",
+    "Barkward | Emphasizes protection"
+  ].join("\n")), [
+    { label: "Oak Rune", description: "Nature-focused specialist title" },
+    { label: "Rooted Stone", description: null },
+    { label: "Barkward", description: "Emphasizes protection" }
+  ]);
+});
+
+test("rejects duplicate multiple-choice options", () => {
+  assert.throws(
+    () => parseGeneralVoteChoices("Oak Rune\noak rune"),
+    /unique name/
+  );
+});
+
+test("tallies multiple-choice options and abstentions", () => {
+  const options = [
+    voteOption("option-a", "Oak Rune", 0),
+    voteOption("option-b", "Rooted Stone", 1)
+  ];
+  const ballots = [
+    { vote: null, option_id: "option-a" },
+    { vote: null, option_id: "option-a" },
+    { vote: null, option_id: "option-b" },
+    { vote: "abstain", option_id: null }
+  ] satisfies Array<Pick<GeneralVoteBallotRow, "vote" | "option_id">>;
+
+  const tally = tallyGeneralChoiceBallots(options, ballots);
+  assert.deepEqual(tally.options.map(({ label, count }) => ({ label, count })), [
+    { label: "Oak Rune", count: 2 },
+    { label: "Rooted Stone", count: 1 }
+  ]);
+  assert.equal(tally.abstain, 1);
+});
+
+function voteOption(id: string, label: string, position: number): GeneralVoteOptionRow {
+  return {
+    id,
+    general_vote_id: "vote-id",
+    label,
+    description: null,
+    position,
+    created_at: "2026-08-30T00:00:00.000Z"
+  };
+}

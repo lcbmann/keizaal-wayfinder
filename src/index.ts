@@ -35,6 +35,8 @@ import { handleApprenticeshipButton } from "./components/apprenticeshipButtons.j
 import { handleFieldNameButton, handleFieldNameSuggestionModal } from "./components/fieldNameButtons.js";
 import { handleContactButton } from "./components/contactButtons.js";
 import { handleGeneralVoteButton } from "./components/generalVoteButtons.js";
+import { GENERAL_VOTE_MODAL_ID, handleGeneralVoteModal } from "./components/generalVoteModal.js";
+import { handleGeneralVoteSelect } from "./components/generalVoteSelect.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
@@ -52,6 +54,8 @@ import { handleStrongboxDropMessage, refreshStrongboxDropInstructions } from "./
 import { syncApprenticeshipPreferenceNotices } from "./services/apprenticeshipService.js";
 import { refreshActiveContactForumPosts } from "./services/contactService.js";
 import { setupMedals } from "./services/medalService.js";
+import { setupDutyRoles } from "./services/dutyService.js";
+import { startLongWatchMedalJob, synchronizeLongWatchMedals } from "./services/longWatchMedalService.js";
 import { handleStructuredTrailmarkReportModal } from "./services/structuredTrailmarkReportService.js";
 import { handleCorpsApplicationModal, isCorpsApplicationModal } from "./services/applicationFormService.js";
 import { repairPendingLeadershipApplicationReviews } from "./services/applicationService.js";
@@ -125,6 +129,12 @@ client.once("ready", (readyClient) => {
         console.log(
           `Synchronized ${medals} Corps medal${medals === 1 ? "" : "s"}, ${mentors} mentor${mentors === 1 ? "" : "s"}, and ${apprentices} apprentice${apprentices === 1 ? "" : "s"}.`
         );
+        const longWatch = await synchronizeLongWatchMedals(corpsGuild, false);
+        console.log(
+          `Synchronized Long Watch medals: ${longWatch.awarded} awarded, ${longWatch.revoked} revoked, `
+          + `${longWatch.rolesAdded} roles added, and ${longWatch.rolesRemoved} roles removed.`
+        );
+        startLongWatchMedalJob(corpsGuild);
         const profiles = await syncGuildAtlasDiscordProfiles(corpsGuild);
         console.log(
           `Synchronized ${profiles.members} active Ranger Atlas identit${profiles.members === 1 ? "y" : "ies"}, `
@@ -133,6 +143,15 @@ client.once("ready", (readyClient) => {
         );
       })
       .catch((error) => console.warn("Failed to synchronize Corps medals:", error));
+    void setupDutyRoles(corpsGuild)
+      .then(async (duties) => {
+        console.log(`Synchronized ${duties.length} Corps duty role${duties.length === 1 ? "" : "s"}.`);
+        const refreshed = await refreshStoredAssignmentsBoard(corpsGuild);
+        if (refreshed) {
+          console.log("Refreshed the Ranger assignments board with current duty roles and badges.");
+        }
+      })
+      .catch((error) => console.warn("Failed to synchronize Corps duty roles:", error));
     void syncApprenticeshipPreferenceNotices(corpsGuild)
       .then((synchronized) => {
         if (synchronized > 0) {
@@ -140,13 +159,6 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to synchronize apprenticeship notices:", error));
-    void refreshStoredAssignmentsBoard(corpsGuild)
-      .then((refreshed) => {
-        if (refreshed) {
-          console.log("Refreshed the Ranger assignments board with current role badges.");
-        }
-      })
-      .catch((error) => console.warn("Failed to refresh the Ranger assignments board:", error));
     void refreshStrongboxDropInstructions(corpsGuild)
       .then((refreshed) => {
         if (refreshed) {
@@ -444,6 +456,17 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     return;
   }
 
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("general-vote:choice:")) {
+    if (!interaction.guildId || (interaction.guildId !== env.DISCORD_GUILD_ID && !isAllianceGuildId(interaction.guildId))) {
+      throw new UserFacingError("Channel voting is only available in a configured server.");
+    }
+    if (interaction.guildId === env.DISCORD_GUILD_ID) {
+      await safelyRecordInteraction(interaction.user.id);
+    }
+    await handleGeneralVoteSelect(interaction);
+    return;
+  }
+
   if (interaction.isButton() && interaction.customId.startsWith("duty:review:")) {
     if (interaction.guildId !== env.DISCORD_GUILD_ID) {
       throw new UserFacingError("Duty applications are only available in the Ranger Corps server.");
@@ -519,6 +542,17 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleCorpsApplicationModal(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId === GENERAL_VOTE_MODAL_ID) {
+    if (!interaction.guildId || (interaction.guildId !== env.DISCORD_GUILD_ID && !isAllianceGuildId(interaction.guildId))) {
+      throw new UserFacingError("Channel voting is only available in a configured server.");
+    }
+    if (interaction.guildId === env.DISCORD_GUILD_ID) {
+      await safelyRecordInteraction(interaction.user.id);
+    }
+    await handleGeneralVoteModal(interaction);
     return;
   }
 

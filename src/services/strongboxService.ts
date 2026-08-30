@@ -179,7 +179,7 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
       {
         name: "Corps Duties",
         value: [
-          `**Ranger+ only:** ${roleLabel(guild, "quartermaster", "Quartermaster")}, ${roleLabel(guild, "warden", "Warden")}, ${roleLabel(guild, "agent", "Agent")}, and ${roleLabel(guild, "ambassador", "Ambassador")}.`,
+          `**Ranger+ only:** ${roleLabel(guild, "quartermaster", "Quartermaster")}, ${roleLabel(guild, "warden", "Warden")}, ${roleLabel(guild, "agent", "Agent")}, ${roleLabel(guild, "ambassador", "Ambassador")}, and ${roleLabel(guild, "instructor", "Instructor")}.`,
           `**Apprentice+:** ${roleLabel(guild, "craftsman", "Craftsman")} and ${roleLabel(guild, "courier", "Courier")}.`,
           "`/application apply` - Apply for a duty, a Hold Warden appointment, a local Warden Range, or eligible leadership consideration.",
           "`/application withdraw` - Withdraw one of your pending applications."

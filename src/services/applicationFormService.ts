@@ -123,6 +123,16 @@ const FORM_DEFINITIONS: Record<ApplicationTarget, ApplicationFormDefinition> = {
       availability
     ]
   },
+  Instructor: {
+    title: "Instructor Application",
+    fields: [
+      reason("Why do you wish to become an Instructor?"),
+      experience("Teaching, mentoring, and field experience"),
+      response("subjects", "Skills or subjects you can teach"),
+      response("approach", "How would you structure practical training?"),
+      availability
+    ]
+  },
   "Hold Warden": {
     title: "Hold Warden Application",
     fields: [

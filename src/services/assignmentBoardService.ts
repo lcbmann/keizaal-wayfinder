@@ -21,6 +21,7 @@ const assignmentBoardTitles = new Set([
   "Local Wardens",
   "Ambassadors",
   "Agents",
+  "Instructors",
   "Apprenticeships",
   "Ranger Corps Leadership",
   "Ranger Corps Quartermasters",
@@ -28,6 +29,7 @@ const assignmentBoardTitles = new Set([
   "Ranger Corps Wardens",
   "Ranger Corps Ambassadors",
   "Ranger Corps Agents",
+  "Ranger Corps Instructors",
   "Ranger Corps Apprenticeships"
 ]);
 const activeBoardRefreshes = new Map<string, Promise<Message[]>>();
@@ -101,6 +103,9 @@ function assignmentsEmbeds(
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const ambassadors = dutyAssignments
     .filter(({ duty }) => duty.name === "Ambassador")
+    .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
+  const instructors = dutyAssignments
+    .filter(({ duty }) => duty.name === "Instructor")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const leadershipEmbed = emojiEmbed(guild, "rangercommander", "Leadership")
     .setDescription("The Rangers presently entrusted with command of the Corps.")
@@ -194,6 +199,17 @@ function assignmentsEmbeds(
     })
     .setTimestamp(new Date());
 
+  const instructorsEmbed = emojiEmbed(guild, "instructor", "Instructors")
+    .setDescription("Rangers entrusted with planning and leading practical training for Rangers and Apprentices.")
+    .setColor(0x6f7d59)
+    .addFields({
+      name: "Active Instructors",
+      value: instructors.length
+        ? truncateField(instructors.map((details) => formatDutyAssignment(guild, details)).join("\n"))
+        : "None assigned."
+    })
+    .setTimestamp(new Date());
+
   const activeApprenticeships = apprenticeships.filter(({ apprenticeship }) => apprenticeship.status === "Active");
   const seekingMentors = apprenticeshipPreferences.filter((preference) => preference.seeking === "Mentor");
   const seekingApprentices = apprenticeshipPreferences.filter((preference) => preference.seeking === "Apprentice");
@@ -229,6 +245,7 @@ function assignmentsEmbeds(
     localWardensEmbed,
     ambassadorsEmbed,
     agentsEmbed,
+    instructorsEmbed,
     apprenticeshipsEmbed
   ];
 }

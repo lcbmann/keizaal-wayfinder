@@ -15,6 +15,7 @@ test("application targets enforce the intended member rank", () => {
   assert.equal(applicationMinimumRank("Courier"), "Apprentice");
   assert.equal(applicationMinimumRank("Hold Warden"), "Ranger");
   assert.equal(applicationMinimumRank("Local Warden"), "Ranger");
+  assert.equal(applicationMinimumRank("Instructor"), "Ranger");
   assert.equal(applicationMinimumRank("Ranger Marshal"), "Ranger");
   assert.equal(applicationMinimumRank("Ranger Captain"), "Ranger Marshal");
 });
@@ -56,6 +57,17 @@ test("Warden application forms collect the correct geography", () => {
   const localWardenFields = applicationFormDefinition("Local Warden").fields;
   assert.ok(localWardenFields.some((field) => field.destination === "hold"));
   assert.ok(localWardenFields.some((field) => field.destination === "range"));
+});
+
+test("Instructor applications collect teaching-specific information", () => {
+  const labels = applicationFormDefinition("Instructor").fields.map((field) => field.label);
+  assert.deepEqual(labels, [
+    "Why do you wish to become an Instructor?",
+    "Teaching, mentoring, and field experience",
+    "Skills or subjects you can teach",
+    "How would you structure practical training?",
+    "Availability and current responsibilities"
+  ]);
 });
 
 test("duty application forms use position-specific questions", () => {

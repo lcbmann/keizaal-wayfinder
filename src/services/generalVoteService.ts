@@ -36,6 +36,12 @@ export interface GeneralChoiceTally {
   abstain: number;
 }
 
+export interface GeneralChoiceDisplayField {
+  name: string;
+  value: string;
+  inline: false;
+}
+
 export async function createGeneralVote(params: {
   guildId: string;
   channelId: string;
@@ -230,6 +236,39 @@ export function tallyGeneralChoiceBallots(
   };
 }
 
+export function formatGeneralChoiceResultFields(
+  tally: GeneralChoiceTally,
+  status: GeneralVoteRow["status"]
+): GeneralChoiceDisplayField[] {
+  const preferenceVotes = tally.options.reduce((total, option) => total + option.count, 0);
+  const highestCount = Math.max(0, ...tally.options.map((option) => option.count));
+  const leadingOptions = highestCount > 0
+    ? tally.options.filter((option) => option.count === highestCount).length
+    : 0;
+
+  return tally.options.map((option, index) => {
+    const isLeading = highestCount > 0 && option.count === highestCount;
+    const resultLabel = isLeading
+      ? status === "Open"
+        ? leadingOptions === 1 ? " - Leading" : " - Tied lead"
+        : leadingOptions === 1 ? " - Winner" : " - Tied result"
+      : "";
+    const voteLabel = option.count === 1 ? "vote" : "votes";
+    const percentage = preferenceVotes > 0
+      ? Math.round((option.count / preferenceVotes) * 100)
+      : 0;
+
+    return {
+      name: `${index + 1}. ${option.label}${resultLabel}`,
+      value: [
+        `${generalVoteProgressBar(option.count, preferenceVotes)} **${option.count} ${voteLabel}** (${percentage}%)`,
+        option.description
+      ].filter(Boolean).join("\n"),
+      inline: false
+    };
+  });
+}
+
 export function formatGeneralVoteTally(
   voteType: GeneralVoteType,
   ballots: Pick<GeneralVoteBallotRow, "vote" | "option_id">[],
@@ -299,6 +338,9 @@ export async function generalVoteMessage(voteId: string): Promise<MessageEditOpt
     listGeneralVoteBallots(vote.id),
     vote.vote_type === "choice" ? listGeneralVoteOptions(vote.id) : Promise.resolve([])
   ]);
+  const choiceTally = vote.vote_type === "choice"
+    ? tallyGeneralChoiceBallots(options, ballots)
+    : null;
   const embed = new EmbedBuilder()
     .setTitle(vote.vote_type === "choice" ? "Multiple-Choice Vote" : "Channel Vote")
     .setDescription(vote.question)
@@ -307,22 +349,31 @@ export async function generalVoteMessage(voteId: string): Promise<MessageEditOpt
       { name: "Opened by", value: `<@${vote.opened_by_discord_user_id}>`, inline: true }
     )
     .setColor(vote.status === "Open" ? 0x587c4a : 0x6b6b6b)
-    .setFooter({ text: `Vote ${vote.id.slice(0, 8)}` })
+    .setFooter({
+      text: vote.vote_type === "choice"
+        ? `Vote ${vote.id.slice(0, 8)} | Bars exclude abstentions`
+        : `Vote ${vote.id.slice(0, 8)}`
+    })
     .setTimestamp(new Date(vote.created_at));
+  if (choiceTally) {
+    const ballotCount = choiceTally.options.reduce((total, option) => total + option.count, choiceTally.abstain);
+    embed.addFields({ name: "Ballots cast", value: String(ballotCount), inline: true });
+  }
   if (vote.context) {
     embed.addFields({ name: "Context", value: vote.context.slice(0, 1024) });
   }
-  if (vote.vote_type === "choice") {
-    for (const option of options) {
-      if (option.description) {
-        embed.addFields({ name: `${option.position + 1}. ${option.label}`, value: option.description });
-      }
-    }
+  if (choiceTally) {
+    embed.addFields(...formatGeneralChoiceResultFields(choiceTally, vote.status));
+    embed.addFields({
+      name: "Abstentions",
+      value: `**${choiceTally.abstain} ${choiceTally.abstain === 1 ? "vote" : "votes"}** recorded without a preference.`
+    });
+  } else {
+    embed.addFields({
+      name: vote.status === "Open" ? "Current Tally" : "Final Tally",
+      value: formatGeneralVoteTally(vote.vote_type, ballots, options)
+    });
   }
-  embed.addFields({
-    name: vote.status === "Open" ? "Current Tally" : "Final Tally",
-    value: formatGeneralVoteTally(vote.vote_type, ballots, options)
-  });
   if (vote.closed_at) {
     embed.addFields({
       name: "Closed",
@@ -341,17 +392,50 @@ export async function generalVoteMessage(voteId: string): Promise<MessageEditOpt
   };
 }
 
-export async function refreshGeneralVoteMessage(guild: Guild, voteId: string): Promise<void> {
+export async function refreshGeneralVoteMessage(guild: Guild, voteId: string): Promise<boolean> {
   const vote = await getGeneralVote(voteId);
   if (!vote?.message_id) {
-    return;
+    return false;
   }
   const channel = await guild.channels.fetch(vote.channel_id).catch(() => null);
   if (!channel?.isTextBased()) {
-    return;
+    return false;
   }
   const message = await channel.messages.fetch(vote.message_id).catch(() => null);
-  await message?.edit(await generalVoteMessage(vote.id));
+  if (!message) {
+    return false;
+  }
+  await message.edit(await generalVoteMessage(vote.id));
+  return true;
+}
+
+export async function refreshOpenGeneralVoteMessages(
+  guild: Guild
+): Promise<{ refreshed: number; unavailable: number }> {
+  const { data, error } = await supabase
+    .from("general_votes")
+    .select("*")
+    .eq("guild_id", guild.id)
+    .eq("status", "Open")
+    .not("message_id", "is", null)
+    .order("created_at", { ascending: true });
+  assertNoDbError(error, "list open channel votes");
+
+  let refreshed = 0;
+  let unavailable = 0;
+  for (const vote of data ?? []) {
+    try {
+      if (await refreshGeneralVoteMessage(guild, vote.id)) {
+        refreshed += 1;
+      } else {
+        unavailable += 1;
+      }
+    } catch (error) {
+      unavailable += 1;
+      console.warn(`Failed to refresh open channel vote ${vote.id}:`, error);
+    }
+  }
+  return { refreshed, unavailable };
 }
 
 export async function finalizeGeneralVoteThread(guild: Guild, vote: GeneralVoteRow): Promise<void> {
@@ -364,6 +448,13 @@ export async function finalizeGeneralVoteThread(guild: Guild, vote: GeneralVoteR
   }
   await thread.setLocked(true, "Channel vote closed").catch(() => undefined);
   await thread.setArchived(true, "Channel vote closed").catch(() => undefined);
+}
+
+function generalVoteProgressBar(value: number, total: number): string {
+  const filled = total > 0
+    ? Math.min(10, Math.max(0, Math.round((value / total) * 10)))
+    : 0;
+  return `[${"#".repeat(filled)}${"-".repeat(10 - filled)}]`;
 }
 
 function generalVoteActionRow(voteId: string): ActionRowBuilder<ButtonBuilder> {

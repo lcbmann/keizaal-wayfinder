@@ -63,6 +63,7 @@ import { forwardDeliveredStructuredReports } from "./services/structuredReportFo
 import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
 import { startAtlasDiscordPresenceJob } from "./services/atlasDiscordPresenceService.js";
 import { addReadAcknowledgementReaction } from "./services/readAcknowledgementService.js";
+import { refreshOpenGeneralVoteMessages } from "./services/generalVoteService.js";
 import {
   backfillFieldNameContestVetoNotices,
   cleanupResolvedFieldNameContestMessages,
@@ -121,6 +122,20 @@ client.once("ready", (readyClient) => {
   startTrailmarkSessionExpirationJob(readyClient);
   startAtlasTrailmarkAccessPollingJob(readyClient);
   startAtlasTrailmarkDropPollingJob(readyClient);
+  for (const guild of readyClient.guilds.cache.values()) {
+    void refreshOpenGeneralVoteMessages(guild)
+      .then(({ refreshed, unavailable }) => {
+        if (refreshed > 0) {
+          console.log(`Refreshed ${refreshed} open channel vote${refreshed === 1 ? "" : "s"} in ${guild.name}.`);
+        }
+        if (unavailable > 0) {
+          console.warn(
+            `Could not locate ${unavailable} open channel vote message${unavailable === 1 ? "" : "s"} in ${guild.name}.`
+          );
+        }
+      })
+      .catch((error) => console.warn(`Failed to refresh open channel votes in ${guild.name}:`, error));
+  }
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
     startAtlasDiscordPresenceJob(corpsGuild);

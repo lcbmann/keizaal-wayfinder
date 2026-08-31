@@ -1,6 +1,6 @@
 # Ranger Runecloak Systems Design
 
-Status: review draft. This branch contains design only. No database migration, command registration, Discord configuration, or runtime behavior has been changed.
+Status: approved implementation specification. Runtime work is developed on this branch and remains inactive until its migration, command deployment, and Discord setup are completed.
 
 ## 1. Objective
 
@@ -60,15 +60,16 @@ The normal Corps application table is not suitable for this workflow. Runecloak 
 
 This fits Discord's five-field modal limit and makes the pre-benefit contribution a real, separately reviewable record.
 
-### 2.4 Keep the Discord footprint small
+### 2.4 Fit the existing Runic Cloak category
 
-Do not create a large new category. Use two member-facing channels and existing private leadership review infrastructure:
+Use the existing `THE RUNIC CLOAK` category with three member-facing channels and existing private leadership review infrastructure:
 
-- `#runecloak-desk`: a bot-maintained, read-only text channel for the program summary, application controls, current cycle, and progress.
-- `#runecloak-expeditions`: a Forum channel containing research-site records and official stage posts.
+- `#runecloak-information`: a bot-maintained, read-only information and application channel. It becomes visible at Ranger rank and contains the persistent Runecloak desk.
+- `#runecloak`: the existing normal discussion channel for admitted members and the initial organizing group.
+- `#runecloak-expeditions`: a Forum channel containing research-site records and official stage posts. Apprentices may view suitable expedition posts as non-counting observers after the program is activated.
 - Existing Strongbox review area: private application and survey review threads. No new public review channel.
 
-The expedition Forum may remain hidden until Moonshadow registration is confirmed. It should be visible to Apprentices after activation if observers are meant to accompany suitable expeditions. Its posting permissions remain controlled by Wayfinder.
+The category already exists in Discord. Setup should connect Wayfinder to it rather than creating another category. The expedition Forum may remain hidden until Moonshadow registration is confirmed, and its posting permissions remain controlled by Wayfinder.
 
 Recommended Forum tags:
 
@@ -105,7 +106,9 @@ The dashboard should clearly distinguish `Ready internally`, `Awaiting Moonshado
 | `Runecloak Learner` | One active cycle | Pings and identifies the locked active roster | No |
 | `Ranger Runecloak` | Permanent | Records completion of the first confirmed spell cycle | Yes |
 
-All three roles should be non-hoisted. None should grant Ranger rank permissions. `Ranger Runecloak` receives the approved emblem and the `:runecloak:` emoji.
+All three roles should be non-hoisted. None should grant Ranger rank permissions. `Ranger Runecloak` uses Discord role ID `1543999251820839073`, receives the approved emblem, and uses the `:runecloak:` emoji.
+
+`Runecloak Organizer` remains an operational placeholder, not a second qualification or internal rank. Its display name and emblem may be changed later without changing the progression model. The first five to ten organizers may receive early category access, but they must complete the same application survey and approved resonant-site requirement as every later Runecloak.
 
 ### Authorization matrix
 
@@ -147,10 +150,9 @@ Current Ranger rank is the enforceable proof that the normal Apprentice, Field T
 The application modal should ask:
 
 1. Why do you seek the Runecloak qualification?
-2. What relevant field or magical experience do you have?
-3. What can you contribute to study expeditions?
-4. What is your availability and preferred EU or NA session?
-5. What other loyalties, responsibilities, or conflicts should leadership know about?
+2. Do you have any relevant field or magical experience? This is optional and explicitly allows `None`.
+3. What is your availability and preferred EU or NA session?
+4. What other loyalties, responsibilities, or conflicts should leadership know about?
 
 Submission creates a private Strongbox review post and thread. The applicant receives a private confirmation but is not given access to the review thread.
 
@@ -176,7 +178,7 @@ Admission surveys never add spell progress.
 
 ### 4.3 Join a locked cycle
 
-Approved applicants remain in a waiting pool. Authorized staff build a draft cycle roster from that pool.
+Approved applicants remain in a waiting pool. Authorized staff build a draft cycle roster from that pool. Founding organizers are not eligible for that roster until their own survey site has been approved.
 
 Before lock, Wayfinder rechecks every selected member:
 
@@ -208,7 +210,9 @@ An active learner may:
 - attend the other session as well without entering a second roll;
 - update a provisional record until staff begins verification.
 
-The stage post's **Record Roll** button opens a small modal for the official result and an optional Discord message link. Wayfinder records the result but does not generate the roll unless Moonshadow later approves that method.
+The stage post's **Record Participation** button is the primary learner action. On first use in a paired stage it opens a one-field modal for the learner's in-game `/roll 100` result and records attendance. If the learner already submitted a roll in the other regional session, the same button records attendance here without asking for another roll. Wayfinder never generates the roll.
+
+The staff view shows submitted, missing, and unverified learners at a glance. An authorized Marshal can compare the list with the recording, make any correction, and bulk-verify the session. This keeps participant submission to one button and one number while preserving staff verification.
 
 Observers and support participants may be listed, but their attendance and rolls never count toward Runecloak progression.
 
@@ -238,7 +242,9 @@ After Moonshadow confirms the result, Wayfinder calculates each learner's final 
 
 The confirmation control previews Wayfinder's eligible list and requires staff to record which learners Moonshadow actually approved. It must not silently assume that every mathematically eligible learner received the external grant.
 
-Eligible learners receive a confirmed spell result. Learners who fall short are marked `Repeat Required`; their history remains intact and they may enter a later cycle.
+Eligible learners receive a confirmed spell result. Learners who fall short are marked `Study Incomplete`, retain every verified attendance credit they earned, and may enter a later cycle to complete only their remaining attendance requirement. They do not repeat completed participation from zero.
+
+Old roll values remain part of the original cycle's shared 8,000-point ledger and are never counted again in a later cycle. Only the learner's personal verified attendance credit carries forward. A later cycle must still reach its own shared target and receive Moonshadow confirmation before carried credit can produce a spell grant.
 
 Completion of a learner's first confirmed spell, initially Oakflesh, awards the permanent `Ranger Runecloak` qualification and role. Lesser Ward completion adds a spell result but does not award a second Runecloak role.
 
@@ -270,7 +276,7 @@ A learner present in both regional sessions counts once toward stage quorum.
 - A valid stage's points are the sum of its unique accepted rolls.
 - The cycle total is the sum of all valid stage points.
 
-The dashboard should show verified and pending points separately so an unreviewed lesson cannot appear official.
+The dashboard should show verified and pending points separately so an unreviewed lesson cannot appear official. The completion target is 8,000 verified points. There is no separate 8,001 rule.
 
 ### Individual attendance
 
@@ -389,7 +395,7 @@ The same message changes during organizing and registration to show approved app
 - stages attended and current majority requirement;
 - accepted roll per stage and contributed points;
 - qualification and confirmed spells;
-- any revision, withdrawal, or repeat-required status.
+- any revision, withdrawal, or incomplete-study status.
 
 ### Stage Forum post
 
@@ -456,7 +462,7 @@ All new tables use UUID primary keys unless noted, enable RLS, and remain servic
 
 One row per guild:
 
-- desk channel and dashboard message IDs;
+- category, information channel, discussion channel, and dashboard message IDs;
 - expedition Forum ID;
 - organizer, learner, and qualified role IDs;
 - program state;
@@ -464,7 +470,6 @@ One row per guild:
 - minimum roster size, default 20;
 - stage quorum percentage, default 51;
 - point threshold, default 8,000;
-- threshold comparison mode;
 - created and updated audit fields.
 
 ### `runecloak_team_assignments`
@@ -543,10 +548,22 @@ A partial unique index enforces one non-Draft, nonterminal cycle at a time.
 - selected by and selected at;
 - withdrawal or ineligibility audit fields;
 - final valid stages attended and required;
+- attendance credit before this cycle, earned in this cycle, and retained after it;
 - final contributed points;
 - final result and confirmed spell time.
 
 The cycle and Ranger pair is unique. A database trigger prevents inserts, deletes, or identity changes after roster lock. Status changes preserve the row.
+
+### `runecloak_spell_progress`
+
+- Ranger and spell IDs;
+- required attendance credits, set from the majority requirement of the learner's first completed cycle for that spell;
+- verified attendance credits earned across completed cycles;
+- remaining credits;
+- state: `in_progress` or `completed`;
+- completion cycle and confirmation audit fields.
+
+Cycle-member credit fields make each aggregate update idempotent. Attendance credit carries forward, but rolls and shared cycle points do not.
 
 ### `runecloak_stages`
 
@@ -647,7 +664,7 @@ Discord role sync and messages happen after commit. A startup repair pass reconc
 
 - requires the external grant reference;
 - freezes the final valid-stage count;
-- calculates each member's majority requirement and result;
+- calculates each member's majority requirement, new attendance credit, retained progress, and result;
 - records the externally confirmed recipient list;
 - creates confirmed spell results;
 - awards first-time Runecloak qualifications exactly once;
@@ -849,8 +866,9 @@ Each phase should be deployable without allowing the next phase's incomplete act
 - no observer/support progression;
 - valid and invalid stage points;
 - majority attendance for odd and even stage counts;
+- proportional attendance credit carried across same-spell cycles without carrying roll points;
 - spell prerequisites;
-- threshold comparison;
+- completion at 8,000 verified points;
 - final qualification idempotency;
 - permission matrix and pagination.
 
@@ -876,7 +894,7 @@ Each phase should be deployable without allowing the next phase's incomplete act
 - all long operations defer before Discord's interaction timeout;
 - audit attachments open cleanly in a spreadsheet.
 
-## 19. Deployment Sequence After Approval
+## 19. Deployment Sequence
 
 1. Implement and test the Wayfinder schema and admissions flow on this branch.
 2. Apply migration 046 in Supabase.
@@ -889,15 +907,17 @@ Each phase should be deployable without allowing the next phase's incomplete act
 9. Open the first Oakflesh cycle. No points can count before this step.
 10. Add and deploy the Atlas qualification badge in its own repository change.
 
-## 20. Decisions Needed Before Implementation
+## 20. Confirmed Policy and Deferred Naming
 
-The rest of the design can be implemented without policy invention once these are confirmed:
+The implementation uses these confirmed choices:
 
-1. **Attendance unit:** Count a learner's attendance by paired stage, with either EU or NA satisfying that stage. Recommended: yes.
-2. **Point threshold:** The plan says both a target of 8,000 and that the total must exceed 8,000. Recommended: require 8,001 or more, while displaying the goal as `over 8,000`.
-3. **External rolls:** Should learners enter results from Moonshadow's existing `/roll 100`, subject to Marshal video verification, or may Wayfinder generate the official roll? Recommended: record the external result until Moonshadow explicitly approves Wayfinder-generated rolls.
-4. **Partial cohort success:** May the cycle complete for learners who meet attendance while others receive `Repeat Required`? Recommended: yes.
-5. **Locked denominator:** Does a post-lock withdrawal remain in the 51% denominator? Recommended: yes, because the official roster remains locked.
-6. **Admission authority:** May an authorized Marshal approve final admission, or should final approval remain Captain+? Recommended: Captain+ approves admission; authorized Marshals handle survey/revision and lesson verification.
-7. **Observer visibility:** Should Apprentices be able to view and join suitable expedition threads as non-counting observers? Recommended: yes after registration, while the desk and applications remain Ranger+.
-8. **Organizer role:** Should the temporary organizing group receive a non-hoisted `Runecloak Organizer` role with drafting and recommendation controls? Recommended: yes, with no final approval or lesson-verification power.
+1. Personal attendance is counted by paired stage. Either the EU or NA session satisfies that stage.
+2. The shared completion target is 8,000 verified points.
+3. Learners enter their in-game `/roll 100` result. Wayfinder does not generate rolls.
+4. A cycle may complete while some learners remain incomplete. Verified personal attendance credit carries into a later same-spell cycle, while old roll points do not.
+5. A post-lock withdrawal remains in the official roster and 51% denominator.
+6. Captain+ gives final admission approval. Authorized Marshals may request surveys/revisions and verify lessons.
+7. Apprentices may view and join suitable expedition threads as non-counting observers.
+8. Every founding organizer must complete the same survey and approved resonant-site entry requirement.
+
+The organizing group is implemented as an optional operational role, temporarily called `Runecloak Organizer`. It is not a Runecloak rank or qualification. Its user-facing name and any separate emblem remain intentionally configurable until the title is settled.

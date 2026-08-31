@@ -68,7 +68,7 @@ async function setupPrivateStrongboxChannel(guild: Guild): Promise<TextChannel> 
   await channel.send({
     embeds: [
       emojiEmbed(guild, "strongbox", "HQ Strongbox")
-        .setDescription("Private reports and applications appear here. Each entry has its own Marshal discussion thread. Only Ranger Marshal or higher can read this channel.")
+        .setDescription("Private messages and applications are kept here. Each entry has its own discussion thread. Only Ranger Marshals and higher can read this channel.")
         .setColor(0x587c4a)
         .setTimestamp(new Date())
     ]
@@ -148,7 +148,7 @@ async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Me
 
 function strongboxDropTopic(): string {
   return [
-    "Private submissions to Ranger Marshal+. Member messages are forwarded and removed; Marshal+ messages remain as notices.",
+    "Private submissions to Ranger Marshal+. Member messages are moved to the Strongbox and removed here. Marshal+ messages remain as notices.",
     "Applications: /application apply, /application withdraw.",
     "Apprenticeships: /apprenticeship looking-for, /apprenticeship withdraw-looking, /apprenticeship propose, /apprenticeship sponsor, /apprenticeship info, /apprenticeship end."
   ].join(" ");
@@ -157,15 +157,15 @@ function strongboxDropTopic(): string {
 function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
   return emojiEmbed(guild, "strongbox", "Strongbox Drop")
     .setDescription([
-      "Use this channel for private submissions to Ranger Marshal or higher.",
-      "Wayfinder forwards ordinary submissions to the private Strongbox, creates a Marshal discussion thread, and removes the public copy. The pinned instructions remain available here."
+      "Leave private messages and applications for the Marshals here.",
+      "Wayfinder moves each submission into the HQ Strongbox and removes it from this channel."
     ].join("\n"))
     .addFields(
       {
         name: "Private Message",
         value: [
           "Type an ordinary message here, or use `/strongbox drop` with an optional attachment.",
-          "Messages from Ranger Marshal or higher remain here as notices; other messages are forwarded privately and removed."
+          "Marshal notices remain visible. Other messages are moved into the private Strongbox."
         ].join("\n")
       }
     )
@@ -175,7 +175,7 @@ function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
 
 function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
   return emojiEmbed(guild, "wayfinder", "Strongbox Commands")
-    .setDescription("Application and apprenticeship commands available in any channel where you can use them. Results are filed in the appropriate Corps records, notice board, or Strongbox thread.")
+    .setDescription("These application and apprenticeship commands work in any channel where you can use them. Wayfinder sends each result to the proper Corps record or Strongbox thread.")
     .addFields(
       {
         name: "Corps Duties",
@@ -294,12 +294,12 @@ export async function recordStrongboxBriefingActivity(message: Message): Promise
 }
 
 async function queueStrongboxBriefingUpdate(guild: Guild, thread: ThreadChannel, sourceUrl: string): Promise<void> {
-  const subject = thread.name.replace(/^(Strongbox|Application|Apprentice Sponsor)\s*-\s*/iu, "").trim() || "Sealed Correspondence";
+  const subject = thread.name.replace(/^(Strongbox|Application|Apprentice Sponsor)\s*-\s*/iu, "").trim() || "Strongbox Message";
   await queueBriefingDispatch({
     guildId: guild.id,
     audience: "marshal_plus",
-    title: `Sealed Correspondence: ${subject}`,
-    body: "A matter in the Headquarters Strongbox has received new correspondence and awaits leadership review.",
+    title: `Strongbox: ${subject}`,
+    body: `A new message has been added to **${subject}** in the HQ Strongbox.`,
     sourceKind: "strongbox-thread",
     sourceId: thread.id,
     sourceUrl

@@ -283,8 +283,8 @@ export async function postPromotionVote(params: {
     await queueBriefingDispatch({
       guildId: params.guild.id,
       audience: "ranger_plus",
-      title: `Promotion Deliberation: ${candidate.discord_display_name ?? candidate.in_game_name ?? candidate.discord_username ?? "Ranger"}`,
-      body: `The Corps is considering this Ranger for advancement to **${params.vote.target_rank}**. Rangers are asked to review the record, discuss the matter, and cast their judgment.`,
+      title: `Promotion Vote: ${candidate.discord_display_name ?? candidate.in_game_name ?? candidate.discord_username ?? "Ranger"}`,
+      body: `A vote has opened on promoting this Ranger to **${params.vote.target_rank}**. Review the record and cast your vote.`,
       sourceKind: "promotion-vote",
       sourceId: params.vote.id,
       sourceUrl: message.url,

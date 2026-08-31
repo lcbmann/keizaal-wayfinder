@@ -49,12 +49,12 @@ export const apprenticeshipCommand: BotCommand = {
     .addSubcommand((subcommand) => subcommand
       .setName("end")
       .setDescription("End your apprenticeship, or Marshal+: end another pairing.")
-      .addUserOption((option) => option.setName("member").setDescription("A participant in the pairing; omit for your own."))
+      .addUserOption((option) => option.setName("member").setDescription("A participant in the pairing. Leave blank for your own."))
       .addStringOption((option) => option.setName("reason").setDescription("Optional reason.").setMaxLength(1000)))
     .addSubcommand((subcommand) => subcommand
       .setName("info")
       .setDescription("Show a current apprenticeship.")
-      .addUserOption((option) => option.setName("member").setDescription("Participant to inspect; omit for yourself.")))
+      .addUserOption((option) => option.setName("member").setDescription("Participant to inspect. Leave blank for yourself.")))
     .addSubcommand((subcommand) => subcommand.setName("requests").setDescription("Marshal+: list matching requests and current pairings.")),
 
   async execute(interaction) {
@@ -153,7 +153,7 @@ export const apprenticeshipCommand: BotCommand = {
         endedByDiscordUserId: interaction.user.id,
         reason: interaction.options.getString("reason")?.trim() || null
       });
-      await interaction.editReply({ content: "The apprenticeship has been brought to an end and removed from the active Corps records." });
+      await interaction.editReply({ content: "The apprenticeship has ended and is no longer listed as active." });
       await refreshApprenticeshipBoard(interaction.guild);
       return;
     }

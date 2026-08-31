@@ -12,21 +12,21 @@ import type { BotCommand } from "./types.js";
 export const briefingCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("briefing")
-    .setDescription("Collect and maintain Ranger Headquarters briefings.")
+    .setDescription("Collect your briefing or send a Headquarters dispatch.")
     .addSubcommand((subcommand) => subcommand
       .setName("setup")
-      .setDescription("Marshal+: place the Headquarters Dispatch Desk in a channel.")
+      .setDescription("Marshal+: place the Dispatch Desk in a channel.")
       .addChannelOption((option) => option
         .setName("channel")
-        .setDescription("Read-only channel for the persistent briefing desk.")
+        .setDescription("The channel where members collect their briefings.")
         .addChannelTypes(ChannelType.GuildText)
         .setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("send")
-      .setDescription("Marshal+: file an IC dispatch or a small OOC note.")
+      .setDescription("Marshal+: send a dispatch or short OOC note.")
       .addStringOption((option) => option
         .setName("audience")
-        .setDescription("Who should receive this in their next briefing.")
+        .setDescription("Who receives this in their next briefing.")
         .setRequired(true)
         .addChoices(
           { name: "All Corps Members", value: "apprentice_plus" },
@@ -37,20 +37,20 @@ export const briefingCommand: BotCommand = {
         ))
       .addUserOption((option) => option
         .setName("recipient")
-        .setDescription("Required only when filing for one Corps member."))
+        .setDescription("Choose a member when the audience is One Corps Member."))
       .addStringOption((option) => option
         .setName("kind")
-        .setDescription("IC dispatch by default; use OOC sparingly.")
+        .setDescription("Send an in-character dispatch or a short OOC note.")
         .addChoices(
           { name: "In-character dispatch", value: "ic" },
           { name: "OOC note", value: "ooc" }
         )))
     .addSubcommand((subcommand) => subcommand
       .setName("settings")
-      .setDescription("Choose whether collected briefings are sent to your DMs.")
+      .setDescription("Choose whether Wayfinder sends your briefing by DM.")
       .addBooleanOption((option) => option
         .setName("dm_enabled")
-        .setDescription("When off, the packet appears only in the private command response.")
+        .setDescription("Turn this off to read briefings in the private reply instead.")
         .setRequired(true))),
 
   async execute(interaction) {
@@ -69,14 +69,14 @@ export const briefingCommand: BotCommand = {
       await setBriefingDmEnabled(interaction.guild.id, actor.id, enabled);
       await interaction.editReply({
         content: enabled
-          ? "Collected briefings will be sent to your DMs."
-          : "Collected briefings will appear only in the private command response."
+          ? "Wayfinder will send your briefings by DM."
+          : "Wayfinder will show your briefings only in the private reply."
       });
       return;
     }
 
     if (!memberRankAtLeast(actor, "Ranger Marshal")) {
-      throw new UserFacingError("Ranger Marshal or higher is required to maintain Headquarters briefings.");
+      throw new UserFacingError("Ranger Marshal or higher is required to manage the Dispatch Desk.");
     }
 
     if (subcommand === "setup") {
@@ -86,7 +86,7 @@ export const briefingCommand: BotCommand = {
       }
       await interaction.deferReply({ ephemeral: true });
       await setupBriefingDesk(interaction.guild, channel);
-      await interaction.editReply({ content: `The Headquarters Dispatch Desk is ready in ${channel}.` });
+      await interaction.editReply({ content: `The Dispatch Desk is ready in ${channel}.` });
       return;
     }
 

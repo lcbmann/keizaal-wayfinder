@@ -155,8 +155,8 @@ export async function promoteRanger(params: {
     await queueBriefingDispatch({
       guildId: params.member.guild.id,
       audience: "apprentice_plus",
-      title: `Promotion Confirmed: ${promotedName}`,
-      body: `Headquarters records that **${promotedName}** has been elevated to **${params.targetRank}** and now bears the responsibilities of that office.`,
+      title: `Promotion: ${promotedName}`,
+      body: `**${promotedName}** has been promoted to **${params.targetRank}**. The Corps roster has been updated.`,
       sourceKind: "major-promotion",
       sourceId: history.id,
       authorDiscordUserId: params.changedByDiscordUserId

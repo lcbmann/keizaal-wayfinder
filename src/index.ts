@@ -45,7 +45,8 @@ import { handleAssignmentButton } from "./components/assignmentButtons.js";
 import {
   BRIEFING_COLLECT_BUTTON_ID,
   handleBriefingDispatchModal,
-  isBriefingDispatchModal
+  isBriefingDispatchModal,
+  refreshBriefingDesk
 } from "./services/briefingService.js";
 import { ASSIGNMENT_BUTTON_PREFIX, handleAssignmentModal, isAssignmentModal } from "./services/managedAssignmentService.js";
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
@@ -200,6 +201,13 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to refresh Strongbox Drop instructions:", error));
+    void refreshBriefingDesk(corpsGuild)
+      .then((refreshed) => {
+        if (refreshed) {
+          console.log("Refreshed the Ranger Dispatch Desk.");
+        }
+      })
+      .catch((error) => console.warn("Failed to refresh the Ranger Dispatch Desk:", error));
     void refreshActiveContactForumPosts(corpsGuild)
       .then(async (refreshed) => {
         if (refreshed > 0) {
@@ -299,7 +307,7 @@ client.on("warn", (warning) => {
 });
 
 client.on("invalidated", () => {
-  console.error("Discord invalidated the bot session; the process must be restarted.");
+  console.error("Discord invalidated the bot session. The process must be restarted.");
 });
 
 client.on("interactionCreate", (interaction) => {

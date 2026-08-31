@@ -292,7 +292,7 @@ export const rangerCommand: BotCommand = {
       const member = await interaction.guild.members.fetch(user.id);
       const ranger = await syncMemberToRoster(member, interaction.user.id);
       await interaction.reply({
-        content: ranger ? `Synced ${member.displayName} as ${ranger.current_rank}.` : "No Ranger rank role found; roster was not changed.",
+        content: ranger ? `Synced ${member.displayName} as ${ranger.current_rank}.` : "No Ranger rank role was found. The roster was not changed.",
         ephemeral: true
       });
       return;

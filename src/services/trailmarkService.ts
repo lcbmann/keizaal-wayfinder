@@ -400,7 +400,7 @@ async function sendTrailmarkPanel(channel: TextChannel): Promise<Message[]> {
   const embed = new EmbedBuilder()
     .setTitle(emojiTitle(channel.guild, "trailmark", "Ranger Trailmarks"))
     .setDescription(
-      "Choose the cache your character has reached. You may read or leave notes there for a short time; opening another cache closes the one you currently have open. Apprentice or higher required."
+      "Choose the cache your character has reached. You may read or leave notes there for a short time. Opening another cache closes the one already open. Apprentice or higher required."
     )
     .setColor(0x3f6f4e);
 

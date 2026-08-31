@@ -68,7 +68,7 @@ const builder = new SlashCommandBuilder()
     .setDescription("Redistribute one contributor's entries before a cutoff time.")
     .addStringOption(assignmentOption)
     .addStringOption((option) => option.setName("source_id").setDescription("Former contributor's Discord ID or mention.").setRequired(true).setMaxLength(30))
-    .addStringOption((option) => option.setName("before").setDescription("ISO cutoff; entries before it are moved.").setRequired(true).setMaxLength(40))
+    .addStringOption((option) => option.setName("before").setDescription("ISO cutoff. Entries before it are moved.").setRequired(true).setMaxLength(40))
     .addStringOption((option) => option
       .setName("method")
       .setDescription("How the credit is divided among other contributors.")

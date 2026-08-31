@@ -28,7 +28,7 @@ export async function buildPatrolSuggestion(params: {
   const route = leastRecentlyVisitedTrailmarks(activeTrailmarks, sessions).slice(0, 2);
   const contact = stalestContact(contacts);
 
-  const embed = emojiEmbed(params.guild, "atlas", `Patrol Suggestion - ${hold}`)
+  const embed = emojiEmbed(params.guild, "atlas", `Patrol Route: ${hold}`)
     .setDescription(patrolPurpose(contact))
     .addFields(
       { name: "Suggested route", value: suggestedRoute(route, contact), inline: false },
@@ -36,7 +36,7 @@ export async function buildPatrolSuggestion(params: {
       { name: "Report", value: reportingInstruction(route), inline: false }
     )
     .setColor(0x587c4a)
-    .setFooter({ text: "A Wayfinder suggestion, not a standing assignment. Adapt it to conditions in the field." })
+    .setFooter({ text: "This is a suggestion, not an assignment. Change the route as needed." })
     .setTimestamp(new Date());
   return { hold, embed };
 }
@@ -101,10 +101,10 @@ function contactFreshness(contact: ContactDetails): number {
 
 function patrolPurpose(contact: ContactDetails | null): string {
   if (!contact) {
-    return "Headquarters has no current contact record selected for this circuit. Survey the roads, note changes in local conditions, and return useful observations to the Corps.";
+    return "No specific contact needs checking. Patrol the roads and report any useful changes.";
   }
   const kind = contact.contact.record_type === "Group" ? "group" : "contact";
-  return `Headquarters could use a fresh field check concerning the ${kind} **${contact.contact.name}**. Observe conditions along the route and confirm or correct the existing record where possible.`;
+  return `The latest report on the ${kind} **${contact.contact.name}** needs checking. Visit the area and update the record if needed.`;
 }
 
 function suggestedRoute(trailmarks: TrailmarkRow[], contact: ContactDetails | null): string {
@@ -120,7 +120,7 @@ function trailmarkLabel(trailmark: TrailmarkRow): string {
 
 function contactDescription(contact: ContactDetails | null): string {
   if (!contact) {
-    return "No active contact or group record is currently filed for this Hold.";
+    return "No active contact or group records are filed for this Hold.";
   }
   const lastVerified = contact.summary.lastVerifiedAt
     ? `<t:${Math.floor(new Date(contact.summary.lastVerifiedAt).getTime() / 1000)}:R>`
@@ -128,17 +128,17 @@ function contactDescription(contact: ContactDetails | null): string {
   const kind = contact.contact.record_type === "Group"
     ? contact.contact.group_category ?? "Group"
     : contact.contact.occupation ?? "Individual contact";
-  const recordLink = contact.contact.forum_thread_id ? ` - <#${contact.contact.forum_thread_id}>` : "";
-  return `**${contact.contact.name}** - ${kind} - ${contact.summary.status}${recordLink}\nLast confirmed: ${lastVerified}.`;
+  const recordLink = contact.contact.forum_thread_id ? `\nRecord: <#${contact.contact.forum_thread_id}>` : "";
+  return `**${contact.contact.name}**\n${kind}\nStatus: ${contact.summary.status}${recordLink}\nLast confirmed: ${lastVerified}.`;
 }
 
 function reportingInstruction(trailmarks: TrailmarkRow[]): string {
   if (trailmarks.length === 0) {
-    return "Record anything useful through the nearest available Trailmark or upon returning to Headquarters.";
+    return "Report useful findings through the nearest Trailmark or when you return to Headquarters.";
   }
   const destination = trailmarks.at(-1);
   if (!destination) {
-    return "Record anything useful through the nearest available Trailmark or upon returning to Headquarters.";
+    return "Report useful findings through the nearest Trailmark or when you return to Headquarters.";
   }
   return `Leave useful findings at ${trailmarkLabel(destination)}. Use \`/trailmark report\` for a formal report when appropriate.`;
 }

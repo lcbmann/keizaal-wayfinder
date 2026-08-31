@@ -465,12 +465,12 @@ async function resolveFieldNameContest(guild: Guild, contest: FieldNameContestRo
 
   const decision: FieldNameContestStatus = winner ? "Approved" : "Denied";
   const decisionReason = winner
-    ? `${winner.votes} vote${winner.votes === 1 ? "" : "s"}; highest total among the submitted options.`
+    ? `${winner.votes} vote${winner.votes === 1 ? "" : "s"}. Highest total among the submitted options.`
     : options.length === 0
       ? "No field name options were submitted."
       : highest === 0
         ? "No Rangers voted before the contest closed."
-        : "The leading options tied; no field name was assigned.";
+        : "The leading options tied. No field name was assigned.";
   await updateContestStatus(contest.id, decision, decisionReason, now);
   await removeFieldNameContestMessages(guild, contest);
   await refreshFieldNamesBulletin(guild);
@@ -569,11 +569,11 @@ function fieldNameContestEmbed(
     .addFields(
       { name: "Nominee", value: nominee ? `${nominee} - ${nominee.displayName}` : `<@${contest.target_discord_user_id}>`, inline: true },
       { name: "Opened by", value: `<@${contest.opened_by_discord_user_id}>`, inline: true },
-      { name: "Vote status", value: "Open-ended; a Marshal+ closes it when a clear leader emerges.", inline: true },
+      { name: "Vote status", value: "Open until a Marshal+ closes it.", inline: true },
       { name: "Name options", value: truncate(optionText), inline: false }
     )
     .setColor(0x587c4a)
-    .setFooter({ text: "Ranger+ only: choose one name, including nominees. You may change your choice before the vote closes." })
+    .setFooter({ text: "Ranger+ only. Choose one name. You may change your vote before the contest closes." })
     .setTimestamp(new Date(contest.opened_at));
 }
 
@@ -734,13 +734,13 @@ async function fieldNamesBulletinEmbed(guild: Guild): Promise<EmbedBuilder> {
     ? needed.map((ranger) => `<@${ranger.discord_user_id}> - ${ranger.discord_display_name ?? "Ranger"}`).join("\n")
     : "Every full Ranger currently has a field name.";
   const contestText = contests.length
-    ? contests.map((contest) => `<@${contest.target_discord_user_id}> - open-ended; close with /field-name close`).join("\n")
+    ? contests.map((contest) => `<@${contest.target_discord_user_id}> - open until closed with /field-name close`).join("\n")
     : "No open contests.";
   return emojiEmbed(guild, "teamwork", "Ranger Field Names")
     .setDescription([
-      "Field names are Ranger-assigned names used in the field so members can identify one another without relying on personal names.",
-      "A Marshal+ opens one open-ended contest for a Ranger. Rangers may suggest additional options, then each full Ranger chooses one option. A Marshal+ closes the contest when a clear leader emerges; ties or contests with no votes assign nothing.",
-      "Field names are optional for Apprentices, but every full Ranger should eventually have an approved name. Nominees may veto a contest privately."
+      "Field names help Rangers identify one another without using personal names.",
+      "A Marshal+ opens a contest. Rangers may suggest names and cast one vote. A Marshal+ closes it once a clear choice emerges. A tie assigns no name.",
+      "Field names are optional for Apprentices. Every full Ranger should eventually have one. The nominee may veto the contest privately."
     ].join("\n"))
     .addFields(
       { name: "Assigned", value: truncate(assignedText), inline: false },

@@ -14,7 +14,7 @@ export const assignmentCommand: BotCommand = {
     .setDescription("Create and manage Ranger Corps assignments.")
     .addSubcommand((subcommand) => subcommand
       .setName("setup")
-      .setDescription("Marshal+: connect Wayfinder to the existing Assignments Forum.")
+      .setDescription("Marshal+: connect Wayfinder to the Assignments Forum.")
       .addChannelOption((option) => option
         .setName("forum")
         .setDescription("The existing Assignments Forum channel.")
@@ -22,10 +22,10 @@ export const assignmentCommand: BotCommand = {
         .setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("create")
-      .setDescription("Ranger+: open a form for a new managed assignment.")
+      .setDescription("Ranger+: post a new assignment to the Corps board.")
       .addStringOption((option) => option
         .setName("minimum_rank")
-        .setDescription("Who may join; defaults to Apprentice+.")
+        .setDescription("Choose who may join. The default is Apprentice+.")
         .addChoices(
           { name: "Apprentice+", value: "Apprentice" },
           { name: "Ranger+", value: "Ranger" }
@@ -54,7 +54,7 @@ export const assignmentCommand: BotCommand = {
       }
       await interaction.deferReply({ ephemeral: true });
       await setupManagedAssignmentsForum(forum);
-      await interaction.editReply({ content: `Wayfinder-managed assignments will now be posted in ${forum}. Existing posts were not changed.` });
+      await interaction.editReply({ content: `Wayfinder will post new assignments in ${forum}. Existing posts were not changed.` });
       return;
     }
 

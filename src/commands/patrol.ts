@@ -9,13 +9,13 @@ import type { BotCommand } from "./types.js";
 export const patrolCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("patrol")
-    .setDescription("Ask Wayfinder for a grounded patrol suggestion.")
+    .setDescription("Ask Wayfinder for a patrol route.")
     .addSubcommand((subcommand) => subcommand
       .setName("suggest")
-      .setDescription("Suggest a Hold route using stale Trailmark and contact records.")
+      .setDescription("Suggest a route using Corps Trailmark and contact records.")
       .addStringOption((option) => option
         .setName("hold")
-        .setDescription("Optional Hold; otherwise uses your assignment or a daily rotation.")
+        .setDescription("Choose a Hold or leave blank for your assigned Hold.")
         .addChoices(...HOLDS.map((hold) => ({ name: hold, value: hold }))))),
 
   async execute(interaction) {

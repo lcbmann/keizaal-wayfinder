@@ -150,7 +150,7 @@ export async function handleAssignmentModal(interaction: ModalSubmitInteraction)
     hold: parsed.hold,
     minimumRank: parsed.minimumRank
   });
-  await interaction.editReply({ content: `Assignment posted: ${created.thread}.` });
+  await interaction.editReply({ content: `**${created.assignment.title}** has been posted in ${created.thread}.` });
 }
 
 export async function createManagedAssignment(params: {
@@ -209,7 +209,7 @@ export async function createManagedAssignment(params: {
       guildId: params.guild.id,
       audience: attached.minimum_rank === "Ranger" ? "ranger_plus" : "apprentice_plus",
       title: `New Assignment: ${attached.title}`,
-      body: `${attached.objective}\n\nOperating area: ${attached.location}${attached.hold ? ` (${attached.hold})` : ""}.`,
+      body: `${attached.objective}\n\nArea: ${attached.location}${attached.hold ? ` (${attached.hold})` : ""}.`,
       sourceKind: "managed-assignment",
       sourceId: attached.id,
       sourceUrl: `https://discord.com/channels/${params.guild.id}/${thread.id}`,
@@ -253,7 +253,7 @@ export async function handleAssignmentButton(interaction: ButtonInteraction): Pr
     });
     assertNoDbError(error, "join managed assignment");
     await refreshManagedAssignmentPost(interaction.guild, assignment.id);
-    await interaction.editReply({ content: `You joined **${assignment.title}**.` });
+    await interaction.editReply({ content: `You sign on to **${assignment.title}**.` });
     return;
   }
 
@@ -267,7 +267,7 @@ export async function handleAssignmentButton(interaction: ButtonInteraction): Pr
       .eq("discord_user_id", actor.id);
     assertNoDbError(error, "withdraw from managed assignment");
     await refreshManagedAssignmentPost(interaction.guild, assignment.id);
-    await interaction.editReply({ content: `You withdrew from **${assignment.title}**.` });
+    await interaction.editReply({ content: `You withdraw from **${assignment.title}**.` });
     return;
   }
 
@@ -283,7 +283,7 @@ export async function handleAssignmentButton(interaction: ButtonInteraction): Pr
   }).eq("id", assignment.id);
   assertNoDbError(error, "complete managed assignment");
   await refreshManagedAssignmentPost(interaction.guild, assignment.id);
-  await interaction.editReply({ content: `Marked **${assignment.title}** complete.` });
+  await interaction.editReply({ content: `**${assignment.title}** is now marked complete.` });
 }
 
 export async function refreshManagedAssignmentPost(guild: Guild, assignmentId: string): Promise<void> {
@@ -327,18 +327,18 @@ async function assignmentMessagePayload(guild: Guild, assignmentId: string) {
   }
   const participants = await listAssignmentParticipants(assignment.id);
   const open = assignment.status === "Open";
-  const embed = emojiEmbed(guild, "rangerorders", `Assignment - ${assignment.title}`)
+  const embed = emojiEmbed(guild, "rangerorders", `Assignment: ${assignment.title}`)
     .setDescription(assignment.objective)
     .addFields(
       { name: "Status", value: assignment.status, inline: true },
       { name: "Minimum rank", value: `${assignment.minimum_rank}+`, inline: true },
-      { name: "Organizer", value: `<@${assignment.organizer_discord_user_id}>`, inline: true },
+      { name: "Posted by", value: `<@${assignment.organizer_discord_user_id}>`, inline: true },
       { name: "Operating area", value: assignment.hold ? `${assignment.location} (${assignment.hold})` : assignment.location, inline: false },
-      { name: "Timing", value: assignment.timing ?? "No fixed deadline recorded.", inline: false },
-      { name: "Details", value: assignment.details ?? "No additional requirements recorded.", inline: false },
+      { name: "Timing", value: assignment.timing ?? "No fixed deadline.", inline: false },
+      { name: "Details", value: assignment.details ?? "No extra details.", inline: false },
       {
         name: `Participants (${participants.length})`,
-        value: participants.length ? participants.map((participant) => `<@${participant.discord_user_id}>`).join("\n").slice(0, 1024) : "None signed on yet.",
+        value: participants.length ? participants.map((participant) => `<@${participant.discord_user_id}>`).join("\n").slice(0, 1024) : "No one has signed on yet.",
         inline: false
       }
     )
@@ -346,7 +346,7 @@ async function assignmentMessagePayload(guild: Guild, assignmentId: string) {
     .setTimestamp(new Date(assignment.updated_at));
   const components = open
     ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`assignment:join:${assignment.id}`).setLabel("Join").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`assignment:join:${assignment.id}`).setLabel("Sign On").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`assignment:withdraw:${assignment.id}`).setLabel("Withdraw").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(`assignment:complete:${assignment.id}`).setLabel("Mark Complete").setStyle(ButtonStyle.Primary)
       )]

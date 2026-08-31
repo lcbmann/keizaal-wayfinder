@@ -38,7 +38,7 @@ export const voteCommand: BotCommand = {
         ))
       .addStringOption((option) => option
         .setName("question")
-        .setDescription("The issue being decided; multiple-choice votes can enter this in the form.")
+        .setDescription("The issue being decided. Multiple-choice votes can enter this in the form.")
         .setMaxLength(300))
       .addStringOption((option) => option
         .setName("context")

@@ -27,7 +27,7 @@ export async function handleApplicationButton(interaction: ButtonInteraction): P
   }
   await interaction.editReply({
     content: result.promotionVoteId
-      ? "Application approved; the promotion vote is now open."
+      ? "Application approved. The promotion vote is now open."
       : `Application ${decision === "approve" ? "approved" : "denied"}.`
   });
 }

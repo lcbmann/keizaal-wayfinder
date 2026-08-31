@@ -282,7 +282,7 @@ export const intelCommand: BotCommand = {
       const result = await repairIntelReporterNames(interaction.guild, topicId);
       await interaction.editReply({
         content: [
-          "Report embed repair complete. Existing messages were edited in place; nothing was reposted.",
+          "Report embed repair complete. Existing messages were edited in place. Nothing was reposted.",
           `Topics checked: ${result.topicsChecked}`,
           `Reports checked: ${result.reportsChecked}`,
           `Names recovered: ${result.namesRecovered}`,

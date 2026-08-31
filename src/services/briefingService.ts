@@ -57,6 +57,15 @@ export async function getBriefingDeskChannel(guild: Guild): Promise<TextChannel 
   return getStoredTextChannel(guild, BRIEFING_DESK_STATE_KEY);
 }
 
+export async function refreshBriefingDesk(guild: Guild): Promise<boolean> {
+  const channel = await getBriefingDeskChannel(guild);
+  if (!channel) {
+    return false;
+  }
+  await setupBriefingDesk(guild, channel);
+  return true;
+}
+
 export async function setupBriefingDesk(guild: Guild, channel: TextChannel): Promise<void> {
   const state = await getBotMessageState(BRIEFING_DESK_STATE_KEY);
   let message = state?.discord_channel_id === channel.id && state.discord_message_ids[0]
@@ -72,7 +81,7 @@ export async function setupBriefingDesk(guild: Guild, channel: TextChannel): Pro
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(BRIEFING_COLLECT_BUTTON_ID)
-        .setLabel("Collect My Briefing")
+        .setLabel("Check My Briefing")
         .setStyle(ButtonStyle.Primary)
     )]
   };
@@ -86,15 +95,15 @@ export async function setupBriefingDesk(guild: Guild, channel: TextChannel): Pro
 }
 
 function briefingDeskEmbed(guild: Guild): EmbedBuilder {
-  return emojiEmbed(guild, "wayfinder", "Headquarters Dispatch Desk")
+  return emojiEmbed(guild, "wayfinder", "Ranger Dispatch Desk")
     .setDescription([
-      "Sealed reports, orders, correspondence, and notices awaiting members of the Corps are kept here.",
+      "Orders, reports, and messages for members of the Corps are kept at this desk.",
       "",
-      "Collect your personal briefing whenever you return to Headquarters. Anything filed since your last collection will be gathered into one packet; if nothing new awaits you, Wayfinder will say so."
+      "Check the desk when you return to Headquarters. Wayfinder will gather anything added since your last visit."
     ].join("\n"))
     .addFields({
-      name: "Delivery",
-      value: "Wayfinder sends the packet privately by DM. Use `/briefing settings` if you prefer to read it only in the private command response."
+      name: "OOC: Delivery",
+      value: "Briefings are sent by DM. Use `/briefing settings` to show them only to you here instead."
     })
     .setColor(0x587c4a);
 }
@@ -107,7 +116,7 @@ export function createBriefingDispatchModal(params: {
   const target = params.targetDiscordUserId ?? "none";
   return new ModalBuilder()
     .setCustomId(`${BRIEFING_DISPATCH_MODAL_PREFIX}${params.kind}:${params.audience}:${target}`)
-    .setTitle(params.kind === "ic" ? "File a Corps Dispatch" : "File an OOC Note")
+    .setTitle(params.kind === "ic" ? "Write a Corps Dispatch" : "Write an OOC Note")
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
@@ -156,7 +165,7 @@ export async function handleBriefingDispatchModal(interaction: ModalSubmitIntera
     authorDiscordUserId: actor.id
   });
   await interaction.editReply({
-    content: `Filed **${dispatch.title}** for ${briefingAudienceLabel(dispatch.audience, dispatch.target_discord_user_id)}.`
+    content: `Added **${dispatch.title}** to the next briefing for ${briefingAudienceLabel(dispatch.audience, dispatch.target_discord_user_id)}.`
   });
 }
 
@@ -250,8 +259,8 @@ export async function collectRangerBriefing(interaction: BriefingInteraction): P
       deliveredByDm = true;
       await interaction.editReply({
         content: dispatches.length
-          ? `A sealed briefing containing ${dispatches.length} new dispatch${dispatches.length === 1 ? "" : "es"} has been sent to your DMs.`
-          : "Wayfinder checked the Headquarters desk and sent the result to your DMs."
+          ? `Your briefing with ${dispatches.length} new dispatch${dispatches.length === 1 ? "" : "es"} has been sent by DM.`
+          : "Your briefing has been sent by DM. There were no new dispatches."
       });
     } catch (error) {
       console.warn(`Could not DM Ranger briefing to ${member.id}; using the private interaction response:`, error);
@@ -261,7 +270,7 @@ export async function collectRangerBriefing(interaction: BriefingInteraction): P
   if (!deliveredByDm) {
     const firstEmbed = embeds[0];
     if (!firstEmbed) {
-      throw new Error("The Ranger briefing did not produce a delivery packet.");
+      throw new Error("The Ranger briefing did not produce any messages.");
     }
     await interaction.editReply({ embeds: [firstEmbed], content: "" });
     for (const embed of embeds.slice(1)) {
@@ -414,12 +423,12 @@ function buildBriefingEmbeds(
   lastCollectedAt: string | null
 ): EmbedBuilder[] {
   if (dispatches.length === 0) {
-    return [emojiEmbed(guild, "wayfinder", `Ranger Briefing - ${member.displayName}`)
+    return [emojiEmbed(guild, "wayfinder", `Ranger Briefing: ${member.displayName}`)
       .setDescription([
         "**RANGER CORPS HEADQUARTERS**",
-        `Collected <t:${Math.floor(Date.now() / 1000)}:f>`,
+        `Checked <t:${Math.floor(Date.now() / 1000)}:f>`,
         "",
-        "No new dispatches await you at Headquarters."
+        "There are no new dispatches for you."
       ].join("\n"))
       .setColor(0x587c4a)];
   }
@@ -431,19 +440,19 @@ function buildBriefingEmbeds(
     const heading = index === 0
       ? [
           "**RANGER CORPS HEADQUARTERS**",
-          `Briefing for **${member.displayName}**`,
-          `Collected <t:${Math.floor(Date.now() / 1000)}:f>`,
-          lastCollectedAt ? `Filed since <t:${Math.floor(new Date(lastCollectedAt).getTime() / 1000)}:f>` : "First collection from this desk",
+          `Prepared for **${member.displayName}**`,
+          `Checked <t:${Math.floor(Date.now() / 1000)}:f>`,
+          lastCollectedAt ? `Messages since <t:${Math.floor(new Date(lastCollectedAt).getTime() / 1000)}:f>` : "First briefing from this desk",
           ""
         ].join("\n")
       : "";
-    embeds.push(emojiEmbed(guild, "wayfinder", index === 0 ? `Ranger Briefing - ${member.displayName}` : "Ranger Briefing - Continued")
+    embeds.push(emojiEmbed(guild, "wayfinder", index === 0 ? `Ranger Briefing: ${member.displayName}` : "Ranger Briefing: Continued")
       .setDescription(`${heading}${formatDispatchGroup(guild, group)}`.slice(0, 4096))
       .setColor(0x587c4a));
   }
   for (const [index, group] of chunked(ooc, DISPATCHES_PER_EMBED).entries()) {
     embeds.push(new EmbedBuilder()
-      .setTitle(index === 0 ? "OOC Notes" : "OOC Notes - Continued")
+      .setTitle(index === 0 ? "OOC Notes" : "OOC Notes: Continued")
       .setDescription(formatDispatchGroup(guild, group).slice(0, 4096))
       .setColor(0x747f8d));
   }
@@ -459,8 +468,8 @@ function formatDispatchGroup(guild: Guild, dispatches: BriefingDispatchRow[]): s
     return [
       `### ${dispatch.title}`,
       truncate(dispatch.body, 3000),
-      dispatch.source_url ? `[Open the attached record](${dispatch.source_url})` : null,
-      `-# Filed <t:${filedAt}:R>${author ? ` by ${author}` : ""}`
+      dispatch.source_url ? `[Open record](${dispatch.source_url})` : null,
+      `-# Sent <t:${filedAt}:R>${author ? ` by ${author}` : ""}`
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 }

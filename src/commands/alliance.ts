@@ -126,7 +126,7 @@ export const allianceCommand: BotCommand = {
       await interaction.editReply([
         "Alliance group topics updated.",
         `Active topic channels: **${topicChannels}**`,
-        "Newly enabled channels start empty; this does not backfill historical reports."
+        "Newly enabled channels start empty. Historical reports are not added automatically."
       ].join("\n"));
       return;
     }

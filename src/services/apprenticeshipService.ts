@@ -789,18 +789,18 @@ async function queueActiveApprenticeshipBriefings(guild: Guild, apprenticeship: 
   await Promise.all([
     {
       discordUserId: apprenticeship.mentor_discord_user_id,
-      body: `Headquarters has entered your formal apprenticeship with **${apprenticeName}** into the Corps record. You are responsible for their guidance and preparation.`
+      body: `Your apprenticeship with **${apprenticeName}** is now in the Corps record. You are responsible for their training and guidance.`
     },
     {
       discordUserId: apprenticeship.apprentice_discord_user_id,
-      body: `Headquarters has entered your formal apprenticeship under **${mentorName}** into the Corps record. Seek their guidance and keep them informed of your progress.`
+      body: `Your apprenticeship under **${mentorName}** is now in the Corps record. Work with them and keep them informed of your progress.`
     }
   ].map(async ({ discordUserId, body }) => {
     await queueBriefingDispatch({
       guildId: guild.id,
       audience: "individual",
       targetDiscordUserId: discordUserId,
-      title: "Apprenticeship Entered into the Corps Record",
+      title: "Apprenticeship Recorded",
       body,
       sourceKind: "apprenticeship-active",
       sourceId: `${apprenticeship.id}:${discordUserId}`,
@@ -812,7 +812,7 @@ async function queueActiveApprenticeshipBriefings(guild: Guild, apprenticeship: 
 }
 
 async function queueEndedApprenticeshipBriefings(guild: Guild, apprenticeship: ApprenticeshipRow): Promise<void> {
-  const reason = apprenticeship.end_reason ? ` The recorded reason is: ${apprenticeship.end_reason}` : "";
+  const reason = apprenticeship.end_reason ? ` Reason: ${apprenticeship.end_reason}` : "";
   await Promise.all([
     apprenticeship.mentor_discord_user_id,
     apprenticeship.apprentice_discord_user_id
@@ -821,8 +821,8 @@ async function queueEndedApprenticeshipBriefings(guild: Guild, apprenticeship: A
       guildId: guild.id,
       audience: "individual",
       targetDiscordUserId: discordUserId,
-      title: "Apprenticeship Record Closed",
-      body: `Headquarters has marked this formal apprenticeship ended.${reason} The permanent service medals already earned remain on the record.`,
+      title: "Apprenticeship Ended",
+      body: `This apprenticeship has ended.${reason} Any Mentor or Apprenticeship medals already earned remain on the record.`,
       sourceKind: "apprenticeship-ended",
       sourceId: `${apprenticeship.id}:${discordUserId}`,
       authorDiscordUserId: apprenticeship.reviewed_by_discord_user_id ?? apprenticeship.proposed_by_discord_user_id

@@ -111,7 +111,7 @@ function assignmentsEmbeds(
     .filter(({ duty }) => duty.name === "Instructor")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
   const leadershipEmbed = emojiEmbed(guild, "rangercommander", "Leadership")
-    .setDescription("The Rangers presently entrusted with command of the Corps.")
+    .setDescription("The Rangers who currently lead the Corps.")
     .setColor(0xb08d32)
     .setTimestamp(new Date());
 
@@ -125,20 +125,20 @@ function assignmentsEmbeds(
 
   const holdRangersEmbed = emojiEmbed(guild, "warden", "Hold Wardens")
     .setDescription(
-      "The primary Ranger representatives entrusted to know their Hold, coordinate its operations, and serve as the Corps' first point of contact there."
+      "The primary Ranger for each Hold. They coordinate local operations and serve as the Corps' main contact there."
     )
     .setColor(0x587c4a)
     .setTimestamp(new Date());
 
   const localWardensEmbed = emojiEmbed(guild, "warden", "Local Wardens")
     .setDescription(
-      "Wardens responsible for a town, road, lake, or other local Range under the Ranger of its parent Hold."
+      "Rangers responsible for a town, road, lake, or other area within a Hold."
     )
     .setColor(0x456b50)
     .setTimestamp(new Date());
 
   const quartermastersEmbed = emojiEmbed(guild, "quartermaster", "Quartermasters")
-    .setDescription("Rangers entrusted with stores, supplies, and the material needs of the Corps.")
+    .setDescription("Rangers responsible for Corps supplies and equipment.")
     .setColor(0x8b6f9e)
     .addFields({
       name: "Active Quartermasters",
@@ -181,7 +181,7 @@ function assignmentsEmbeds(
   }
 
   const agentsEmbed = emojiEmbed(guild, "agent", "Agents")
-    .setDescription("Rangers tasked with investigations, gathering testimony, and preserving evidence.")
+    .setDescription("Rangers who investigate leads, gather testimony, and preserve evidence.")
     .setColor(0x4f6d8a)
     .addFields({
       name: "Active Agents",
@@ -192,7 +192,7 @@ function assignmentsEmbeds(
     .setTimestamp(new Date());
 
   const ambassadorsEmbed = emojiEmbed(guild, "ambassador", "Ambassadors")
-    .setDescription("Rangers entrusted with representing the Corps and maintaining relations with other groups.")
+    .setDescription("Rangers who represent the Corps and maintain relations with other groups.")
     .setColor(0x8b6f9e)
     .addFields({
       name: "Active Ambassadors",
@@ -203,7 +203,7 @@ function assignmentsEmbeds(
     .setTimestamp(new Date());
 
   const instructorsEmbed = emojiEmbed(guild, "instructor", "Instructors")
-    .setDescription("Rangers entrusted with planning and leading practical training for Rangers and Apprentices.")
+    .setDescription("Rangers who plan and lead training for Rangers and Apprentices.")
     .setColor(0x6f7d59)
     .addFields({
       name: "Active Instructors",

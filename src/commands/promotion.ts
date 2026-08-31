@@ -438,7 +438,7 @@ function formatEligibilityLine(candidate: EligibleRanger): string {
       : null;
   const summary = `<@${r.discord_user_id}> - ${candidate.daysInCorps}d in Corps - ${r.status}${duration ? ` - ${duration}` : ""}`;
   if (bucket === "not-ready" && candidate.reasons.length > 0) {
-    return `${summary} - ${candidate.reasons.join("; ")}`;
+    return `${summary} - ${candidate.reasons.join(", ")}`;
   }
   return summary;
 }

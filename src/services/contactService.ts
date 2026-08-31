@@ -107,7 +107,7 @@ export async function setupContactsForum(guild: Guild, categoryId?: string | nul
     name: CONTACT_FORUM_NAME,
     type: ChannelType.GuildForum,
     ...(categoryId ? { parent: categoryId } : {}),
-    topic: "A living record of people and groups known to the Ranger Corps. Each post is maintained by Wayfinder."
+    topic: "Records of people and groups known to the Ranger Corps. Wayfinder keeps each post up to date."
   });
 
   await forum.setAvailableTags(CONTACT_TAG_NAMES.map((name) => ({ name })), "Set Ranger contact filters");
@@ -270,7 +270,7 @@ async function createContactRecord(params: {
       guildId: params.guild.id,
       audience: "ranger_plus",
       title: `${attached.record_type === "Group" ? "New Group Record" : "New Contact Record"}: ${attached.name}`,
-      body: `A new ${attached.record_type === "Group" ? "group intelligence" : "contact"} record has been filed for **${attached.name}** in **${attached.hold}**. Review it before operating in the area and add any useful knowledge you hold.`,
+      body: `A new ${attached.record_type === "Group" ? "group" : "contact"} record for **${attached.name}** has been added in **${attached.hold}**. Review it before working in the area and add anything useful you know.`,
       sourceKind: "contact-record",
       sourceId: attached.id,
       sourceUrl: `https://discord.com/channels/${params.guild.id}/${thread.id}`,
@@ -744,7 +744,7 @@ async function contactMessagePayload(guild: Guild, contactId: string): Promise<C
 
   embed.setFooter({
     text: contact.active
-      ? `Use the buttons to record current knowledge. Discuss updates and linked reports in this post's thread.`
+      ? "Use the buttons to update this record. Add details and reports in the thread."
       : `Archived: ${contact.archive_reason ?? "No reason recorded."}`
   });
 

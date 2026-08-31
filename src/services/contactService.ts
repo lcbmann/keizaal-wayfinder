@@ -519,16 +519,32 @@ export async function refreshContactForumPost(guild: Guild, contactId: string): 
     return;
   }
   const thread = await fetchContactThread(guild, details.contact);
-  const starter = thread ? await thread.fetchStarterMessage().catch(() => null) : null;
-  if (!thread || !starter) {
+  if (!thread) {
     console.warn(`Could not refresh contact Forum post for ${contactId}: thread or starter message is missing.`);
     return;
   }
 
-  await starter.edit(await contactMessagePayload(guild, contactId));
-  const forum = thread.parent?.type === ChannelType.GuildForum ? thread.parent : null;
-  if (forum) {
-    await thread.setAppliedTags(contactTagIds(forum, details.contact), "Refresh Ranger contact tags");
+  const wasArchived = thread.archived === true;
+  if (wasArchived) {
+    await thread.setArchived(false, "Refresh Ranger contact record");
+  }
+  try {
+    const starter = await thread.fetchStarterMessage().catch(() => null);
+    if (!starter) {
+      console.warn(`Could not refresh contact Forum post for ${contactId}: thread or starter message is missing.`);
+      return;
+    }
+    await starter.edit(await contactMessagePayload(guild, contactId));
+    const forum = thread.parent?.type === ChannelType.GuildForum ? thread.parent : null;
+    if (forum) {
+      await thread.setAppliedTags(contactTagIds(forum, details.contact), "Refresh Ranger contact tags");
+    }
+  } finally {
+    if (wasArchived) {
+      await thread.setArchived(true, "Restore Ranger contact archive state").catch((error) => {
+        console.warn(`Could not restore archived state for contact Forum post ${contactId}:`, error);
+      });
+    }
   }
 }
 
@@ -549,8 +565,12 @@ export async function refreshActiveContactForumPosts(guild: Guild): Promise<numb
   let refreshed = 0;
 
   for (const { contact } of contacts) {
-    await refreshContactForumPost(guild, contact.id);
-    refreshed += 1;
+    try {
+      await refreshContactForumPost(guild, contact.id);
+      refreshed += 1;
+    } catch (error) {
+      console.warn(`Could not refresh active contact Forum post ${contact.id}:`, error);
+    }
   }
 
   return refreshed;

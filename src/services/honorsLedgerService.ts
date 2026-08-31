@@ -3,6 +3,8 @@ import {
   assertNoDbError,
   supabase,
   type CorpsMedalRow,
+  type CorpsQualificationRow,
+  type RangerQualificationRow,
   type RangerMedalAwardRow,
   type RangerRow,
   type RankHistoryRow
@@ -18,6 +20,7 @@ export interface HonorsLedgerSetupResult {
   created: boolean;
   medalsBackfilled: number;
   promotionsBackfilled: number;
+  qualificationsBackfilled: number;
 }
 
 export async function setupHonorsLedger(
@@ -46,8 +49,27 @@ export async function setupHonorsLedger(
     thread,
     created,
     medalsBackfilled: backfill.medals,
-    promotionsBackfilled: backfill.promotions
+    promotionsBackfilled: backfill.promotions,
+    qualificationsBackfilled: backfill.qualifications
   };
+}
+
+export async function appendQualificationToHonorsLedger(params: {
+  guild: Guild;
+  ranger: RangerRow;
+  qualification: CorpsQualificationRow;
+  award: RangerQualificationRow;
+}): Promise<boolean> {
+  const thread = await getHonorsLedgerThread(params.guild);
+  if (!thread) {
+    return false;
+  }
+  return postHonorsLedgerEntry({
+    thread,
+    sourceType: "qualification",
+    sourceId: params.award.id,
+    embed: qualificationEmbed(params.guild, params.ranger, params.qualification, params.award)
+  });
 }
 
 export async function appendMedalAwardToHonorsLedger(params: {
@@ -112,22 +134,27 @@ export async function removeMedalAwardFromHonorsLedger(guild: Guild, awardId: st
 async function backfillHonorsLedger(
   guild: Guild,
   thread: PublicThreadChannel
-): Promise<{ medals: number; promotions: number }> {
-  const [awardsResult, medalsResult, rangersResult, historyResult] = await Promise.all([
+): Promise<{ medals: number; promotions: number; qualifications: number }> {
+  const [awardsResult, medalsResult, rangersResult, historyResult, qualificationAwardsResult, qualificationsResult] = await Promise.all([
     supabase.from("ranger_medal_awards").select("*"),
     supabase.from("corps_medals").select("*"),
     supabase.from("rangers").select("*"),
-    supabase.from("rank_history").select("*")
+    supabase.from("rank_history").select("*"),
+    supabase.from("ranger_qualifications").select("*").is("revoked_at", null),
+    supabase.from("corps_qualifications").select("*")
   ]);
   assertNoDbError(awardsResult.error, "load medal awards for honors ledger");
   assertNoDbError(medalsResult.error, "load medals for honors ledger");
   assertNoDbError(rangersResult.error, "load Rangers for honors ledger");
   assertNoDbError(historyResult.error, "load promotion history for honors ledger");
+  assertNoDbError(qualificationAwardsResult.error, "load qualification awards for honors ledger");
+  assertNoDbError(qualificationsResult.error, "load qualifications for honors ledger");
 
   const medalsById = new Map((medalsResult.data ?? []).map((medal) => [medal.id, medal]));
   const rangersById = new Map((rangersResult.data ?? []).map((ranger) => [ranger.id, ranger]));
+  const qualificationsById = new Map((qualificationsResult.data ?? []).map((qualification) => [qualification.id, qualification]));
   const events: Array<{
-    sourceType: "medal_award" | "promotion";
+    sourceType: "medal_award" | "promotion" | "qualification";
     sourceId: string;
     occurredAt: string;
     embed: EmbedBuilder;
@@ -158,9 +185,23 @@ async function backfillHonorsLedger(
     }
   }
 
+  for (const award of qualificationAwardsResult.data ?? []) {
+    const qualification = qualificationsById.get(award.qualification_id);
+    const ranger = rangersById.get(award.ranger_id);
+    if (qualification && ranger) {
+      events.push({
+        sourceType: "qualification",
+        sourceId: award.id,
+        occurredAt: award.awarded_at,
+        embed: qualificationEmbed(guild, ranger, qualification, award)
+      });
+    }
+  }
+
   events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
   let medals = 0;
   let promotions = 0;
+  let qualifications = 0;
   for (const event of events) {
     try {
       const posted = await postHonorsLedgerEntry({
@@ -172,15 +213,17 @@ async function backfillHonorsLedger(
       if (posted) {
         if (event.sourceType === "medal_award") {
           medals += 1;
-        } else {
+        } else if (event.sourceType === "promotion") {
           promotions += 1;
+        } else {
+          qualifications += 1;
         }
       }
     } catch (error) {
       console.warn(`Could not backfill ${event.sourceType} ${event.sourceId} to the honors ledger:`, error);
     }
   }
-  return { medals, promotions };
+  return { medals, promotions, qualifications };
 }
 
 async function getHonorsLedgerThread(guild: Guild): Promise<PublicThreadChannel | null> {
@@ -200,7 +243,7 @@ async function getHonorsLedgerThread(guild: Guild): Promise<PublicThreadChannel 
 
 async function postHonorsLedgerEntry(params: {
   thread: PublicThreadChannel;
-  sourceType: "medal_award" | "promotion";
+  sourceType: "medal_award" | "promotion" | "qualification";
   sourceId: string;
   embed: EmbedBuilder;
 }): Promise<boolean> {
@@ -260,7 +303,23 @@ function honorsLedgerIntroEmbed(guild: Guild): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x587c4a)
     .setTitle(`${emoji ? `${emoji} - ` : ""}Corps Honors Record`)
-    .setDescription("A permanent record of Ranger promotions and Corps medals. Wayfinder adds new entries here without mentioning members.");
+    .setDescription("A permanent record of Ranger promotions, Corps medals, and specialist qualifications. Wayfinder adds new entries here without mentioning members.");
+}
+
+function qualificationEmbed(
+  guild: Guild,
+  ranger: RangerRow,
+  qualification: CorpsQualificationRow,
+  award: RangerQualificationRow
+): EmbedBuilder {
+  const emojiName = qualification.emoji?.replace(/^:+|:+$/gu, "").trim();
+  const emoji = emojiName ? guild.emojis.cache.find((candidate) => candidate.name === emojiName)?.toString() ?? "" : "";
+  return new EmbedBuilder()
+    .setColor(0x5b7fc4)
+    .setTitle(`${emoji ? `${emoji} - ` : ""}Qualification Earned: ${qualification.name}`)
+    .setDescription(`**Ranger**\n${rangerLabel(guild, ranger, ranger.current_rank)}`)
+    .addFields({ name: "What it records", value: qualification.description.slice(0, 1024) })
+    .setTimestamp(new Date(award.awarded_at));
 }
 
 function medalAwardEmbed(guild: Guild, ranger: RangerRow, medal: CorpsMedalRow, award: RangerMedalAwardRow): EmbedBuilder {

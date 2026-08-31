@@ -2,6 +2,7 @@ import type { GuildMember, PartialGuildMember } from "discord.js";
 import { endActiveDutyAssignmentsForRanger } from "../services/dutyService.js";
 import { deactivateAtlasRangerAccess, syncAtlasDiscordProfile } from "../services/atlasDiscordProfileService.js";
 import { dmNewApprentice, retireDepartedRanger, syncMemberToRoster } from "../services/rangerService.js";
+import { reconcileRunecloakMemberRoles } from "../services/runecloakDiscordService.js";
 
 export async function handleMemberJoin(member: GuildMember): Promise<void> {
   await dmNewApprentice(member);
@@ -12,6 +13,9 @@ export async function handleMemberUpdate(oldMember: GuildMember | PartialGuildMe
   void oldMember;
   await dmNewApprentice(newMember);
   await syncMemberToRoster(newMember);
+  await reconcileRunecloakMemberRoles(newMember).catch((error) => {
+    console.warn(`Could not refresh Runecloak roles for ${newMember.id}:`, error);
+  });
   await syncAtlasDiscordProfile(newMember).catch((error) => {
     console.warn(`Could not refresh Atlas profile for ${newMember.id}:`, error);
   });

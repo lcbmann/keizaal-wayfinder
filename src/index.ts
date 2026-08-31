@@ -29,6 +29,7 @@ import { voteCommand } from "./commands/vote.js";
 import { briefingCommand } from "./commands/briefing.js";
 import { assignmentCommand } from "./commands/assignment.js";
 import { patrolCommand } from "./commands/patrol.js";
+import { runecloakCommand } from "./commands/runecloak.js";
 import type { BotCommand, CommandCollection } from "./commands/types.js";
 import { handlePromotionButton } from "./components/promotionButtons.js";
 import { handleTrailmarkSelect } from "./components/trailmarkSelect.js";
@@ -95,6 +96,14 @@ import {
   syncCorpsAllyReportsChannelName
 } from "./services/allianceIntelService.js";
 import { UserFacingError, errorMessage } from "./utils/errors.js";
+import {
+  RUNECLOAK_BUTTON_PREFIX,
+  RUNECLOAK_MODAL_PREFIX,
+  handleRunecloakButton,
+  handleRunecloakModal,
+  reconcileRunecloakRoles,
+  refreshRunecloakDesk
+} from "./services/runecloakDiscordService.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
 for (const command of [
@@ -119,7 +128,8 @@ for (const command of [
   voteCommand,
   briefingCommand,
   assignmentCommand,
-  patrolCommand
+  patrolCommand,
+  runecloakCommand
 ]) {
   commands.set(command.data.name, command);
 }
@@ -208,6 +218,14 @@ client.once("ready", (readyClient) => {
         }
       })
       .catch((error) => console.warn("Failed to refresh the Ranger Dispatch Desk:", error));
+    void refreshRunecloakDesk(corpsGuild)
+      .then(async (refreshed) => {
+        if (refreshed) {
+          const roles = await reconcileRunecloakRoles(corpsGuild);
+          console.log(`Refreshed the Runecloak desk and reconciled roles: ${roles.added} added, ${roles.removed} removed.`);
+        }
+      })
+      .catch((error) => console.warn("Failed to refresh the Runecloak system:", error));
     void refreshActiveContactForumPosts(corpsGuild)
       .then(async (refreshed) => {
         if (refreshed > 0) {
@@ -489,7 +507,11 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
         throw new UserFacingError("That command is not available in the Ranger Alliance server.");
       }
     } else if (interaction.guildId === env.DISCORD_GUILD_ID) {
-      await safelyRecordInteraction(interaction.user.id);
+      if (interaction.commandName === "runecloak") {
+        void safelyRecordInteraction(interaction.user.id);
+      } else {
+        await safelyRecordInteraction(interaction.user.id);
+      }
     } else {
       throw new UserFacingError("This server is not configured for Wayfinder.");
     }
@@ -527,6 +549,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleAssignmentButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith(RUNECLOAK_BUTTON_PREFIX)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Runecloak records are only available in the Ranger Corps server.");
+    }
+    void safelyRecordInteraction(interaction.user.id);
+    await handleRunecloakButton(interaction);
     return;
   }
 
@@ -627,6 +658,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleAssignmentModal(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith(RUNECLOAK_MODAL_PREFIX)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Runecloak records are only available in the Ranger Corps server.");
+    }
+    void safelyRecordInteraction(interaction.user.id);
+    await handleRunecloakModal(interaction);
     return;
   }
 

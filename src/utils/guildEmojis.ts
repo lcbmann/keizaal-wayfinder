@@ -26,6 +26,7 @@ export type WayfinderEmojiName =
   | "rangercommander"
   | "rangermarshal"
   | "rangerorders"
+  | "runecloak"
   | "retiredranger"
   | "salute"
   | "seniorranger"

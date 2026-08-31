@@ -22,6 +22,7 @@ import { voteCommand } from "./commands/vote.js";
 import { briefingCommand } from "./commands/briefing.js";
 import { assignmentCommand } from "./commands/assignment.js";
 import { patrolCommand } from "./commands/patrol.js";
+import { runecloakCommand } from "./commands/runecloak.js";
 
 const corpsCommands = [
   pingCommand,
@@ -44,7 +45,8 @@ const corpsCommands = [
   voteCommand,
   briefingCommand,
   assignmentCommand,
-  patrolCommand
+  patrolCommand,
+  runecloakCommand
 ].map((command) => command.data.toJSON());
 
 const allianceCommands = [pingCommand, allianceCommand, voteCommand].map((command) => command.data.toJSON());

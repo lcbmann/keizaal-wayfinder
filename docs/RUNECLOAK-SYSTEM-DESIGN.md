@@ -435,22 +435,13 @@ Keep the member-facing slash command small:
 | `/runecloak survey` | Opens the requested survey form |
 | `/runecloak status` | Shows shared program and cycle status |
 | `/runecloak record` | Shows the caller's private record |
-| `/runecloak manage` | Opens an ephemeral, paginated staff control panel |
+| `/runecloak manage` | Shows an ephemeral staff operating summary |
 | `/runecloak audit` | Authorized staff read-only log and export |
 | `/runecloak setup` | Commander-only channel and role configuration |
 
-`/runecloak manage` should use select menus and buttons rather than exposing a long list of administrative subcommands. Its pages are:
+Application and research-site decisions use buttons on their private Strongbox and expedition records. Infrequent staff operations use explicit `/runecloak program`, `/runecloak team`, `/runecloak cycle`, and `/runecloak stage` command groups so each audited transition names its required inputs at the point of use. `/runecloak manage` summarizes the current application, team, and cycle state before staff choose one of those commands.
 
-1. Admissions
-2. Research Sites
-3. Roster and Cycle
-4. Stages and Sessions
-5. Moonshadow Confirmations
-6. Corrections and Recovery
-
-All actions recheck permissions and current database state. Custom component IDs are routing hints, not authorization.
-
-Discord select menus are limited to 25 options. Applicant, learner, site, and cycle selectors must paginate rather than silently omitting records.
+All actions recheck permissions and current database state. Custom component IDs and autocomplete results are routing aids, not authorization.
 
 `/runecloak setup` should connect existing channels and roles, create the required Forum tags, validate the `:runecloak:` emoji, and store IDs in Supabase. It should not require new environment variables. Re-running setup updates the same desk record instead of posting a duplicate.
 

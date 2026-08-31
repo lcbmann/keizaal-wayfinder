@@ -16,6 +16,7 @@ Keizaal Wayfinder is a TypeScript Discord bot for the Ranger Corps of Skyrim, an
 - An in-character Headquarters Dispatch Desk with accumulated, rank-aware personal briefings and optional DM delivery.
 - Wayfinder-managed assignment posts with Join, Withdraw, and Mark Complete controls; legacy Forum posts remain unchanged.
 - No-cost patrol suggestions grounded in stale Trailmark visits and contact confirmations.
+- A two-stage Ranger Runecloak admission, research-site, paired-expedition, and qualification record with Moonshadow confirmation gates.
 - Lightweight activity tracking whose counters do not store ordinary message content.
 
 ## Install
@@ -149,6 +150,20 @@ The migration creates:
 - `alliance_headquarters_topic_channels`
 - `alliance_headquarters_deliveries`
 - `alliance_headquarters_publications`
+- `corps_qualifications`
+- `ranger_qualifications`
+- `runecloak_settings`
+- `runecloak_team_assignments`
+- `runecloak_applications`
+- `runecloak_research_sites`
+- `runecloak_spells`
+- `runecloak_cycles`
+- `runecloak_cycle_members`
+- `runecloak_spell_progress`
+- `runecloak_stages`
+- `runecloak_sessions`
+- `runecloak_session_participation`
+- `runecloak_audit_events`
 
 It also creates enum types, update triggers, indexes, the Trailmark pinned flag, a partial unique index enforcing one active Trailmark session per Discord user, and intel catchall topic state.
 
@@ -305,6 +320,29 @@ Implemented commands:
 - `/alliance group-topics`
 - `/alliance group-remove`
 - `/alliance headquarters-remove`
+- `/runecloak apply`
+- `/runecloak withdraw`
+- `/runecloak survey`
+- `/runecloak survey-screenshot`
+- `/runecloak status`
+- `/runecloak record`
+- `/runecloak manage`
+- `/runecloak audit`
+- `/runecloak setup`
+- `/runecloak program set`
+- `/runecloak team add`
+- `/runecloak team remove`
+- `/runecloak cycle create`
+- `/runecloak cycle add`
+- `/runecloak cycle remove`
+- `/runecloak cycle lock`
+- `/runecloak cycle start`
+- `/runecloak cycle exclude`
+- `/runecloak cycle complete`
+- `/runecloak stage create`
+- `/runecloak stage submit-session`
+- `/runecloak stage verify-session`
+- `/runecloak stage verify`
 
 ## Corps Funds
 
@@ -345,6 +383,16 @@ Apply `src/db/migrations/045_add_briefings_and_managed_assignments.sql`, redeplo
 Briefings accumulate until the member next collects them. They are primarily in-character and are filtered by current rank: all Corps members receive general dispatches and major leadership promotions, Ranger+ receives new promotion votes and contact records, Marshal+ receives new or updated Strongbox matters, and apprenticeship participants receive their own pairing records. New managed assignments go only to members eligible to join. Marshal+ can use `/briefing send` to file an IC dispatch for a rank group or one named member; the OOC option is deliberately separate and should be used sparingly.
 
 By default, deliberate collection sends the packet by DM and confirms privately in Discord. If the DM cannot be delivered, Wayfinder falls back to the private interaction response without losing the unread items. Members can use `/briefing settings` to keep future packets entirely in the private interaction response. There is no scheduled digest or unsolicited DM.
+
+## Ranger Runecloaks
+
+Apply `src/db/migrations/046_create_runecloak_system.sql`, redeploy slash commands, and run `/runecloak setup` as Commander. Select the existing **THE RUNIC CLOAK** category, the existing `runecloak` discussion channel, and the permanent `Ranger Runecloak` role (`1543999251820839073`). The server must already have the `:runecloak:` emoji, and Wayfinder's Discord role must sit above every Runecloak role it manages. Wayfinder creates or reuses a Ranger+ read-only `runecloak-information` channel, a `runecloak-expeditions` Forum, and a temporary non-hoisted `Runecloak Learner` role. The optional organizer role remains an operating assignment rather than a qualification or internal rank. No new environment variable is required.
+
+Ranger Runecloak is a specialist qualification. It does not grant command authority, Corps standing, or duty permissions. Every applicant, including the original organizing group, follows the same entry path: use `/runecloak apply`, receive a survey request through the Headquarters briefing, find a place in Skyrim resonant with Magicka, add it to the Atlas, file a short Ranger report, and submit the Atlas reference with `/runecloak survey`. A screenshot is encouraged and can be attached immediately afterward with `/runecloak survey-screenshot`. Authorized Runecloak Marshals review surveys; Captain+ gives final admission approval. Approved applicants enter a waiting pool rather than receiving the qualification immediately.
+
+Official study uses one locked cycle at a time. The initial minimum roster is 20. Each study stage contains a paired EU and NA expedition, and a learner may attend either one. At least 51 percent of the original locked roster must attend across the pair for the stage to count. Learners record the result of their in-game `/roll 100`; Wayfinder never generates a roll and accepts only one roll per learner per paired stage. Authorized Marshals verify the session evidence, and only verified valid stages add to the shared 8,000-point target. Apprentices may attend suitable expeditions as non-counting observers after the program is registered.
+
+When the target is reached, `/runecloak cycle complete` shows Captain+ a final attendance preview. The confirmation form is prefilled with eligible Rangers so staff can remove anyone Moonshadow did not actually approve before recording the grant reference. A learner must attend a majority of valid paired stages. Anyone who falls short keeps proportional verified attendance credit for a later cycle of the same spell without carrying old roll points into the new shared total. Completing the first confirmed Oakflesh cycle grants the permanent Runecloak role, adds a separate **Qualifications** field to `/ranger info`, records the qualification in the Honors Record, and includes its badge in synchronized Atlas profiles.
 
 ## Managed Assignments and Patrol Suggestions
 

@@ -89,7 +89,11 @@ export function highestCorpsTitle(member: GuildMember): string | null {
   return badge ? displayTitle(badge.label) : null;
 }
 
-export function buildAtlasDiscordProfile(member: GuildMember, corpsMedals: readonly CorpsMedalRow[] = []): Json {
+export function buildAtlasDiscordProfile(
+  member: GuildMember,
+  corpsMedals: readonly CorpsMedalRow[] = [],
+  qualifications: readonly { id: string; label: string }[] = []
+): Json {
   const rank = mainRankFromMember(member);
   const primaryBadge = rank ? { id: rankBadgeIds[rank], label: rank } : null;
   const medals = [
@@ -101,8 +105,9 @@ export function buildAtlasDiscordProfile(member: GuildMember, corpsMedals: reado
     .map(({ id, label }) => ({ id, label }));
 
   return {
-    version: 1,
+    version: 2,
     primary_badge: primaryBadge,
+    qualifications: qualifications.map(({ id, label }) => ({ id, label })),
     medals
   };
 }
@@ -127,7 +132,7 @@ export async function syncAtlasDiscordProfile(
 ): Promise<AtlasRangerSyncResult> {
   const availableMedals = corpsMedals ?? await listMedals();
   const rank = mainRankFromMember(member);
-  const profile = buildAtlasDiscordProfile(member, availableMedals);
+  const profile = buildAtlasDiscordProfile(member, availableMedals, await listAtlasQualifications(member.id));
   const { data, error } = await supabase.rpc("set_atlas_ranger_access", {
     discord_user_id_input: member.id,
     display_name_input: member.displayName,
@@ -141,6 +146,25 @@ export async function syncAtlasDiscordProfile(
     active: Boolean(rank),
     linkedAccounts: typeof data === "number" ? data : 0
   };
+}
+
+async function listAtlasQualifications(discordUserId: string): Promise<Array<{ id: string; label: string }>> {
+  const { data: ranger, error: rangerError } = await supabase.from("rangers").select("id").eq("discord_user_id", discordUserId).maybeSingle();
+  assertNoDbError(rangerError, "get Ranger qualifications for Atlas profile");
+  if (!ranger) {
+    return [];
+  }
+  const [awardsResult, definitionsResult] = await Promise.all([
+    supabase.from("ranger_qualifications").select("qualification_id").eq("ranger_id", ranger.id).is("revoked_at", null),
+    supabase.from("corps_qualifications").select("id, slug, name").eq("active", true)
+  ]);
+  assertNoDbError(awardsResult.error, "load Ranger qualifications for Atlas profile");
+  assertNoDbError(definitionsResult.error, "load qualification definitions for Atlas profile");
+  const definitions = new Map((definitionsResult.data ?? []).map((definition) => [definition.id, definition]));
+  return (awardsResult.data ?? []).flatMap((award) => {
+    const definition = definitions.get(award.qualification_id);
+    return definition ? [{ id: definition.slug, label: definition.name }] : [];
+  });
 }
 
 export async function deactivateAtlasRangerAccess(params: {

@@ -89,7 +89,7 @@ export const medalCommand: BotCommand = {
       const result = await setupHonorsLedger(interaction.guild, channel);
       const thread = `<#${result.thread.id}>`;
       await interaction.editReply({
-        content: `${result.created ? "Created" : "Updated"} the Corps honors record in ${thread}. Backfilled **${result.medalsBackfilled}** medal ${result.medalsBackfilled === 1 ? "award" : "awards"} and **${result.promotionsBackfilled}** ${result.promotionsBackfilled === 1 ? "promotion" : "promotions"}.`
+        content: `${result.created ? "Created" : "Updated"} the Corps honors record in ${thread}. Backfilled **${result.medalsBackfilled}** medal ${result.medalsBackfilled === 1 ? "award" : "awards"}, **${result.promotionsBackfilled}** ${result.promotionsBackfilled === 1 ? "promotion" : "promotions"}, and **${result.qualificationsBackfilled}** ${result.qualificationsBackfilled === 1 ? "qualification" : "qualifications"}.`
       });
       return;
     }

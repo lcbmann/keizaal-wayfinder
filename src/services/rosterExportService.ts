@@ -19,7 +19,15 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
     apprenticeshipsResult,
     intelReportsResult,
     allianceReportsResult,
-    historicalMembersResult
+    historicalMembersResult,
+    qualificationsResult,
+    qualificationAwardsResult,
+    runecloakSpellsResult,
+    runecloakProgressResult,
+    runecloakCyclesResult,
+    runecloakMembersResult,
+    runecloakStagesResult,
+    runecloakParticipationResult
   ] = await Promise.all([
     supabase.from("rangers").select("*").order("current_rank", { ascending: true }).order("discord_display_name", { ascending: true }),
     supabase.from("corps_duties").select("*"),
@@ -30,7 +38,15 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
     supabase.from("apprenticeships").select("*").eq("status", "Active"),
     supabase.from("intel_reports").select("author_discord_user_id, discord_message_id").is("source_alliance_report_id", null),
     supabase.from("alliance_reports").select("author_discord_user_id, discord_message_id"),
-    supabase.from("historical_corps_members").select("*")
+    supabase.from("historical_corps_members").select("*"),
+    supabase.from("corps_qualifications").select("*").eq("active", true),
+    supabase.from("ranger_qualifications").select("*").is("revoked_at", null),
+    supabase.from("runecloak_spells").select("*").order("sequence"),
+    supabase.from("runecloak_spell_progress").select("*"),
+    supabase.from("runecloak_cycles").select("*"),
+    supabase.from("runecloak_cycle_members").select("*"),
+    supabase.from("runecloak_stages").select("*"),
+    supabase.from("runecloak_session_participation").select("*").eq("participation_kind", "learner").eq("status", "verified")
   ]);
 
   assertNoDbError(rangersResult.error, "export roster");
@@ -43,11 +59,68 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
   assertNoDbError(intelReportsResult.error, "count Intel reports for roster export");
   assertNoDbError(allianceReportsResult.error, "count Alliance reports for roster export");
   assertNoDbError(historicalMembersResult.error, "load Corps history for roster export");
+  assertNoDbError(qualificationsResult.error, "load qualifications for roster export");
+  assertNoDbError(qualificationAwardsResult.error, "load qualification awards for roster export");
+  assertNoDbError(runecloakSpellsResult.error, "load Runecloak spells for roster export");
+  assertNoDbError(runecloakProgressResult.error, "load Runecloak progress for roster export");
+  assertNoDbError(runecloakCyclesResult.error, "load Runecloak cycles for roster export");
+  assertNoDbError(runecloakMembersResult.error, "load Runecloak rosters for roster export");
+  assertNoDbError(runecloakStagesResult.error, "load Runecloak stages for roster export");
+  assertNoDbError(runecloakParticipationResult.error, "load Runecloak participation for roster export");
 
   const rangers = rangersResult.data ?? [];
   const dutiesById = new Map((dutiesResult.data ?? []).map((duty) => [duty.id, duty]));
   const medalsById = new Map((medalsResult.data ?? []).map((medal) => [medal.id, medal]));
   const rangerByDiscordUserId = new Map(rangers.map((ranger) => [ranger.discord_user_id, ranger]));
+  const qualificationById = new Map((qualificationsResult.data ?? []).map((qualification) => [qualification.id, qualification]));
+  const runecloakSpellById = new Map((runecloakSpellsResult.data ?? []).map((spell) => [spell.id, spell]));
+  const runecloakCycleById = new Map((runecloakCyclesResult.data ?? []).map((cycle) => [cycle.id, cycle]));
+  const runecloakStageById = new Map((runecloakStagesResult.data ?? []).map((stage) => [stage.id, stage]));
+
+  const qualificationsByRangerId = new Map<string, string[]>();
+  for (const award of qualificationAwardsResult.data ?? []) {
+    const qualification = qualificationById.get(award.qualification_id);
+    if (qualification) {
+      addToList(qualificationsByRangerId, award.ranger_id, qualification.name);
+    }
+  }
+
+  const runecloakSpellsByRangerId = new Map<string, string[]>();
+  for (const progress of runecloakProgressResult.data ?? []) {
+    const spell = runecloakSpellById.get(progress.spell_id);
+    if (spell) {
+      addToList(
+        runecloakSpellsByRangerId,
+        progress.ranger_id,
+        `${spell.name}: ${progress.status === "completed" ? "Complete" : `${progress.verified_attendance_credits}/${progress.required_attendance_credits} attendance`}`
+      );
+    }
+  }
+
+  const currentRunecloakMemberByRangerId = new Map(
+    (runecloakMembersResult.data ?? []).flatMap((member) => {
+      const cycle = runecloakCycleById.get(member.cycle_id);
+      return cycle && ["Locked", "Awaiting Moonshadow Start", "Active", "Awaiting Moonshadow Grant"].includes(cycle.status)
+        ? [[member.ranger_id, member] as const]
+        : [];
+    })
+  );
+  const activeAttendanceByMember = new Map<string, Set<string>>();
+  const activePointsByMember = new Map<string, number>();
+  for (const participation of runecloakParticipationResult.data ?? []) {
+    const stage = runecloakStageById.get(participation.stage_id);
+    if (!stage || stage.status !== "Valid") {
+      continue;
+    }
+    const key = `${stage.cycle_id}:${participation.ranger_id}`;
+    if (!activeAttendanceByMember.has(key)) {
+      activeAttendanceByMember.set(key, new Set());
+    }
+    activeAttendanceByMember.get(key)?.add(stage.id);
+    if (participation.roll_value !== null) {
+      activePointsByMember.set(key, (activePointsByMember.get(key) ?? 0) + participation.roll_value);
+    }
+  }
 
   const dutiesByRangerId = new Map<string, string[]>();
   for (const assignment of assignmentsResult.data ?? []) {
@@ -118,6 +191,11 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
     "Active Apprenticeships",
     "Awarded Medals",
     "Medal Count",
+    "Qualifications",
+    "Runecloak Spells",
+    "Active Runecloak Cycle",
+    "Cycle Attendance",
+    "Cycle Points",
     "Reports Filed",
     "Last Discord Activity",
     "Last Bot Interaction",
@@ -130,6 +208,9 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
       ? listDiscordRoleMedals(member).map((role) => role.label)
       : cumulativeRanks(ranger);
     const awardedMedals = medalsByRangerId.get(ranger.id) ?? [];
+    const runecloakMember = currentRunecloakMemberByRangerId.get(ranger.id);
+    const runecloakCycle = runecloakMember ? runecloakCycleById.get(runecloakMember.cycle_id) : null;
+    const runecloakKey = runecloakCycle ? `${runecloakCycle.id}:${ranger.id}` : null;
     return [
       standingByRangerId.get(ranger.id) ?? "",
       ranger.discord_display_name ?? "",
@@ -151,6 +232,13 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
       (apprenticeshipsByDiscordUserId.get(ranger.discord_user_id) ?? []).join(" | "),
       awardedMedals.join(" | "),
       String(awardedMedals.length),
+      (qualificationsByRangerId.get(ranger.id) ?? []).join(" | "),
+      (runecloakSpellsByRangerId.get(ranger.id) ?? []).join(" | "),
+      runecloakCycle ? `${runecloakCycle.label} (${runecloakCycle.status})` : "",
+      runecloakMember && runecloakCycle
+        ? `${activeAttendanceByMember.get(runecloakKey ?? "")?.size ?? 0} stages; ${runecloakMember.participation_status}`
+        : "",
+      runecloakKey ? String(activePointsByMember.get(runecloakKey) ?? 0) : "",
       String(reportsByDiscordUserId.get(ranger.discord_user_id)?.size ?? 0),
       ranger.last_discord_activity_at ?? "",
       ranger.last_bot_interaction_at ?? "",

@@ -42,6 +42,12 @@ export interface GeneralChoiceDisplayField {
   inline: false;
 }
 
+export interface GeneralVoteAuditField {
+  name: string;
+  value: string;
+  inline: false;
+}
+
 export async function createGeneralVote(params: {
   guildId: string;
   channelId: string;
@@ -285,6 +291,41 @@ export function formatGeneralVoteTally(
   ].join("\n");
 }
 
+export function formatGeneralVoteAuditFields(
+  voteType: GeneralVoteType,
+  ballots: Pick<GeneralVoteBallotRow, "vote" | "option_id" | "voter_discord_user_id">[],
+  options: GeneralVoteOptionRow[]
+): GeneralVoteAuditField[] {
+  const labels = voteType === "binary"
+    ? ["Yes", "No", "Abstain"]
+    : [...options.map((option) => option.label), "Abstain"];
+  const votersBySelection = new Map(labels.map((label) => [label, [] as string[]]));
+
+  for (const ballot of ballots) {
+    const label = generalVoteSelectionLabel(ballot, options);
+    const voters = votersBySelection.get(label);
+    if (voters) {
+      voters.push(ballot.voter_discord_user_id);
+    }
+  }
+
+  const fieldNameCharacters = labels.reduce((total, label) => total + label.length + 20, 0);
+  const voterListLimit = Math.max(240, Math.min(900, Math.floor((4600 - fieldNameCharacters) / labels.length)));
+
+  return labels.map((label, index) => {
+    const voters = votersBySelection.get(label) ?? [];
+    const countLabel = voters.length === 1 ? "vote" : "votes";
+    const numberedLabel = voteType === "choice" && label !== "Abstain"
+      ? `${index + 1}. ${label}`
+      : label;
+    return {
+      name: `${numberedLabel} - ${voters.length} ${countLabel}`,
+      value: formatAuditVoters(voters, voterListLimit),
+      inline: false
+    };
+  });
+}
+
 export function generalVoteSelectionLabel(
   ballot: Pick<GeneralVoteBallotRow, "vote" | "option_id">,
   options: GeneralVoteOptionRow[]
@@ -455,6 +496,29 @@ function generalVoteProgressBar(value: number, total: number): string {
     ? Math.min(10, Math.max(0, Math.round((value / total) * 10)))
     : 0;
   return `[${"#".repeat(filled)}${"-".repeat(10 - filled)}]`;
+}
+
+function formatAuditVoters(voterDiscordUserIds: string[], maxLength: number): string {
+  if (voterDiscordUserIds.length === 0) {
+    return "No votes.";
+  }
+
+  const lines: string[] = [];
+  for (const voterDiscordUserId of voterDiscordUserIds) {
+    const line = `- <@${voterDiscordUserId}>`;
+    const remaining = voterDiscordUserIds.length - lines.length - 1;
+    const suffix = remaining > 0 ? `\n- **${remaining} more** in the attached audit.` : "";
+    if ([...lines, line].join("\n").length + suffix.length > maxLength) {
+      break;
+    }
+    lines.push(line);
+  }
+
+  const remaining = voterDiscordUserIds.length - lines.length;
+  if (remaining > 0) {
+    lines.push(`- **${remaining} more** in the attached audit.`);
+  }
+  return lines.join("\n");
 }
 
 function generalVoteActionRow(voteId: string): ActionRowBuilder<ButtonBuilder> {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { GeneralVoteBallotRow, GeneralVoteOptionRow } from "../db/supabase.js";
 import {
+  formatGeneralVoteAuditFields,
   formatGeneralChoiceResultFields,
   parseGeneralVoteChoices,
   tallyGeneralChoiceBallots,
@@ -84,6 +85,36 @@ test("formats each multiple-choice option with its description and live progress
     {
       name: "2. Rooted Stone",
       value: "[###-------] **1 vote** (33%)\nA title centered on resilience",
+      inline: false
+    }
+  ]);
+});
+
+test("formats a private audit with voters grouped beneath their selections", () => {
+  const options = [
+    voteOption("option-a", "Ranger Runecloak", 0),
+    voteOption("option-b", "Ranger Spellstrider", 1)
+  ];
+  const ballots = [
+    { vote: null, option_id: "option-a", voter_discord_user_id: "111" },
+    { vote: null, option_id: "option-a", voter_discord_user_id: "222" },
+    { vote: null, option_id: "option-b", voter_discord_user_id: "333" }
+  ] satisfies Array<Pick<GeneralVoteBallotRow, "vote" | "option_id" | "voter_discord_user_id">>;
+
+  assert.deepEqual(formatGeneralVoteAuditFields("choice", ballots, options), [
+    {
+      name: "1. Ranger Runecloak - 2 votes",
+      value: "- <@111>\n- <@222>",
+      inline: false
+    },
+    {
+      name: "2. Ranger Spellstrider - 1 vote",
+      value: "- <@333>",
+      inline: false
+    },
+    {
+      name: "Abstain - 0 votes",
+      value: "No votes.",
       inline: false
     }
   ]);

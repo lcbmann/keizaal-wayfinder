@@ -1,5 +1,6 @@
 import {
   ChannelType,
+  EmbedBuilder,
   SlashCommandBuilder,
   ThreadAutoArchiveDuration
 } from "discord.js";
@@ -10,6 +11,7 @@ import {
   createGeneralVote,
   finalizeGeneralVoteThread,
   findRecentGeneralVotes,
+  formatGeneralVoteAuditFields,
   formatGeneralVoteTally,
   generalVoteSelectionLabel,
   generalVoteMessage,
@@ -169,9 +171,25 @@ export const voteCommand: BotCommand = {
         "Vote\tDisplay name\tDiscord user ID\tBallot updated",
         ...rows
       ].join("\n");
+      const auditEmbed = new EmbedBuilder()
+        .setTitle("Channel Vote Audit")
+        .setDescription(vote.question)
+        .setColor(0x587c4a)
+        .addFields(
+          { name: "Status", value: vote.status, inline: true },
+          { name: "Ballots cast", value: String(ballots.length), inline: true },
+          { name: "Opened by", value: `<@${vote.opened_by_discord_user_id}>`, inline: true }
+        )
+        .addFields(...formatGeneralVoteAuditFields(vote.vote_type, ballots, options))
+        .setFooter({ text: "Full Discord IDs and ballot timestamps are included in the attached TSV." })
+        .setTimestamp(new Date(vote.created_at));
+      if (vote.closed_by_discord_user_id) {
+        auditEmbed.addFields({ name: "Closed by", value: `<@${vote.closed_by_discord_user_id}>`, inline: true });
+      }
       await interaction.editReply({
-        content: `Audit for **${vote.question}**:\n${formatGeneralVoteTally(vote.vote_type, ballots, options)}`,
-        files: [{ attachment: Buffer.from(audit, "utf8"), name: `vote-${vote.id.slice(0, 8)}-audit.tsv` }]
+        embeds: [auditEmbed],
+        files: [{ attachment: Buffer.from(audit, "utf8"), name: `vote-${vote.id.slice(0, 8)}-audit.tsv` }],
+        allowedMentions: { parse: [] }
       });
       return;
     }

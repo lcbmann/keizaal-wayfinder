@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  calculateRunecloakAttendanceCredit,
   canTransitionRunecloakApplication,
+  earliestRunecloakStudySpell,
   evaluateRunecloakStage,
   parseDiscordUserIds,
-  requiredPersonalAttendance,
   requiredStageAttendance,
-  runecloakProgressBar
+  runecloakPersonalEligibility,
+  runecloakProgressBar,
+  runecloakRegionalCooldown,
+  runecloakSessionCanBeSubmitted
 } from "./runecloakService.js";
 
 test("Runecloak stage quorum rounds upward from 51 percent", () => {
@@ -16,10 +18,11 @@ test("Runecloak stage quorum rounds upward from 51 percent", () => {
   assert.equal(requiredStageAttendance(22), 12);
 });
 
-test("personal completion requires a majority of valid paired stages", () => {
-  assert.equal(requiredPersonalAttendance(1), 1);
-  assert.equal(requiredPersonalAttendance(5), 3);
-  assert.equal(requiredPersonalAttendance(6), 4);
+test("personal spell eligibility requires both 400 points and five paired stages", () => {
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 399, verifiedStages: 5 }), false);
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 400, verifiedStages: 4 }), false);
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 400, verifiedStages: 5 }), true);
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 520, verifiedStages: 5 }), true);
 });
 
 test("paired regional attendance counts a learner once and accepts one roll", () => {
@@ -39,16 +42,50 @@ test("invalid stages preserve attendance but add no shared points", () => {
   assert.deepEqual(result, { uniqueAttendance: 1, points: 0, valid: false });
 });
 
-test("attendance credit carries forward without exceeding the frozen requirement", () => {
-  assert.deepEqual(calculateRunecloakAttendanceCredit({
-    priorCredits: 3,
-    requiredCredits: 5,
-    attendedStages: 4
-  }), {
-    earnedCredits: 2,
-    retainedCredits: 5,
-    complete: true
+test("overflow stays on the earliest unfinished spell instead of carrying forward", () => {
+  const spells = [
+    { id: "oakflesh", sequence: 1 },
+    { id: "lesser-ward", sequence: 2 }
+  ];
+
+  assert.deepEqual(earliestRunecloakStudySpell(spells, new Set(), 2), spells[0]);
+  assert.deepEqual(earliestRunecloakStudySpell(spells, new Set(["oakflesh"]), 2), spells[1]);
+  assert.equal(earliestRunecloakStudySpell(spells, new Set(["oakflesh", "lesser-ward"]), 2), null);
+});
+
+test("regional cooldown accepts the exact 72-hour boundary", () => {
+  assert.deepEqual(runecloakRegionalCooldown(null, "2026-09-02T18:00:00.000Z"), {
+    allowed: true,
+    eligibleAt: null
   });
+  assert.deepEqual(runecloakRegionalCooldown(
+    "2026-09-01T18:00:00.000Z",
+    "2026-09-04T18:00:00.000Z"
+  ), {
+    allowed: true,
+    eligibleAt: "2026-09-04T18:00:00.000Z"
+  });
+  assert.deepEqual(runecloakRegionalCooldown(
+    "2026-09-01T18:00:00.000Z",
+    "2026-09-04T17:59:59.000Z"
+  ), {
+    allowed: false,
+    eligibleAt: "2026-09-04T18:00:00.000Z"
+  });
+});
+
+test("EU and NA cooldown histories are evaluated independently", () => {
+  const eu = runecloakRegionalCooldown(
+    "2026-09-01T18:00:00.000Z",
+    "2026-09-03T18:00:00.000Z"
+  );
+  const na = runecloakRegionalCooldown(
+    "2026-08-31T18:00:00.000Z",
+    "2026-09-03T18:00:00.000Z"
+  );
+
+  assert.equal(eu.allowed, false);
+  assert.equal(na.allowed, true);
 });
 
 test("application transitions require survey review before approval", () => {
@@ -56,6 +93,14 @@ test("application transitions require survey review before approval", () => {
   assert.equal(canTransitionRunecloakApplication("Submitted", "Approved"), false);
   assert.equal(canTransitionRunecloakApplication("Survey Submitted", "Approved"), true);
   assert.equal(canTransitionRunecloakApplication("Approved", "Denied"), false);
+  assert.equal(canTransitionRunecloakApplication("Approved", "Withdrawn"), false);
+});
+
+test("verified or cancelled Runecloak session evidence cannot be replaced", () => {
+  assert.equal(runecloakSessionCanBeSubmitted("Planned"), true);
+  assert.equal(runecloakSessionCanBeSubmitted("Submitted"), true);
+  assert.equal(runecloakSessionCanBeSubmitted("Verified"), false);
+  assert.equal(runecloakSessionCanBeSubmitted("Cancelled"), false);
 });
 
 test("Discord IDs are deduplicated when parsed from mentions", () => {

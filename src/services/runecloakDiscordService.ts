@@ -23,16 +23,12 @@ import { roleIdForRank } from "../config/roles.js";
 import { assertNoDbError, supabase, type RangerRow } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
 import { emojiEmbed, guildEmoji } from "../utils/guildEmojis.js";
-import { mainRankFromMember, memberRankAtLeast } from "../utils/permissions.js";
 import { queueBriefingDispatch } from "./briefingService.js";
 import { appendQualificationToHonorsLedger } from "./honorsLedgerService.js";
 import { syncGuildAtlasDiscordProfiles } from "./atlasDiscordProfileService.js";
-import { postStrongboxThread } from "./strongboxService.js";
 import {
   DEFAULT_RUNECLOAK_ROLE_ID,
   RUNECLOAK_QUALIFICATION_SLUG,
-  addRunecloakCycleMember,
-  assertRunecloakCaptain,
   attachRunecloakApplicationReview,
   attachRunecloakSiteForumPost,
   attachRunecloakStageForumPost,
@@ -46,13 +42,13 @@ import {
   getRunecloakCycleDetails,
   getRunecloakSettings,
   getRunecloakStage,
-  isAuthorizedRunecloakMarshal,
+  isRunecloakGuide,
   listActiveRunecloakTeamAssignments,
   listRangerQualifications,
   listRunecloakApplications,
   listRunecloakAuditEvents,
   listRunecloakSpellProgress,
-  parseDiscordUserIds,
+  listRunecloakSpells,
   recordRunecloakParticipation,
   requireRunecloakSettings,
   reviewRunecloakSite,
@@ -67,8 +63,11 @@ import {
 export const RUNECLOAK_BUTTON_PREFIX = "runecloak:";
 export const RUNECLOAK_MODAL_PREFIX = "runecloak-modal:";
 
-const INFORMATION_CHANNEL_NAME = "runecloak-information";
+const DESK_CHANNEL_NAME = "runecloak-desk";
+const APPLICATION_REVIEW_CHANNEL_NAME = "runecloak-applications";
 const EXPEDITION_FORUM_NAME = "runecloak-expeditions";
+const LEARNER_CHANNEL_NAME = "runecloak-learner";
+const GUIDE_ROLE_NAME = "Runecloak Guide";
 const LEARNER_ROLE_NAME = "Runecloak Learner";
 const FORUM_TAGS = [
   "Research Site",
@@ -85,43 +84,57 @@ const FORUM_TAGS = [
 export async function setupRunecloakDiscord(input: {
   guild: Guild;
   category: CategoryChannel;
-  discussionChannel: TextChannel;
+  runecloakChannel: TextChannel;
   qualificationRole: Role;
   actorDiscordUserId: string;
-  informationChannel?: TextChannel | null;
+  deskChannel?: TextChannel | null;
+  applicationReviewChannel?: TextChannel | null;
+  learnerChannel?: TextChannel | null;
   expeditionForum?: ForumChannel | null;
-  organizerRole?: Role | null;
+  guideRole?: Role | null;
   learnerRole?: Role | null;
 }): Promise<{
-  informationChannel: TextChannel;
+  deskChannel: TextChannel;
+  applicationReviewChannel: TextChannel;
+  learnerChannel: TextChannel;
   expeditionForum: ForumChannel;
+  guideRole: Role;
   learnerRole: Role;
 }> {
   const { guild, category } = input;
   if (!guildEmoji(guild, "runecloak")) {
     throw new UserFacingError("The server needs a custom emoji named `:runecloak:` before Runecloak setup can continue.");
   }
-  if (input.discussionChannel.parentId !== category.id) {
-    throw new UserFacingError("Choose the existing `#runecloak` discussion channel inside the selected Runic Cloak category.");
+  if (input.runecloakChannel.parentId !== category.id) {
+    throw new UserFacingError("Choose the existing `#runecloak` channel inside the selected Runic Cloak category.");
   }
   if (!input.qualificationRole.editable) {
     throw new UserFacingError("Wayfinder's Discord role must be above the permanent Ranger Runecloak role before setup.");
   }
-  if (input.organizerRole && !input.organizerRole.editable) {
-    throw new UserFacingError("Wayfinder's Discord role must be above the optional organizer role before setup.");
+  if (input.guideRole && !input.guideRole.editable) {
+    throw new UserFacingError("Wayfinder's Discord role must be above the selected Runecloak Guide role before setup.");
   }
   if (input.learnerRole && !input.learnerRole.editable) {
     throw new UserFacingError("Wayfinder's Discord role must be above the selected learner role before setup.");
   }
   const existingSettings = await getRunecloakSettings(guild.id);
-  const informationChannel = input.informationChannel
-    ?? await fetchTextChannel(guild, existingSettings?.information_channel_id)
+  const deskChannel = input.deskChannel
+    ?? await fetchTextChannel(guild, existingSettings?.desk_channel_id)
     ?? await guild.channels.create({
-      name: INFORMATION_CHANNEL_NAME,
+      name: DESK_CHANNEL_NAME,
       type: ChannelType.GuildText,
       parent: category,
       topic: "Runecloak information, applications, and current study records.",
       reason: "Create the Ranger Runecloak information desk"
+    });
+  const applicationReviewChannel = input.applicationReviewChannel
+    ?? await fetchTextChannel(guild, existingSettings?.application_review_channel_id)
+    ?? await guild.channels.create({
+      name: APPLICATION_REVIEW_CHANNEL_NAME,
+      type: ChannelType.GuildText,
+      parent: category,
+      topic: "Private Runecloak applications and field-survey reviews for Runecloak Guides.",
+      reason: "Create the private Runecloak application review channel"
     });
   const expeditionForum = input.expeditionForum
     ?? await fetchForumChannel(guild, existingSettings?.expedition_forum_id)
@@ -132,45 +145,82 @@ export async function setupRunecloakDiscord(input: {
       topic: "Approved research sites and official Runecloak study expeditions.",
       reason: "Create the Ranger Runecloak expedition Forum"
     });
+  const learnerChannel = input.learnerChannel
+    ?? await fetchTextChannel(guild, existingSettings?.learner_channel_id)
+    ?? await guild.channels.create({
+      name: LEARNER_CHANNEL_NAME,
+      type: ChannelType.GuildText,
+      parent: category,
+      topic: "Runecloak Learner discussion, preparation, and field-study coordination.",
+      reason: "Create the Runecloak Learner channel"
+    });
   const learnerRole = input.learnerRole
     ?? (existingSettings?.learner_role_id ? guild.roles.cache.get(existingSettings.learner_role_id) : null)
     ?? await guild.roles.create({
       name: LEARNER_ROLE_NAME,
       hoist: false,
       mentionable: false,
-      reason: "Create the temporary Runecloak study roster role"
+      reason: "Create the Runecloak learner role"
+    });
+  const guideRole = input.guideRole
+    ?? (existingSettings?.guide_role_id ? guild.roles.cache.get(existingSettings.guide_role_id) : null)
+    ?? await guild.roles.create({
+      name: GUIDE_ROLE_NAME,
+      hoist: false,
+      mentionable: false,
+      reason: "Create the Runecloak Guide role"
     });
 
-  if (informationChannel.parentId !== category.id) {
-    await informationChannel.setParent(category, { lockPermissions: false, reason: "Keep the Runecloak information desk in the Runic Cloak category" });
+  if (new Set([input.qualificationRole.id, learnerRole.id, guideRole.id]).size !== 3) {
+    throw new UserFacingError("The Runecloak, Learner, and Guide roles must be three different roles.");
+  }
+  if (new Set([deskChannel.id, applicationReviewChannel.id, expeditionForum.id, learnerChannel.id, input.runecloakChannel.id]).size !== 5) {
+    throw new UserFacingError("The Runecloak desk, applications, learner, full-member, and expedition destinations must be different channels.");
+  }
+  if (!guideRole.editable || !learnerRole.editable) {
+    throw new UserFacingError("Wayfinder's Discord role must be above the Runecloak Guide and Runecloak Learner roles before setup.");
+  }
+
+  if (deskChannel.parentId !== category.id) {
+    await deskChannel.setParent(category, { lockPermissions: false, reason: "Keep the Runecloak desk in the Runic Cloak category" });
+  }
+  if (applicationReviewChannel.parentId !== category.id) {
+    await applicationReviewChannel.setParent(category, { lockPermissions: false, reason: "Keep Runecloak application reviews in the Runic Cloak category" });
   }
   if (expeditionForum.parentId !== category.id) {
     await expeditionForum.setParent(category, { lockPermissions: false, reason: "Keep Runecloak expeditions in the Runic Cloak category" });
   }
+  if (learnerChannel.parentId !== category.id) {
+    await learnerChannel.setParent(category, { lockPermissions: false, reason: "Keep the Runecloak Learner channel in the Runic Cloak category" });
+  }
 
   await ensureRunecloakTags(expeditionForum);
   await configureRunecloakChannelPermissions({
-    informationChannel,
-    discussionChannel: input.discussionChannel,
+    deskChannel,
+    applicationReviewChannel,
+    runecloakChannel: input.runecloakChannel,
+    learnerChannel,
     expeditionForum,
     qualificationRole: input.qualificationRole,
-    organizerRole: input.organizerRole ?? null,
+    guideRole,
     learnerRole
   });
   await saveRunecloakSettings({
     guildId: guild.id,
     categoryId: category.id,
-    informationChannelId: informationChannel.id,
-    discussionChannelId: input.discussionChannel.id,
+    deskChannelId: deskChannel.id,
+    applicationReviewChannelId: applicationReviewChannel.id,
+    runecloakChannelId: input.runecloakChannel.id,
+    learnerChannelId: learnerChannel.id,
     expeditionForumId: expeditionForum.id,
-    organizerRoleId: input.organizerRole?.id ?? existingSettings?.organizer_role_id ?? null,
+    guideRoleId: guideRole.id,
     learnerRoleId: learnerRole.id,
     qualificationRoleId: input.qualificationRole.id || DEFAULT_RUNECLOAK_ROLE_ID,
     actorDiscordUserId: input.actorDiscordUserId
   });
   await refreshRunecloakDesk(guild);
   await reconcileRunecloakRoles(guild);
-  return { informationChannel, expeditionForum, learnerRole };
+  return { deskChannel, applicationReviewChannel, learnerChannel, expeditionForum, guideRole, learnerRole };
 }
 
 export async function refreshRunecloakDesk(guild: Guild): Promise<boolean> {
@@ -178,7 +228,7 @@ export async function refreshRunecloakDesk(guild: Guild): Promise<boolean> {
   if (!settings) {
     return false;
   }
-  const channel = await fetchTextChannel(guild, settings.information_channel_id);
+  const channel = await fetchTextChannel(guild, settings.desk_channel_id);
   if (!channel) {
     return false;
   }
@@ -203,12 +253,12 @@ export async function refreshRunecloakDesk(guild: Guild): Promise<boolean> {
 export function runecloakApplicationModal(): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(`${RUNECLOAK_MODAL_PREFIX}application`)
-    .setTitle("Apply for Runecloak Study")
+    .setTitle("Apply for Runecloak Field Study")
     .addComponents(
-      modalRow("reason", "Why do you seek this qualification?", TextInputStyle.Paragraph, true, 1500),
-      modalRow("experience", "Any relevant field or magical experience?", TextInputStyle.Paragraph, false, 1500, "None is fine."),
-      modalRow("availability", "Availability and EU or NA preference", TextInputStyle.Paragraph, true, 1000),
-      modalRow("conflicts", "Other loyalties, duties, or conflicts", TextInputStyle.Paragraph, false, 1500, "Write None if there are none.")
+      modalRow("reason", "Why do you want to join this research?", TextInputStyle.Paragraph, true, 1500),
+      modalRow("experience", "Relevant field or magical experience?", TextInputStyle.Paragraph, false, 1500, "None is fine; prior magical expertise is not required."),
+      modalRow("availability", "Timezone, availability, and EU/NA preference", TextInputStyle.Paragraph, true, 1000),
+      modalRow("conflicts", "Other duties or scheduling conflicts", TextInputStyle.Paragraph, false, 1500, "Write None if there are none.")
     );
 }
 
@@ -219,9 +269,16 @@ export function runecloakSurveyModal(): ModalBuilder {
     .addComponents(
       modalRow("site", "Research site", TextInputStyle.Short, true, 200),
       modalRow("region", "Hold or region", TextInputStyle.Short, true, 100),
-      modalRow("atlas", "Atlas code or entry reference", TextInputStyle.Short, true, 500),
-      modalRow("report", "Link to your Ranger report", TextInputStyle.Short, true, 500),
-      modalRow("resonance", "Why is this site resonant with Magicka?", TextInputStyle.Paragraph, true, 1800)
+      modalRow("atlas", "Atlas location code or reference", TextInputStyle.Short, true, 500, "Paste the Atlas location code or identifying reference."),
+      modalRow(
+        "rationale",
+        "Survey notes and research value",
+        TextInputStyle.Paragraph,
+        true,
+        1800,
+        "Cover records, people consulted, access, hazards, and why the site seems worth revisiting."
+      ),
+      modalRow("image", "Survey image link (optional)", TextInputStyle.Short, false, 500, "Use an Imgur link or a Discord attachment link.")
     );
 }
 
@@ -256,26 +313,11 @@ export function runecloakRollModal(stageId: string, slot: "EU" | "NA"): ModalBui
     ));
 }
 
-function runecloakGrantModal(cycleId: string, confirmedDiscordUserIds: string[]): ModalBuilder {
-  const confirmedValue = confirmedDiscordUserIds.join("\n");
-  if (confirmedValue.length > 4000) {
-    throw new UserFacingError("The eligible list is too large for one Discord form. Export the Runecloak audit and divide the grant before continuing.");
-  }
+function runecloakApprovalModal(cycleId: string): ModalBuilder {
   return new ModalBuilder()
-    .setCustomId(`${RUNECLOAK_MODAL_PREFIX}grant:${cycleId}`)
-    .setTitle("Record Moonshadow Grant")
-    .addComponents(
-      modalRow("reference", "Moonshadow grant reference", TextInputStyle.Short, true, 1000),
-      modalRow(
-        "confirmed",
-        "Confirmed Ranger IDs (one per line)",
-        TextInputStyle.Paragraph,
-        true,
-        4000,
-        "Remove anyone Moonshadow did not confirm.",
-        confirmedValue
-      )
-    );
+    .setCustomId(`${RUNECLOAK_MODAL_PREFIX}approval:${cycleId}`)
+    .setTitle("Record GM Research Approval")
+    .addComponents(modalRow("reference", "GM ticket or approval reference", TextInputStyle.Short, true, 1000));
 }
 
 export async function handleRunecloakModal(interaction: ModalSubmitInteraction): Promise<void> {
@@ -293,49 +335,31 @@ export async function handleRunecloakModal(interaction: ModalSubmitInteraction):
       availability: interaction.fields.getTextInputValue("availability"),
       loyaltiesConflicts: optionalField(interaction, "conflicts")
     });
-    try {
-      const review = await postStrongboxThread({
-        guild: interaction.guild,
-        threadName: `Runecloak Application - ${rangerDisplayName(details.applicant)}`,
-        embed: runecloakApplicationReviewEmbed(interaction.guild, details),
-        components: runecloakApplicationReviewRows(details),
-        reason: `Runecloak application from ${rangerDisplayName(details.applicant)}`
-      });
-      details = {
-        ...details,
-        application: await attachRunecloakApplicationReview({
-          applicationId: details.application.id,
-          channelId: review.channel.id,
-          messageId: review.message.id,
-          threadId: review.thread.id
-        })
-      };
-      await interaction.editReply({
-        content: "Your Runecloak application has been placed in the Strongbox for review. Leadership will send the research survey through your briefing if you are selected to continue."
-      });
-      await refreshRunecloakDesk(interaction.guild);
-    } catch (error) {
-      await supabase.from("runecloak_applications").delete().eq("id", details.application.id);
-      throw error;
-    }
+    details = await ensureRunecloakApplicationReview(interaction.guild, details);
+    await interaction.editReply({
+      content: "Your application has been sent privately to the Runecloak Guides. If selected, you will receive a field-survey request through your briefing. Marshal+ may skip this initial application screening, but must still complete and pass the same survey."
+    });
+    await refreshRunecloakDesk(interaction.guild);
     return;
   }
 
   if (route === "survey") {
     await interaction.deferReply({ ephemeral: true });
-    const details = await submitRunecloakSurvey({
+    let details = await submitRunecloakSurvey({
       guildId: interaction.guild.id,
       rangerDiscordUserId: interaction.user.id,
       siteName: interaction.fields.getTextInputValue("site"),
       holdRegion: interaction.fields.getTextInputValue("region"),
       atlasReference: interaction.fields.getTextInputValue("atlas"),
-      reportUrl: interaction.fields.getTextInputValue("report"),
-      resonanceDescription: interaction.fields.getTextInputValue("resonance")
+      researchRationale: interaction.fields.getTextInputValue("rationale"),
+      screenshotUrl: optionalField(interaction, "image")
     });
-    await upsertRunecloakSitePost(interaction.guild, details);
+    // Marshal+ may enter directly through the survey. Their audited synthetic
+    // application still receives the same Guide-only review record as everyone else.
+    details = await ensureRunecloakApplicationReview(interaction.guild, details);
     await refreshRunecloakApplicationReview(interaction.guild, details.application.id);
     await interaction.editReply({
-      content: `Your site survey for **${details.site?.name}** has been filed. Add a screenshot with \`/runecloak survey-screenshot\` if you have one.`
+      content: `Your site survey for **${details.site?.name}** has been filed privately for Runecloak Guide review.`
     });
     return;
   }
@@ -348,12 +372,10 @@ export async function handleRunecloakModal(interaction: ModalSubmitInteraction):
     await interaction.deferReply({ ephemeral: true });
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     const note = interaction.fields.getTextInputValue("note");
+    if (!await isRunecloakGuide(actor)) {
+      throw new UserFacingError("A Runecloak Guide is required to review applications and surveys.");
+    }
     if (target === "application") {
-      if (action === "deny") {
-        assertRunecloakCaptain(actor);
-      } else if (!await isAuthorizedRunecloakMarshal(actor)) {
-        throw new UserFacingError("An authorized Runecloak Marshal or Captain is required to request revisions.");
-      }
       const details = await transitionRunecloakApplication({
         guildId: interaction.guild.id,
         applicationId: id,
@@ -364,11 +386,6 @@ export async function handleRunecloakModal(interaction: ModalSubmitInteraction):
       await notifyRunecloakApplicant(interaction.guild, details, action === "deny" ? "Application Closed" : "Survey Revision Requested", note);
       await refreshRunecloakApplicationReview(interaction.guild, id);
     } else {
-      if (action === "deny") {
-        assertRunecloakCaptain(actor);
-      } else if (!await isAuthorizedRunecloakMarshal(actor)) {
-        throw new UserFacingError("An authorized Runecloak Marshal or Captain is required to request revisions.");
-      }
       const details = await reviewRunecloakSite({
         guildId: interaction.guild.id,
         siteId: id,
@@ -377,7 +394,9 @@ export async function handleRunecloakModal(interaction: ModalSubmitInteraction):
         note
       });
       await notifyRunecloakApplicant(interaction.guild, details, action === "deny" ? "Research Site Rejected" : "Survey Revision Requested", note);
-      await upsertRunecloakSitePost(interaction.guild, details);
+      if (details.site?.forum_thread_id) {
+        await upsertRunecloakSitePost(interaction.guild, details);
+      }
       await refreshRunecloakApplicationReview(interaction.guild, details.application.id);
     }
     await interaction.editReply({ content: action === "deny" ? "The decision has been recorded." : "The applicant will receive the revision request in their next briefing." });
@@ -402,45 +421,35 @@ export async function handleRunecloakModal(interaction: ModalSubmitInteraction):
     });
     await refreshRunecloakStagePost(interaction.guild, stageId);
     await interaction.editReply({
-      content: `Recorded your ${slot} attendance and in-game roll of **${result.participation.roll_value}**. It remains provisional until a Marshal verifies the session.`
+      content: result.kind === "observer"
+        ? `You were added to the ${slot} expedition as a non-counting observer because you are not an active Runecloak Learner.`
+        : result.participation.roll_value === null
+          ? `Recorded your ${slot} attendance. Your one permitted roll for this paired stage was already on file and remains provisional until verification.`
+          : `Recorded your ${slot} attendance and in-game roll of **${result.participation.roll_value}**. It remains provisional until a Guide verifies the session; once valid, it supports the shared campaign and your earliest unfinished spell.`
     });
     return;
   }
 
-  if (route.startsWith("grant:")) {
+  if (route.startsWith("approval:")) {
     const cycleId = route.split(":")[1];
     if (!cycleId) {
-      throw new UserFacingError("That Runecloak grant form is no longer valid.");
+      throw new UserFacingError("That Runecloak approval form is no longer valid.");
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
-    assertRunecloakCaptain(actor);
+    if (!await isRunecloakGuide(actor)) {
+      throw new UserFacingError("A Runecloak Guide is required to record GM research approval.");
+    }
     await interaction.deferReply({ ephemeral: true });
     const before = await getRunecloakCycleCompletionPreview(cycleId);
-    const submittedDiscordIds = parseDiscordUserIds(interaction.fields.getTextInputValue("confirmed"));
-    const rangerIdByDiscordId = new Map(before.candidates.map(({ ranger }) => [ranger.discord_user_id, ranger.id]));
-    const unknownIds = submittedDiscordIds.filter((discordId) => !rangerIdByDiscordId.has(discordId));
-    if (unknownIds.length) {
-      throw new UserFacingError("The confirmed list contains a Discord ID that is not in this locked Runecloak roster.");
-    }
-    const confirmedRangerIds = submittedDiscordIds.flatMap((discordId) => {
-      const rangerId = rangerIdByDiscordId.get(discordId);
-      return rangerId ? [rangerId] : [];
-    });
-    if (!confirmedRangerIds.length) {
-      throw new UserFacingError("Keep at least one Moonshadow-confirmed Ranger in the grant list.");
-    }
-    await completeRunecloakCycle({
+    const result = await completeRunecloakCycle({
       cycleId,
       actorDiscordUserId: actor.id,
-      grantReference: interaction.fields.getTextInputValue("reference"),
-      confirmedRangerIds
+      gmApprovalReference: interaction.fields.getTextInputValue("reference")
     });
-    await reconcileRunecloakRoles(interaction.guild);
-    await publishRunecloakCycleQualifications(interaction.guild, cycleId);
     await dispatchRunecloakCycleCompletion(interaction.guild.id, before.details);
     await refreshRunecloakDesk(interaction.guild);
     await interaction.editReply({
-      content: `The Moonshadow grant is recorded for **${confirmedRangerIds.length}** Ranger${confirmedRangerIds.length === 1 ? "" : "s"}. First-time completers received the Ranger Runecloak qualification.`
+      content: `The GM approval is recorded. **${result.eligible_learners}** Ranger${result.eligible_learners === 1 ? " is" : "s are"} currently eligible for in-game delivery; no personal spell delivery or Runecloak qualification was recorded automatically.`
     });
     return;
   }
@@ -482,14 +491,10 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
       throw new UserFacingError("That Runecloak completion control is no longer valid.");
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
-    assertRunecloakCaptain(actor);
-    const eligibleDiscordIds = parseDiscordUserIds(interaction.message.embeds.flatMap((embed) => (
-      embed.fields.map(({ value }) => value)
-    )).join("\n"));
-    if (!eligibleDiscordIds.length) {
-      throw new UserFacingError("The completion preview does not contain any eligible Rangers. Run `/runecloak cycle complete` again.");
+    if (!await isRunecloakGuide(actor)) {
+      throw new UserFacingError("A Runecloak Guide is required to record GM research approval.");
     }
-    await interaction.showModal(runecloakGrantModal(cycleId, eligibleDiscordIds));
+    await interaction.showModal(runecloakApprovalModal(cycleId));
     return;
   }
 
@@ -500,14 +505,14 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
       throw new UserFacingError("That application review is no longer valid.");
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
+    if (!await isRunecloakGuide(actor)) {
+      throw new UserFacingError("A Runecloak Guide is required to review applications.");
+    }
     if (reviewAction === "deny" || reviewAction === "revision") {
       await interaction.showModal(runecloakReviewNoteModal({ target: "application", action: reviewAction, id: applicationId }));
       return;
     }
     if (reviewAction === "request-survey") {
-      if (!await isAuthorizedRunecloakMarshal(actor)) {
-        throw new UserFacingError("An authorized Runecloak Marshal or Captain is required to request surveys.");
-      }
       await interaction.deferReply({ ephemeral: true });
       const details = await transitionRunecloakApplication({
         guildId: interaction.guild.id,
@@ -519,15 +524,24 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
         interaction.guild,
         details,
         "Runecloak Survey Requested",
-        "Scout a place in Skyrim that is resonant with Magicka. Add it to the Atlas, file a short Ranger report, then submit both references with `/runecloak survey`. A screenshot is encouraged."
+        "Conduct a serious field survey of a place in Skyrim that seems promising for the study of nature, runes, wilderness fieldcraft, or practical magic. Mark it on the Atlas; search nearby Atlas records, Ranger reports, and available intelligence; ask people familiar with the area; and document what you learned, how to reach it, any hazards, and why it seems worth revisiting. You are not expected to identify magical phenomena as an expert, and you should not take unnecessary risks to prove a site's value. Then use **Submit Field Survey** at the Runecloak Desk. The form includes an optional place for an Imgur or Discord image link."
       );
       await refreshRunecloakApplicationReview(interaction.guild, applicationId);
       await interaction.editReply({ content: "The applicant will receive the survey dispatch in their next briefing." });
       return;
     }
     if (reviewAction === "approve") {
-      assertRunecloakCaptain(actor);
       await interaction.deferReply({ ephemeral: true });
+      const before = await getRunecloakApplicationDetails(applicationId);
+      if (before?.site?.status === "Proposed") {
+        const approvedSite = await reviewRunecloakSite({
+          guildId: interaction.guild.id,
+          siteId: before.site.id,
+          outcome: "Approved",
+          actorDiscordUserId: actor.id
+        });
+        await upsertRunecloakSitePost(interaction.guild, approvedSite);
+      }
       const details = await transitionRunecloakApplication({
         guildId: interaction.guild.id,
         applicationId,
@@ -538,11 +552,16 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
         interaction.guild,
         details,
         "Runecloak Admission Approved",
-        "Your survey has been accepted. You are now in the waiting pool for a future locked study cycle. This does not yet grant the Runecloak qualification."
+        "Your field survey has been accepted and you are now a Runecloak Learner. You now have access to `#runecloak-learner` and the Runecloak Expeditions Forum. You may join any currently open expedition immediately, and your valid participation will count toward your personal study and the shared campaign. This does not yet grant the full Runecloak qualification."
       );
       await refreshRunecloakApplicationReview(interaction.guild, applicationId);
       await refreshRunecloakDesk(interaction.guild);
-      await interaction.editReply({ content: "The applicant is now approved for the Runecloak waiting pool." });
+      await reconcileRunecloakRoles(interaction.guild);
+      const currentCycle = await getCurrentRunecloakCycle(interaction.guild.id);
+      await Promise.all((currentCycle?.stages ?? [])
+        .filter(({ status }) => status === "Open")
+        .map(({ id }) => refreshRunecloakStagePost(interaction.guild, id)));
+      await interaction.editReply({ content: "The applicant is now a Runecloak Learner and may record counted participation in any currently open expedition." });
       return;
     }
   }
@@ -554,12 +573,12 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
       throw new UserFacingError("That research-site review is no longer valid.");
     }
     const actor = await interaction.guild.members.fetch(interaction.user.id);
+    if (!await isRunecloakGuide(actor)) {
+      throw new UserFacingError("A Runecloak Guide is required to review research sites.");
+    }
     if (reviewAction === "deny" || reviewAction === "revision") {
       await interaction.showModal(runecloakReviewNoteModal({ target: "site", action: reviewAction, id: siteId }));
       return;
-    }
-    if (!await isAuthorizedRunecloakMarshal(actor)) {
-      throw new UserFacingError("An authorized Runecloak Marshal or Captain is required to review research sites.");
     }
     await interaction.deferReply({ ephemeral: true });
     const outcome = reviewAction === "approve" ? "Approved" : reviewAction === "retire" ? "Retired" : null;
@@ -574,7 +593,7 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
     });
     await upsertRunecloakSitePost(interaction.guild, details);
     await refreshRunecloakApplicationReview(interaction.guild, details.application.id);
-    await interaction.editReply({ content: outcome === "Approved" ? "The research site is approved. A Captain may now approve the admission." : "The research site has been retired from active use." });
+    await interaction.editReply({ content: outcome === "Approved" ? "The research site is approved. A Guide may now approve the admission." : "The research site has been retired from active use." });
     return;
   }
 
@@ -588,12 +607,20 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
     const ranger = await supabase.from("rangers").select("id").eq("discord_user_id", member.id).maybeSingle();
     assertNoDbError(ranger.error, "check Runecloak participant");
     const stage = await getRunecloakStage(stageId);
-    const cycleMember = ranger.data
-      ? await supabase.from("runecloak_cycle_members").select("id, participation_status").eq("cycle_id", stage?.cycle.id ?? "").eq("ranger_id", ranger.data.id).maybeSingle()
-      : { data: null, error: null };
-    assertNoDbError(cycleMember.error, "check active Runecloak learner");
-    if (cycleMember.data?.participation_status === "Active") {
-      const priorRoll = stage?.participation.find((entry) => entry.ranger_id === ranger.data?.id && entry.roll_value !== null && entry.status !== "rejected");
+    const [membership, stageEligibility] = ranger.data
+      ? await Promise.all([
+        supabase.from("runecloak_memberships").select("id, status").eq("guild_id", interaction.guild.id).eq("ranger_id", ranger.data.id).maybeSingle(),
+        supabase.from("runecloak_stage_eligible_learners").select("ranger_id").eq("stage_id", stageId).eq("ranger_id", ranger.data.id).maybeSingle()
+      ])
+      : [{ data: null, error: null }, { data: null, error: null }];
+    assertNoDbError(membership.error, "check active Runecloak learner");
+    assertNoDbError(stageEligibility.error, "check Runecloak stage eligibility");
+    const isCountingMember = Boolean(stageEligibility.data)
+      && (membership.data?.status === "Learner" || membership.data?.status === "Qualified");
+    const priorRoll = stage?.participation.find((entry) =>
+      entry.ranger_id === ranger.data?.id && entry.roll_value !== null && entry.status !== "rejected"
+    );
+    if (isCountingMember) {
       if (!priorRoll) {
         await interaction.showModal(runecloakRollModal(stageId, slot));
         return;
@@ -605,44 +632,18 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
       stageId,
       regionalSlot: slot,
       member,
-      rollValue: cycleMember.data?.participation_status === "Active" ? stage?.participation.find((entry) => entry.ranger_id === ranger.data?.id && entry.roll_value !== null)?.roll_value ?? null : null
+      rollValue: isCountingMember ? priorRoll?.roll_value ?? null : null
     });
     await refreshRunecloakStagePost(interaction.guild, stageId);
     await interaction.editReply({
       content: result.kind === "observer"
         ? `You are listed as a non-counting observer for the ${slot} expedition.`
-        : `Your ${slot} attendance is recorded. Your existing paired-stage roll remains **${result.participation.roll_value}**.`
+        : `Your ${slot} attendance is recorded. Your existing paired-stage roll remains **${priorRoll?.roll_value}**.`
     });
     return;
   }
 
   throw new UserFacingError("That Runecloak control is no longer valid.");
-}
-
-export async function addRunecloakSurveyScreenshot(input: {
-  guild: Guild;
-  discordUserId: string;
-  screenshotUrl: string;
-}): Promise<RunecloakApplicationDetails> {
-  const ranger = await supabase.from("rangers").select("id").eq("discord_user_id", input.discordUserId).maybeSingle();
-  assertNoDbError(ranger.error, "get Runecloak applicant");
-  if (!ranger.data) {
-    throw new UserFacingError("You do not have a Ranger Corps record.");
-  }
-  const application = await getOpenRunecloakApplication(ranger.data.id);
-  const details = application ? await getRunecloakApplicationDetails(application.id) : null;
-  if (!details?.site || !["Proposed", "Revision Requested", "Approved"].includes(details.site.status)) {
-    throw new UserFacingError("Submit your Runecloak survey before attaching its screenshot.");
-  }
-  const { error } = await supabase.from("runecloak_research_sites").update({ screenshot_url: input.screenshotUrl }).eq("id", details.site.id);
-  assertNoDbError(error, "attach Runecloak survey screenshot");
-  const refreshed = await getRunecloakApplicationDetails(details.application.id);
-  if (!refreshed) {
-    throw new Error("The updated Runecloak survey could not be loaded.");
-  }
-  await upsertRunecloakSitePost(input.guild, refreshed);
-  await refreshRunecloakApplicationReview(input.guild, refreshed.application.id);
-  return refreshed;
 }
 
 export async function upsertRunecloakSitePost(guild: Guild, details: RunecloakApplicationDetails): Promise<void> {
@@ -715,11 +716,11 @@ export async function refreshRunecloakStagePost(guild: Guild, stageId: string): 
 
 export async function refreshRunecloakApplicationReview(guild: Guild, applicationId: string): Promise<void> {
   const details = await getRunecloakApplicationDetails(applicationId);
-  if (!details?.application.strongbox_channel_id || !details.application.strongbox_message_id) {
+  if (!details?.application.review_channel_id || !details.application.review_message_id) {
     return;
   }
-  const channel = await fetchTextChannel(guild, details.application.strongbox_channel_id);
-  const message = await channel?.messages.fetch(details.application.strongbox_message_id).catch(() => null);
+  const channel = await fetchTextChannel(guild, details.application.review_channel_id);
+  const message = await channel?.messages.fetch(details.application.review_message_id).catch(() => null);
   await message?.edit({
     embeds: [runecloakApplicationReviewEmbed(guild, details)],
     components: runecloakApplicationReviewRows(details)
@@ -732,21 +733,27 @@ export async function reconcileRunecloakRoles(guild: Guild): Promise<{ added: nu
     return { added: 0, removed: 0 };
   }
   const qualificationId = await getRunecloakQualificationId();
-  const [members, qualificationsResult, rangersResult, team, currentCycle] = await Promise.all([
+  const [members, qualificationsResult, rangersResult, membershipsResult, team] = await Promise.all([
     guild.members.fetch(),
     supabase.from("ranger_qualifications").select("ranger_id").eq("qualification_id", qualificationId).is("revoked_at", null),
-    supabase.from("rangers").select("id, discord_user_id"),
-    listActiveRunecloakTeamAssignments(),
-    getCurrentRunecloakCycle(guild.id)
+    supabase.from("rangers").select("id, discord_user_id, status, current_rank"),
+    supabase.from("runecloak_memberships").select("ranger_id, status").eq("guild_id", guild.id).in("status", ["Learner", "Qualified"]),
+    listActiveRunecloakTeamAssignments()
   ]);
   assertNoDbError(qualificationsResult.error, "load Runecloak qualifications for role sync");
   assertNoDbError(rangersResult.error, "load Rangers for Runecloak role sync");
+  assertNoDbError(membershipsResult.error, "load active Runecloak memberships for role sync");
   const discordByRanger = new Map((rangersResult.data ?? []).map((ranger) => [ranger.id, ranger.discord_user_id]));
-  const qualified = new Set((qualificationsResult.data ?? []).map(({ ranger_id }) => discordByRanger.get(ranger_id)).filter(Boolean));
-  const learners = new Set((currentCycle?.members ?? [])
-    .filter(({ participation_status }) => participation_status === "Active")
+  const eligibleRangerIds = new Set((rangersResult.data ?? [])
+    .filter((ranger) => ranger.status === "Active" && ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"].includes(ranger.current_rank))
+    .map(({ id }) => id));
+  const qualified = new Set((qualificationsResult.data ?? [])
+    .filter(({ ranger_id }) => eligibleRangerIds.has(ranger_id))
     .map(({ ranger_id }) => discordByRanger.get(ranger_id)).filter(Boolean));
-  const organizers = new Set(team.filter(({ assignment_kind }) => assignment_kind === "organizer")
+  const learners = new Set((membershipsResult.data ?? [])
+    .filter(({ ranger_id, status }) => status === "Learner" && eligibleRangerIds.has(ranger_id))
+    .map(({ ranger_id }) => discordByRanger.get(ranger_id)).filter(Boolean));
+  const guides = new Set(team.filter(({ ranger_id, assignment_kind }) => assignment_kind === "guide" && eligibleRangerIds.has(ranger_id))
     .map(({ ranger_id }) => discordByRanger.get(ranger_id)).filter(Boolean));
   let added = 0;
   let removed = 0;
@@ -756,8 +763,8 @@ export async function reconcileRunecloakRoles(guild: Guild): Promise<{ added: nu
     }
     const changes = await Promise.all([
       syncRole(member, settings.qualification_role_id, qualified.has(member.id)),
-      settings.learner_role_id ? syncRole(member, settings.learner_role_id, learners.has(member.id)) : Promise.resolve(0),
-      settings.organizer_role_id ? syncRole(member, settings.organizer_role_id, organizers.has(member.id)) : Promise.resolve(0)
+      syncRole(member, settings.learner_role_id, learners.has(member.id)),
+      syncRole(member, settings.guide_role_id, guides.has(member.id))
     ]);
     added += changes.filter((change) => change === 1).length;
     removed += changes.filter((change) => change === -1).length;
@@ -774,26 +781,24 @@ export async function reconcileRunecloakMemberRoles(member: GuildMember): Promis
   assertNoDbError(rangerError, "get Ranger for Runecloak role sync");
   const qualificationId = await getRunecloakQualificationId();
   const eligibleRanger = Boolean(ranger && ranger.status === "Active" && ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"].includes(ranger.current_rank));
-  const [qualificationResult, teamResult, currentCycle] = await Promise.all([
+  const [qualificationResult, teamResult, membershipResult] = await Promise.all([
     ranger
       ? supabase.from("ranger_qualifications").select("id").eq("qualification_id", qualificationId).eq("ranger_id", ranger.id).is("revoked_at", null).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     ranger
       ? supabase.from("runecloak_team_assignments").select("assignment_kind").eq("ranger_id", ranger.id).eq("active", true)
       : Promise.resolve({ data: [], error: null }),
-    getCurrentRunecloakCycle(member.guild.id)
+    ranger
+      ? supabase.from("runecloak_memberships").select("status").eq("guild_id", member.guild.id).eq("ranger_id", ranger.id).maybeSingle()
+      : Promise.resolve({ data: null, error: null })
   ]);
   assertNoDbError(qualificationResult.error, "check Ranger Runecloak qualification");
   assertNoDbError(teamResult.error, "check Runecloak team role");
-  const cycleMember = ranger ? currentCycle?.members.find(({ ranger_id }) => ranger_id === ranger.id) : null;
+  assertNoDbError(membershipResult.error, "check Runecloak learner membership");
   await Promise.all([
     syncRole(member, settings.qualification_role_id, Boolean(qualificationResult.data)),
-    settings.learner_role_id
-      ? syncRole(member, settings.learner_role_id, eligibleRanger && cycleMember?.participation_status === "Active")
-      : Promise.resolve(0),
-    settings.organizer_role_id
-      ? syncRole(member, settings.organizer_role_id, eligibleRanger && (teamResult.data ?? []).some(({ assignment_kind }) => assignment_kind === "organizer"))
-      : Promise.resolve(0)
+    syncRole(member, settings.learner_role_id, eligibleRanger && membershipResult.data?.status === "Learner"),
+    syncRole(member, settings.guide_role_id, eligibleRanger && (teamResult.data ?? []).some(({ assignment_kind }) => assignment_kind === "guide"))
   ]);
 }
 
@@ -827,23 +832,27 @@ export async function publishRunecloakCycleQualifications(guild: Guild, cycleId:
 export async function runecloakCompletionPreviewPayload(guild: Guild, cycleId: string) {
   const preview = await getRunecloakCycleCompletionPreview(cycleId);
   const eligible = preview.candidates.filter(({ eligible }) => eligible);
-  if (!eligible.length) {
-    throw new UserFacingError("No learners currently meet the personal attendance requirement for this grant.");
-  }
   const ineligible = preview.candidates.filter(({ eligible: isEligible }) => !isEligible);
-  const embed = emojiEmbed(guild, "runecloak", `Review Final Grant: ${preview.details.cycle.label}`)
+  const embed = emojiEmbed(guild, "runecloak", `Record GM Research Approval: ${preview.details.cycle.label}`)
     .setDescription([
       `**Study:** ${preview.details.spell.name}`,
       `**Shared record:** ${preview.details.cycle.verified_points.toLocaleString()} / ${preview.details.cycle.point_target.toLocaleString()} verified points across ${preview.validStageCount} valid paired stages.`,
-      "The list below is prefilled from Wayfinder's attendance record. Continue only after Moonshadow confirms the actual recipients. Remove anyone Moonshadow did not approve in the final form."
+      "Record the GM ticket or approval reference once. This approves the spell for learners who meet their personal requirements, but it does not claim that anyone has received the spell in game. A Guide records each actual delivery separately after the learner and GM meet in game."
     ].join("\n"))
     .setColor(0x5b7fc4);
-  addLineFields(embed, "Eligible grant recipients", eligible.map((candidate) => (
-    `${rangerDisplayName(candidate.ranger)} <@${candidate.ranger.discord_user_id}> - ${candidate.retainedAttendanceCredits}/${candidate.requiredAttendanceCredits} attendance credits`
-  )));
+  if (eligible.length) {
+    addLineFields(embed, "Ready for in-game delivery", eligible.map((candidate) => (
+      `${rangerDisplayName(candidate.ranger)} <@${candidate.ranger.discord_user_id}> - ${candidate.verifiedPoints}/${candidate.requiredPoints} points; ${candidate.verifiedStages}/${candidate.requiredStages} valid paired expeditions`
+    )));
+  } else {
+    embed.addFields({
+      name: "Ready for in-game delivery",
+      value: "None yet. The shared research may still be approved now; later learners become delivery-eligible automatically when their personal requirements are met."
+    });
+  }
   if (ineligible.length) {
     addLineFields(embed, "Not eligible", ineligible.map((candidate) => (
-      `${rangerDisplayName(candidate.ranger)} - ${candidate.retainedAttendanceCredits}/${candidate.requiredAttendanceCredits} attendance credits (${candidate.participationStatus})`
+      `${rangerDisplayName(candidate.ranger)} - ${candidate.verifiedPoints}/${candidate.requiredPoints} points; ${candidate.verifiedStages}/${candidate.requiredStages} expeditions (${candidate.membershipStatus})`
     )));
   }
   return {
@@ -851,7 +860,7 @@ export async function runecloakCompletionPreviewPayload(guild: Guild, cycleId: s
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`runecloak:complete:${cycleId}`)
-        .setLabel("Record Moonshadow Grant")
+        .setLabel("Record GM Approval")
         .setStyle(ButtonStyle.Success)
     )],
     allowedMentions: { parse: [] as const }
@@ -877,10 +886,10 @@ async function dispatchRunecloakCycleCompletion(guildId: string, before: Awaited
     guildId,
     audience: "individual",
     targetDiscordUserId: discordUserId,
-    title: member.participation_status === "Completed" ? `${after.spell.name} Study Confirmed` : `${after.spell.name} Study Record Retained`,
-    body: member.participation_status === "Completed"
-      ? `Moonshadow confirmed your completion of **${after.spell.name}**.${after.spell.sequence === 1 ? " You now hold the Ranger Runecloak qualification." : ""}`
-      : `This study cycle has ended. Your verified attendance credit remains on record for a later **${after.spell.name}** cycle; your old roll points will not be counted again.`,
+    title: member.participation_status === "Eligible for Delivery" ? `${after.spell.name} Ready for Delivery` : `${after.spell.name} Study Record Retained`,
+    body: member.participation_status === "Eligible for Delivery"
+      ? `The GMs approved the shared **${after.spell.name}** research and you have met its personal study requirements. You still need to arrange an in-game ticket and be online with a GM before a Guide records the spell as delivered.`
+      : `The GMs approved the shared **${after.spell.name}** research. Your verified personal work remains attached to that spell, and you may continue toward its requirement in later expeditions. Points do not transfer to another spell.`,
     sourceKind: "runecloak-cycle-result",
     sourceId: `${after.cycle.id}:${member.ranger_id}`
   })));
@@ -888,50 +897,45 @@ async function dispatchRunecloakCycleCompletion(guildId: string, before: Awaited
 
 export async function runecloakStatusPayload(guild: Guild) {
   const settings = await requireRunecloakSettings(guild.id);
-  const cycle = await getCurrentRunecloakCycle(guild.id);
-  const approvedApplications = await listRunecloakApplications(["Approved"]);
-  const selectedRangerIds = new Set(cycle?.members.map(({ ranger_id }) => ranger_id) ?? []);
-  let qualifiedRangerIds = new Set<string>();
-  const approvedRangerIds = approvedApplications.map(({ applicant }) => applicant.id);
-  if (approvedRangerIds.length) {
-    const { data: qualification, error: qualificationError } = await supabase
-      .from("corps_qualifications")
-      .select("id")
-      .eq("slug", "ranger-runecloak")
-      .maybeSingle();
-    assertNoDbError(qualificationError, "get Runecloak qualification for waiting pool");
-    if (qualification) {
-      const { data: awards, error: awardsError } = await supabase
-        .from("ranger_qualifications")
-        .select("ranger_id")
-        .eq("qualification_id", qualification.id)
-        .is("revoked_at", null)
-        .in("ranger_id", approvedRangerIds);
-      assertNoDbError(awardsError, "get qualified Rangers for waiting pool");
-      qualifiedRangerIds = new Set((awards ?? []).map(({ ranger_id }) => ranger_id));
-    }
-  }
-  const approved = approvedApplications.filter(({ applicant }) => (
-    !selectedRangerIds.has(applicant.id) && !qualifiedRangerIds.has(applicant.id)
-  )).length;
+  const [cycle, membershipsResult, unlocksResult, spells] = await Promise.all([
+    getCurrentRunecloakCycle(guild.id),
+    supabase.from("runecloak_memberships").select("ranger_id, status").eq("guild_id", guild.id).in("status", ["Learner", "Qualified"]),
+    supabase.from("runecloak_spell_unlocks").select("spell_id, unlocked_at").eq("guild_id", guild.id).order("unlocked_at"),
+    listRunecloakSpells()
+  ]);
+  assertNoDbError(membershipsResult.error, "load Runecloak memberships for status");
+  assertNoDbError(unlocksResult.error, "load unlocked Runecloak spells for status");
+  const activeMemberships = membershipsResult.data ?? [];
+  const learners = activeMemberships.filter(({ status }) => status === "Learner").length;
+  const spellNameById = new Map(spells.map((spell) => [spell.id, spell.name]));
+  const unlockedSpells = (unlocksResult.data ?? []).map(({ spell_id }) => spellNameById.get(spell_id)).filter(Boolean);
   const embed = emojiEmbed(guild, "runecloak", "Runecloak Study Record")
-    .setDescription(`**Program:** ${settings.program_state}`)
-    .addFields({ name: "Approved waiting pool", value: `${approved}`, inline: true })
+    .setDescription(`**Program:** ${settings.program_state}\n**Admissions:** ${settings.admissions_open ? "Open" : "Closed"}`)
+    .addFields(
+      { name: "Active Runecloaks and learners", value: `${activeMemberships.length}`, inline: true },
+      { name: "Learners pursuing first spell", value: `${learners}`, inline: true },
+      { name: "GM-approved shared research", value: unlockedSpells.join(", ") || "None yet" }
+    )
     .setColor(0x5b7fc4);
   if (cycle) {
+    const currentStage = [...cycle.stages].reverse().find(({ status }) => status === "Open" || status === "Ready for Review");
     embed.addFields(
       { name: "Current study", value: cycle.spell.name, inline: true },
-      { name: "Company", value: cycle.cycle.label, inline: true },
-      { name: "Cycle status", value: cycle.cycle.status, inline: true },
+      { name: "Campaign", value: cycle.cycle.label, inline: true },
+      { name: "Campaign status", value: cycle.cycle.status, inline: true },
       {
         name: "Verified progress",
         value: `${runecloakProgressBar(cycle.cycle.verified_points, cycle.cycle.point_target)} ${cycle.cycle.verified_points.toLocaleString()} / ${cycle.cycle.point_target.toLocaleString()}`
       },
-      { name: "Locked roster", value: `${cycle.cycle.locked_roster_count ?? cycle.members.length}`, inline: true },
-      { name: "Stage quorum", value: `${cycle.cycle.required_stage_attendance ?? "Not locked"}`, inline: true }
+      { name: "Active membership", value: `${activeMemberships.length}`, inline: true },
+      {
+        name: "Current paired-stage quorum",
+        value: currentStage ? `${currentStage.required_unique_attendance} of ${currentStage.eligible_learner_count}` : "No pair is open",
+        inline: true
+      }
     );
   } else {
-    embed.addFields({ name: "Current study", value: "No official cycle is active." });
+    embed.addFields({ name: "Current study", value: "No official research campaign is active." });
   }
   return { embeds: [embed] };
 }
@@ -942,12 +946,14 @@ export async function runecloakPersonalRecordPayload(guild: Guild, discordUserId
   if (!rangerResult.data) {
     throw new UserFacingError("You do not have a Ranger Corps record.");
   }
-  const [application, qualifications, spellProgress, currentCycle] = await Promise.all([
+  const [application, qualifications, spellProgress, currentCycle, membershipResult] = await Promise.all([
     getLatestRunecloakApplication(rangerResult.data.id),
     listRangerQualifications(rangerResult.data.id),
-    listRunecloakSpellProgress(rangerResult.data.id),
-    getCurrentRunecloakCycle(guild.id)
+    listRunecloakSpellProgress(rangerResult.data.id, guild.id),
+    getCurrentRunecloakCycle(guild.id),
+    supabase.from("runecloak_memberships").select("status, preferred_regional_slot").eq("guild_id", guild.id).eq("ranger_id", rangerResult.data.id).maybeSingle()
   ]);
+  assertNoDbError(membershipResult.error, "load personal Runecloak membership");
   const applicationDetails = application ? await getRunecloakApplicationDetails(application.id) : null;
   const cycleMember = currentCycle?.members.find(({ ranger_id }) => ranger_id === rangerResult.data?.id);
   const embed = emojiEmbed(guild, "runecloak", `Runecloak Record: ${rangerDisplayName(rangerResult.data)}`)
@@ -955,12 +961,13 @@ export async function runecloakPersonalRecordPayload(guild: Guild, discordUserId
     .addFields(
       { name: "Application", value: application?.status ?? (qualifications.length ? "Completed" : "Not filed"), inline: true },
       { name: "Entry survey", value: applicationDetails?.site ? `${applicationDetails.site.status}: ${applicationDetails.site.name}` : "Not submitted", inline: true },
+      { name: "Membership", value: membershipResult.data ? `${membershipResult.data.status} (${membershipResult.data.preferred_regional_slot ?? "Flexible"})` : "Not admitted", inline: true },
       { name: "Qualification", value: qualifications.map(({ name }) => name).join("\n") || "Not yet held", inline: true },
-      { name: "Current cycle", value: cycleMember ? `${currentCycle?.spell.name}: ${cycleMember.participation_status}` : "Not selected", inline: true },
+      { name: "Current campaign", value: cycleMember ? `${currentCycle?.spell.name}: ${cycleMember.participation_status}` : "Not currently participating", inline: true },
       {
         name: "Spell studies",
         value: spellProgress.length
-          ? spellProgress.map(({ progress, spell }) => `${progress.status === "completed" ? "Complete" : "In progress"}: **${spell.name}** (${progress.verified_attendance_credits}/${progress.required_attendance_credits} attendance credits)`).join("\n")
+          ? spellProgress.map(({ progress, spell, unlock }) => `${progress.status === "completed" ? "Delivered in game" : progress.status === "eligible" && unlock ? "Ready for in-game delivery" : progress.status === "eligible" ? "Personal requirement met; awaiting shared GM approval" : "In progress"}: **${spell.name}** (${progress.verified_points}/${progress.required_points} points; ${progress.verified_valid_stages}/${progress.required_valid_stages} valid paired expeditions)`).join("\n")
           : "No confirmed spell study yet."
       }
     );
@@ -989,6 +996,7 @@ export async function runecloakAuditAttachment(guildId: string, cycleId?: string
 }
 
 async function runecloakDeskPayload(guild: Guild) {
+  const settings = await requireRunecloakSettings(guild.id);
   const status = await runecloakStatusPayload(guild);
   const baseEmbed = status.embeds[0];
   if (!baseEmbed) {
@@ -997,17 +1005,21 @@ async function runecloakDeskPayload(guild: Guild) {
   const embed = EmbedBuilder.from(baseEmbed)
     .setTitle(`${guildEmoji(guild, "runecloak") ? `${guildEmoji(guild, "runecloak")} - ` : ""}Ranger Runecloak Desk`)
     .setDescription([
-      "Runecloak applications, research-site surveys, and current study records are kept here.",
-      "Every applicant, including the original organizing group, must scout a Magicka-resonant place in Skyrim, add it to the Atlas, and file a Ranger report before admission.",
-      "A screenshot is encouraged."
+      "The Runecloaks are an open Ranger+ field-research and training specialization: serious magical study for useful Corps fieldcraft, not a separate magical institution.",
+      `**Admission:** Rangers apply, and the Runecloak Guides may request a field survey. Marshal+ may begin with the survey, but nobody skips it. An approved survey grants the Runecloak Learner role and access to <#${settings.learner_channel_id}>. Admissions stay open during research, and a newly admitted learner can join any currently open expedition immediately.`,
+      `**Where things happen:** Application and survey buttons open private Discord forms. Guide reviews stay in <#${settings.application_review_channel_id}>. Approved research sites and each paired EU/NA expedition receive their own durable post in <#${settings.expedition_forum_id}>; that Forum is not another submission form.`,
+      "**Field survey:** Find a place that seems promising for studying nature, runes, wilderness fieldcraft, or practical magic. Mark it on the Atlas, search nearby Atlas entries and existing Ranger or intelligence reports, ask people familiar with the area, and document what you learned, access, hazards, and why it seems worth revisiting. No magical expertise is expected. The form accepts an optional Imgur or Discord image link.",
+      "**Risks:** This is serious field research. Hostile terrain, wildlife, ruins, and unstable or poorly understood magic may all be involved. Participation is voluntary; follow normal Corps safety practice and do not take unnecessary risks to produce a survey or roll.",
+      `**Progress:** Shared research becomes ready for GM approval at **${settings.point_target.toLocaleString()} verified points**. An individual needs **${settings.personal_point_requirement.toLocaleString()} verified points across at least ${settings.personal_stage_requirement} valid paired expeditions**. Extra points still help the shared target but do not carry into another spell.`,
+      `EU and NA sessions each observe their own **${settings.regional_cooldown_hours}-hour cooldown**. The same expedition may advance the active shared campaign while a late learner studies their earliest unfinished spell. Receiving your first spell in game grants the full Runecloak qualification.`
     ].join("\n\n"));
   return {
     embeds: [embed],
     components: [
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId("runecloak:apply").setLabel("Apply").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId("runecloak:survey").setLabel("Submit Survey").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId("runecloak:record").setLabel("My Record").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("runecloak:apply").setLabel("Apply (Ranger+)").setStyle(ButtonStyle.Primary).setDisabled(!settings.admissions_open),
+        new ButtonBuilder().setCustomId("runecloak:survey").setLabel("Submit Field Survey").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("runecloak:record").setLabel("My Progress").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId("runecloak:status").setLabel("Current Study").setStyle(ButtonStyle.Secondary)
       )
     ]
@@ -1021,24 +1033,28 @@ function runecloakApplicationReviewEmbed(guild: Guild, details: RunecloakApplica
     .addFields(
       { name: "Applicant", value: `<@${details.applicant.discord_user_id}> - ${rangerDisplayName(details.applicant)}`, inline: true },
       { name: "Current rank", value: details.applicant.current_rank, inline: true },
-      { name: "Why they seek the qualification", value: details.application.reason.slice(0, 1024) },
+      { name: "Entry path", value: details.application.initial_screening_skipped ? "Marshal+ direct field survey" : "Standard application and screening", inline: true },
+      { name: "Why they seek the qualification", value: details.application.reason?.slice(0, 1024) || "Initial application screening skipped for Marshal+." },
       { name: "Relevant field or magical experience", value: details.application.experience?.slice(0, 1024) || "None recorded." },
-      { name: "Availability", value: details.application.availability.slice(0, 1024) },
-      { name: "Other loyalties, duties, or conflicts", value: details.application.loyalties_conflicts?.slice(0, 1024) || "None recorded." }
+      { name: "Availability", value: details.application.availability?.slice(0, 1024) || "Not collected on the Marshal+ direct path." },
+      { name: "Regional preference", value: details.application.preferred_regional_slot ?? "Flexible / not recorded", inline: true },
+      { name: "Other duties or scheduling conflicts", value: details.application.loyalties_conflicts?.slice(0, 1024) || "None recorded." }
     )
     .setColor(details.application.status === "Approved" ? 0x4f8f5b : details.application.status === "Denied" ? 0xa43b3b : 0x5b7fc4)
     .setTimestamp(new Date(details.application.updated_at));
   if (site) {
-    embed.addFields({
-      name: "Entry survey",
-      value: [
-        `**${site.name}**, ${site.hold_region}`,
-        `Atlas: ${site.atlas_reference}`,
-        `[Ranger report](${site.report_url})`,
-        site.screenshot_url ? `[Screenshot](${site.screenshot_url})` : "No screenshot attached.",
-        `Site status: **${site.status}**${site.forum_thread_id ? ` - <#${site.forum_thread_id}>` : ""}`
-      ].join("\n").slice(0, 1024)
-    });
+    embed.addFields(
+      {
+        name: "Entry survey",
+        value: [
+          `**${site.name}**, ${site.hold_region}`,
+          `Atlas location code/reference: ${site.atlas_reference}`,
+          site.screenshot_url ? `[Screenshot](${site.screenshot_url})` : "No screenshot attached.",
+          `Site status: **${site.status}**${site.forum_thread_id ? ` - <#${site.forum_thread_id}>` : ""}`
+        ].join("\n").slice(0, 1024)
+      },
+      { name: "Why it seems worth revisiting", value: site.research_rationale.slice(0, 1024) }
+    );
   }
   if (details.application.review_note) {
     embed.addFields({ name: "Latest review note", value: details.application.review_note.slice(0, 1024) });
@@ -1061,10 +1077,11 @@ function runecloakApplicationReviewRows(details: RunecloakApplicationDetails): A
       new ButtonBuilder().setCustomId(`runecloak:application:deny:${details.application.id}`).setLabel("Deny").setStyle(ButtonStyle.Danger)
     )];
   }
-  if (status === "Survey Submitted") {
+  if (status === "Survey Submitted" && details.site?.status === "Proposed") {
     return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`runecloak:application:approve:${details.application.id}`).setLabel("Approve Survey & Admit").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`runecloak:application:revision:${details.application.id}`).setLabel("Request Revision").setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`runecloak:application:deny:${details.application.id}`).setLabel("Deny").setStyle(ButtonStyle.Danger)
+      new ButtonBuilder().setCustomId(`runecloak:site:deny:${details.site.id}`).setLabel("Reject").setStyle(ButtonStyle.Danger)
     )];
   }
   return [];
@@ -1076,13 +1093,12 @@ function runecloakSitePayload(guild: Guild, details: RunecloakApplicationDetails
     throw new Error("A Runecloak research-site payload requires a site.");
   }
   const embed = emojiEmbed(guild, "runecloak", `Research Site: ${site.name}`)
-    .setDescription(site.resonance_description)
+    .setDescription(site.research_rationale)
     .addFields(
       { name: "Hold or region", value: site.hold_region, inline: true },
       { name: "Status", value: site.status, inline: true },
       { name: "Surveyed by", value: rangerDisplayName(details.applicant), inline: true },
-      { name: "Atlas reference", value: site.atlas_reference.slice(0, 1024) },
-      { name: "Ranger report", value: `[Open report](${site.report_url})` }
+      { name: "Atlas location code/reference", value: site.atlas_reference.slice(0, 1024) }
     )
     .setColor(site.status === "Approved" ? 0x4f8f5b : site.status === "Rejected" || site.status === "Retired" ? 0x747f8d : 0x5b7fc4)
     .setTimestamp(new Date(site.updated_at));
@@ -1118,25 +1134,86 @@ function runecloakStagePayload(guild: Guild, details: NonNullable<Awaited<Return
     const scheduled = session?.planned_at ? `<t:${Math.floor(new Date(session.planned_at).getTime() / 1000)}:F>` : "Not scheduled";
     return `**${slot}:** ${scheduled} - ${session?.status ?? "Missing"}`;
   };
+  const sessionRecord = (slot: "EU" | "NA") => {
+    const session = details.sessions.find(({ regional_slot }) => regional_slot === slot);
+    if (!session || session.status === "Planned") {
+      return "The expedition record has not been submitted yet.";
+    }
+    return [
+      `**Status:** ${session.status}`,
+      session.actual_at ? `**Held:** <t:${Math.floor(new Date(session.actual_at).getTime() / 1000)}:F>` : null,
+      session.leader_discord_user_id ? `**Guide/leader:** <@${session.leader_discord_user_id}>` : null,
+      session.recording_url ? `**Evidence:** [Open recording](${session.recording_url})` : null,
+      session.verification_basis ? `**Verified from:** ${session.verification_basis === "present" ? "direct attendance" : "recording review"}` : null,
+      session.lesson_summary ? `**Lesson:** ${session.lesson_summary.slice(0, 320)}` : null,
+      session.study_method ? `**Method:** ${session.study_method.slice(0, 320)}` : null,
+      session.moonshadow_reference ? `**Reference:** ${session.moonshadow_reference.slice(0, 200)}` : null
+    ].filter((line): line is string => Boolean(line)).join("\n").slice(0, 1024);
+  };
   const embed = emojiEmbed(guild, "runecloak", `${details.spell.name} Stage ${details.stage.sequence}: ${details.stage.title}`)
-    .setDescription(details.stage.theme)
+    .setDescription(`${details.stage.theme}\n\nValid participation advances the shared campaign and each learner's earliest unfinished spell.`)
     .addFields(
-      { name: "Study window", value: details.stage.cooldown_label, inline: true },
+      { name: "Regional cooldowns", value: "EU and NA each reset independently after 72 hours.", inline: true },
       { name: "Stage status", value: details.stage.status, inline: true },
       { name: "Sessions", value: `${sessionLine("EU")}\n${sessionLine("NA")}` },
+      { name: "EU expedition record", value: sessionRecord("EU") },
+      { name: "NA expedition record", value: sessionRecord("NA") },
       { name: "Attendance", value: `${uniqueLearners.size} / ${details.stage.required_unique_attendance} unique learners`, inline: true },
       { name: "Points", value: `${details.stage.verified_points} verified${pendingPoints ? `, ${pendingPoints} pending` : ""}`, inline: true },
       { name: "Notes", value: details.stage.notes?.slice(0, 1024) ?? "No additional notes." }
     )
     .setColor(details.stage.status === "Valid" ? 0x4f8f5b : details.stage.status === "Invalid" ? 0xa43b3b : 0x5b7fc4)
     .setTimestamp(new Date(details.stage.updated_at));
-  const components = details.stage.status === "Open"
-    ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`runecloak:participate:EU:${details.stage.id}`).setLabel("Record EU Participation").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`runecloak:participate:NA:${details.stage.id}`).setLabel("Record NA Participation").setStyle(ButtonStyle.Primary)
-    )]
+  const openSessionButtons = details.stage.status === "Open"
+    ? details.sessions
+      .filter(({ status }) => status === "Planned" || status === "Submitted")
+      .map((session) => new ButtonBuilder()
+        .setCustomId(`runecloak:participate:${session.regional_slot}:${details.stage.id}`)
+        .setLabel(`Record ${session.regional_slot} Participation`)
+        .setStyle(ButtonStyle.Primary))
+    : [];
+  const components = openSessionButtons.length
+    ? [new ActionRowBuilder<ButtonBuilder>().addComponents(openSessionButtons)]
     : [];
   return { embeds: [embed], components };
+}
+
+async function ensureRunecloakApplicationReview(
+  guild: Guild,
+  details: RunecloakApplicationDetails
+): Promise<RunecloakApplicationDetails> {
+  if (
+    details.application.review_channel_id
+    && details.application.review_message_id
+    && details.application.review_thread_id
+  ) {
+    return details;
+  }
+  const settings = await requireRunecloakSettings(guild.id);
+  const channel = await fetchTextChannel(guild, settings.application_review_channel_id);
+  if (!channel) {
+    throw new UserFacingError("The private Runecloak application channel is unavailable. Run `/runecloak setup` again.");
+  }
+  const reason = `Runecloak application from ${rangerDisplayName(details.applicant)}`;
+  const message = await channel.send({
+    embeds: [runecloakApplicationReviewEmbed(guild, details)],
+    components: runecloakApplicationReviewRows(details),
+    allowedMentions: { parse: [] }
+  });
+  const thread = await message.startThread({
+    name: `Runecloak Application - ${rangerDisplayName(details.applicant)}`.slice(0, 100),
+    autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+    reason
+  });
+  return {
+    ...details,
+    application: await attachRunecloakApplicationReview({
+      applicationId: details.application.id,
+      channelId: channel.id,
+      messageId: message.id,
+      threadId: thread.id
+    })
+  };
 }
 
 async function notifyRunecloakApplicant(guild: Guild, details: RunecloakApplicationDetails, title: string, body: string): Promise<void> {
@@ -1152,71 +1229,53 @@ async function notifyRunecloakApplicant(guild: Guild, details: RunecloakApplicat
 }
 
 async function configureRunecloakChannelPermissions(input: {
-  informationChannel: TextChannel;
-  discussionChannel: TextChannel;
+  deskChannel: TextChannel;
+  applicationReviewChannel: TextChannel;
+  runecloakChannel: TextChannel;
+  learnerChannel: TextChannel;
   expeditionForum: ForumChannel;
   qualificationRole: Role;
-  organizerRole: Role | null;
+  guideRole: Role;
   learnerRole: Role;
 }): Promise<void> {
-  const guild = input.informationChannel.guild;
+  const guild = input.deskChannel.guild;
   const botId = guild.client.user.id;
+  const captainRoleId = roleIdForRank("Ranger Captain");
   await Promise.all([
-    input.informationChannel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }),
-    input.informationChannel.permissionOverwrites.edit(roleIdForRank("Ranger"), {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: false
-    }),
-    input.informationChannel.permissionOverwrites.edit(botId, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: true,
-      EmbedLinks: true,
-      ManageMessages: true
-    }),
-    input.expeditionForum.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }),
-    input.expeditionForum.permissionOverwrites.edit(roleIdForRank("Ranger"), {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: false,
-      SendMessagesInThreads: true
-    }),
-    input.expeditionForum.permissionOverwrites.edit(botId, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: true,
-      SendMessagesInThreads: true,
-      CreatePublicThreads: true,
-      ManageThreads: true,
-      ManageChannels: true,
-      EmbedLinks: true
-    }),
-    input.discussionChannel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }),
-    input.discussionChannel.permissionOverwrites.edit(input.qualificationRole, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: true
-    }),
-    input.discussionChannel.permissionOverwrites.edit(input.learnerRole, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: true
-    }),
-    input.discussionChannel.permissionOverwrites.edit(botId, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: true,
-      EmbedLinks: true
-    })
+    input.deskChannel.permissionOverwrites.set([
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: roleIdForRank("Ranger"), allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
+      { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ManageMessages] }
+    ], "Apply Runecloak desk permissions"),
+    input.applicationReviewChannel.permissionOverwrites.set([
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: input.guideRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads] },
+      { id: captainRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads] },
+      { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.ManageThreads, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.EmbedLinks] }
+    ], "Apply Runecloak application-review permissions"),
+    input.expeditionForum.permissionOverwrites.set([
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: input.learnerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessagesInThreads] },
+      { id: input.qualificationRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessagesInThreads] },
+      { id: input.guideRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessagesInThreads] },
+      { id: captainRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessagesInThreads] },
+      { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.ManageThreads, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.EmbedLinks] }
+    ], "Apply Runecloak expedition permissions"),
+    input.runecloakChannel.permissionOverwrites.set([
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: input.qualificationRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages] },
+      { id: input.guideRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages] },
+      { id: captainRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages] },
+      { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks] }
+    ], "Apply full Runecloak channel permissions"),
+    input.learnerChannel.permissionOverwrites.set([
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: input.learnerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages] },
+      { id: input.guideRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages] },
+      { id: captainRoleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages] },
+      { id: botId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks] }
+    ], "Apply Runecloak learner-channel permissions")
   ]);
-  if (input.organizerRole) {
-    await input.discussionChannel.permissionOverwrites.edit(input.organizerRole, {
-      ViewChannel: true,
-      ReadMessageHistory: true,
-      SendMessages: true
-    });
-  }
 }
 
 async function getRunecloakQualificationId(): Promise<string> {
@@ -1229,23 +1288,6 @@ async function getRunecloakQualificationId(): Promise<string> {
     throw new Error("The Ranger Runecloak qualification is missing. Apply migration 046 before starting Wayfinder.");
   }
   return data.id;
-}
-
-export async function updateRunecloakObserverAccess(guild: Guild, enabled: boolean): Promise<void> {
-  const settings = await requireRunecloakSettings(guild.id);
-  const forum = await fetchForumChannel(guild, settings.expedition_forum_id);
-  if (!forum) {
-    return;
-  }
-  await forum.permissionOverwrites.edit(roleIdForRank("Apprentice"), enabled ? {
-    ViewChannel: true,
-    ReadMessageHistory: true,
-    SendMessages: false,
-    SendMessagesInThreads: true
-  } : {
-    ViewChannel: false,
-    ReadMessageHistory: false
-  });
 }
 
 async function ensureRunecloakTags(forum: ForumChannel): Promise<void> {

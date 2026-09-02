@@ -10,11 +10,15 @@ import {
   type RunecloakAuditEventRow,
   type RunecloakCycleMemberRow,
   type RunecloakCycleRow,
+  type RunecloakMembershipRow,
+  type RunecloakMembershipStatus,
+  type RunecloakPersonalStudyCreditRow,
   type RunecloakProgramState,
   type RunecloakResearchSiteRow,
   type RunecloakSessionParticipationRow,
   type RunecloakSessionRow,
   type RunecloakSettingsRow,
+  type RunecloakSpellUnlockRow,
   type RunecloakSpellProgressRow,
   type RunecloakSpellRow,
   type RunecloakStageRow,
@@ -26,13 +30,15 @@ import { requireRangerByDiscordId } from "./rangerService.js";
 
 export const RUNECLOAK_QUALIFICATION_SLUG = "ranger-runecloak";
 export const DEFAULT_RUNECLOAK_ROLE_ID = "1543999251820839073";
+export const DEFAULT_RUNECLOAK_PERSONAL_POINT_TARGET = 400;
+export const DEFAULT_RUNECLOAK_PERSONAL_STAGE_TARGET = 5;
+export const DEFAULT_RUNECLOAK_REGIONAL_COOLDOWN_HOURS = 72;
 
 const OPEN_APPLICATION_STATES: RunecloakApplicationStatus[] = [
   "Submitted",
   "Survey Requested",
   "Survey Submitted",
-  "Revision Requested",
-  "Approved"
+  "Revision Requested"
 ];
 
 const APPLICATION_TRANSITIONS: Record<RunecloakApplicationStatus, RunecloakApplicationStatus[]> = {
@@ -40,7 +46,7 @@ const APPLICATION_TRANSITIONS: Record<RunecloakApplicationStatus, RunecloakAppli
   "Survey Requested": ["Survey Submitted", "Denied", "Withdrawn"],
   "Survey Submitted": ["Approved", "Revision Requested", "Denied", "Withdrawn"],
   "Revision Requested": ["Survey Submitted", "Denied", "Withdrawn"],
-  Approved: ["Withdrawn"],
+  Approved: [],
   Denied: [],
   Withdrawn: []
 };
@@ -60,11 +66,11 @@ export interface RunecloakCycleDetails {
 
 export interface RunecloakCompletionCandidate {
   ranger: RangerRow;
-  participationStatus: RunecloakCycleMemberRow["participation_status"];
-  priorAttendanceCredits: number;
-  cycleAttendanceCredits: number;
-  retainedAttendanceCredits: number;
-  requiredAttendanceCredits: number;
+  membershipStatus: RunecloakMembershipStatus;
+  verifiedPoints: number;
+  verifiedStages: number;
+  requiredPoints: number;
+  requiredStages: number;
   eligible: boolean;
 }
 
@@ -74,6 +80,12 @@ export interface RunecloakCompletionPreview {
   candidates: RunecloakCompletionCandidate[];
 }
 
+export interface RunecloakPersonalProgressDetails {
+  progress: RunecloakSpellProgressRow;
+  spell: RunecloakSpellRow;
+  unlock: RunecloakSpellUnlockRow | null;
+}
+
 export function requiredStageAttendance(rosterSize: number, quorumPercent = 51): number {
   if (!Number.isInteger(rosterSize) || rosterSize < 1) {
     throw new Error("Roster size must be a positive integer.");
@@ -81,22 +93,52 @@ export function requiredStageAttendance(rosterSize: number, quorumPercent = 51):
   return Math.ceil(rosterSize * quorumPercent / 100);
 }
 
-export function requiredPersonalAttendance(validStageCount: number): number {
-  if (!Number.isInteger(validStageCount) || validStageCount < 1) {
-    throw new Error("A completed Runecloak cycle needs at least one valid stage.");
-  }
-  return Math.floor(validStageCount / 2) + 1;
+export function runecloakPersonalEligibility(input: {
+  verifiedPoints: number;
+  verifiedStages: number;
+  requiredPoints?: number;
+  requiredStages?: number;
+}): boolean {
+  const requiredPoints = input.requiredPoints ?? DEFAULT_RUNECLOAK_PERSONAL_POINT_TARGET;
+  const requiredStages = input.requiredStages ?? DEFAULT_RUNECLOAK_PERSONAL_STAGE_TARGET;
+  return input.verifiedPoints >= requiredPoints && input.verifiedStages >= requiredStages;
 }
 
-export function calculateRunecloakAttendanceCredit(input: {
-  priorCredits: number;
-  requiredCredits: number;
-  attendedStages: number;
-}): { earnedCredits: number; retainedCredits: number; complete: boolean } {
-  const priorCredits = Math.max(0, Math.min(input.priorCredits, input.requiredCredits));
-  const earnedCredits = Math.max(0, Math.min(input.attendedStages, input.requiredCredits - priorCredits));
-  const retainedCredits = priorCredits + earnedCredits;
-  return { earnedCredits, retainedCredits, complete: retainedCredits >= input.requiredCredits };
+export function earliestRunecloakStudySpell<T extends { id: string; sequence: number }>(
+  spells: readonly T[],
+  completedSpellIds: ReadonlySet<string>,
+  campaignSequence: number
+): T | null {
+  return [...spells]
+    .filter((spell) => spell.sequence <= campaignSequence && !completedSpellIds.has(spell.id))
+    .sort((left, right) => left.sequence - right.sequence)[0] ?? null;
+}
+
+export function runecloakRegionalCooldown(
+  previousActualAt: string | null,
+  candidateActualAt: string,
+  cooldownHours = DEFAULT_RUNECLOAK_REGIONAL_COOLDOWN_HOURS
+): { allowed: boolean; eligibleAt: string | null } {
+  const candidateTime = new Date(candidateActualAt).getTime();
+  if (!Number.isFinite(candidateTime)) {
+    throw new Error("The candidate Runecloak session time is invalid.");
+  }
+  if (!previousActualAt) {
+    return { allowed: true, eligibleAt: null };
+  }
+  const previousTime = new Date(previousActualAt).getTime();
+  if (!Number.isFinite(previousTime)) {
+    throw new Error("The previous Runecloak session time is invalid.");
+  }
+  const eligibleTime = previousTime + cooldownHours * 60 * 60 * 1000;
+  return {
+    allowed: candidateTime >= eligibleTime,
+    eligibleAt: new Date(eligibleTime).toISOString()
+  };
+}
+
+export function runecloakSessionCanBeSubmitted(status: RunecloakSessionRow["status"]): boolean {
+  return status === "Planned" || status === "Submitted";
 }
 
 export function evaluateRunecloakStage(
@@ -166,11 +208,13 @@ export async function requireRunecloakSettings(guildId: string): Promise<Runeclo
 export async function saveRunecloakSettings(input: {
   guildId: string;
   categoryId: string;
-  informationChannelId: string;
-  discussionChannelId: string;
+  deskChannelId: string;
+  applicationReviewChannelId: string;
+  runecloakChannelId: string;
+  learnerChannelId: string;
   expeditionForumId: string;
-  organizerRoleId: string | null;
-  learnerRoleId: string | null;
+  guideRoleId: string;
+  learnerRoleId: string;
   qualificationRoleId: string;
   actorDiscordUserId: string;
 }): Promise<RunecloakSettingsRow> {
@@ -178,13 +222,16 @@ export async function saveRunecloakSettings(input: {
   const { data, error } = await supabase.from("runecloak_settings").upsert({
     guild_id: input.guildId,
     category_id: input.categoryId,
-    information_channel_id: input.informationChannelId,
-    discussion_channel_id: input.discussionChannelId,
+    desk_channel_id: input.deskChannelId,
+    application_review_channel_id: input.applicationReviewChannelId,
+    runecloak_channel_id: input.runecloakChannelId,
+    learner_channel_id: input.learnerChannelId,
     expedition_forum_id: input.expeditionForumId,
     dashboard_message_id: existing?.dashboard_message_id ?? null,
-    organizer_role_id: input.organizerRoleId,
+    guide_role_id: input.guideRoleId,
     learner_role_id: input.learnerRoleId,
     qualification_role_id: input.qualificationRoleId,
+    admissions_open: existing?.admissions_open ?? false,
     program_state: existing?.program_state ?? "Organizing",
     registration_reference: existing?.registration_reference ?? null,
     registration_confirmed_by_discord_user_id: existing?.registration_confirmed_by_discord_user_id ?? null,
@@ -192,6 +239,9 @@ export async function saveRunecloakSettings(input: {
     minimum_roster_size: existing?.minimum_roster_size ?? 20,
     quorum_percent: existing?.quorum_percent ?? 51,
     point_target: existing?.point_target ?? 8000,
+    personal_point_requirement: existing?.personal_point_requirement ?? DEFAULT_RUNECLOAK_PERSONAL_POINT_TARGET,
+    personal_stage_requirement: existing?.personal_stage_requirement ?? DEFAULT_RUNECLOAK_PERSONAL_STAGE_TARGET,
+    regional_cooldown_hours: existing?.regional_cooldown_hours ?? DEFAULT_RUNECLOAK_REGIONAL_COOLDOWN_HOURS,
     configured_by_discord_user_id: input.actorDiscordUserId
   }).select("*").single();
   assertNoDbError(error, "save Runecloak settings");
@@ -206,6 +256,27 @@ export async function saveRunecloakSettings(input: {
     actorDiscordUserId: input.actorDiscordUserId,
     before: existing,
     after: data
+  });
+  return data;
+}
+
+export async function setRunecloakAdmissionsOpen(input: {
+  guildId: string;
+  open: boolean;
+  actorDiscordUserId: string;
+}): Promise<RunecloakSettingsRow> {
+  const before = await requireRunecloakSettings(input.guildId);
+  const { data, error } = await supabase.from("runecloak_settings").update({
+    admissions_open: input.open
+  }).eq("guild_id", input.guildId).select("*").single();
+  assertNoDbError(error, "update Runecloak admissions");
+  await recordRunecloakAudit({
+    guildId: input.guildId,
+    entityType: "program",
+    action: input.open ? "admissions_opened" : "admissions_closed",
+    actorDiscordUserId: input.actorDiscordUserId,
+    before: { admissions_open: before.admissions_open },
+    after: { admissions_open: data.admissions_open }
   });
   return data;
 }
@@ -225,11 +296,33 @@ export async function setRunecloakProgramState(input: {
   if (input.state === "Registered" && !input.registrationReference?.trim() && !before.registration_reference) {
     throw new UserFacingError("Record the Moonshadow registration reference before marking the program Registered.");
   }
+  if (input.state === "Registered" && !before.registration_confirmed_at) {
+    const memberships = await listActiveRunecloakMemberships(input.guildId);
+    const rangerIds = memberships.map(({ ranger_id }) => ranger_id);
+    const { data: rangers, error: rangersError } = rangerIds.length
+      ? await supabase.from("rangers").select("id, status, current_rank").in("id", rangerIds)
+      : { data: [], error: null };
+    assertNoDbError(rangersError, "validate Runecloak registration learners");
+    const eligibleCount = (rangers ?? []).filter((ranger) => (
+      ranger.status === "Active" && rankAtLeast(ranger.current_rank, "Ranger")
+    )).length;
+    if (eligibleCount < before.minimum_roster_size) {
+      throw new UserFacingError(
+        `Moonshadow registration needs at least ${before.minimum_roster_size} active Runecloak learners; ${eligibleCount} are currently eligible.`
+      );
+    }
+  }
   const { data, error } = await supabase.from("runecloak_settings").update({
     program_state: input.state,
-    registration_reference: input.registrationReference?.trim() || before.registration_reference,
-    registration_confirmed_by_discord_user_id: input.state === "Registered" ? input.actorDiscordUserId : before.registration_confirmed_by_discord_user_id,
-    registration_confirmed_at: input.state === "Registered" ? new Date().toISOString() : before.registration_confirmed_at
+    registration_reference: before.registration_confirmed_at
+      ? before.registration_reference
+      : input.registrationReference?.trim() || before.registration_reference,
+    registration_confirmed_by_discord_user_id: input.state === "Registered"
+      ? before.registration_confirmed_by_discord_user_id ?? input.actorDiscordUserId
+      : before.registration_confirmed_by_discord_user_id,
+    registration_confirmed_at: input.state === "Registered"
+      ? before.registration_confirmed_at ?? new Date().toISOString()
+      : before.registration_confirmed_at
   }).eq("guild_id", input.guildId).select("*").single();
   assertNoDbError(error, "update Runecloak program state");
   if (!data) {
@@ -247,32 +340,100 @@ export async function setRunecloakProgramState(input: {
   return data;
 }
 
+export async function getRunecloakMembership(guildId: string, rangerId: string): Promise<RunecloakMembershipRow | null> {
+  const { data, error } = await supabase.from("runecloak_memberships").select("*")
+    .eq("guild_id", guildId).eq("ranger_id", rangerId).maybeSingle();
+  assertNoDbError(error, "get Runecloak membership");
+  return data;
+}
+
+export async function listActiveRunecloakMemberships(guildId: string): Promise<RunecloakMembershipRow[]> {
+  const { data, error } = await supabase.from("runecloak_memberships").select("*")
+    .eq("guild_id", guildId)
+    .in("status", ["Learner", "Qualified"])
+    .order("admitted_at");
+  assertNoDbError(error, "list active Runecloak memberships");
+  return data ?? [];
+}
+
+export async function listRunecloakMemberships(guildId: string): Promise<RunecloakMembershipRow[]> {
+  const { data, error } = await supabase.from("runecloak_memberships").select("*")
+    .eq("guild_id", guildId).order("admitted_at");
+  assertNoDbError(error, "list Runecloak memberships");
+  return data ?? [];
+}
+
+export async function setRunecloakMembershipStatus(input: {
+  guildId: string;
+  rangerId: string;
+  status: "Withdrawn" | "Ineligible";
+  reason: string;
+  actorDiscordUserId: string;
+}): Promise<RunecloakMembershipRow> {
+  const before = await getRunecloakMembership(input.guildId, input.rangerId);
+  if (!before || (before.status !== "Learner" && before.status !== "Qualified")) {
+    throw new UserFacingError("That Ranger is not an active Runecloak learner or qualified Runecloak.");
+  }
+  const { data, error } = await supabase.from("runecloak_memberships").update({
+    status: input.status,
+    status_reason: normalizedRequired(input.reason, 1000),
+    status_changed_by_discord_user_id: input.actorDiscordUserId,
+    status_changed_at: new Date().toISOString()
+  }).eq("id", before.id).select("*").single();
+  assertNoDbError(error, "update Runecloak membership");
+  await recordRunecloakAudit({
+    guildId: input.guildId,
+    entityType: "membership",
+    entityId: before.id,
+    action: `membership_${input.status.toLowerCase()}`,
+    actorDiscordUserId: input.actorDiscordUserId,
+    reason: input.reason,
+    before: { status: before.status },
+    after: { status: data.status }
+  });
+  return data;
+}
+
 export async function createRunecloakApplication(input: {
   member: GuildMember;
   reason: string;
   experience: string | null;
   availability: string;
   loyaltiesConflicts: string | null;
+  preferredRegionalSlot?: "EU" | "NA" | "Flexible" | null;
 }): Promise<RunecloakApplicationDetails> {
   const applicant = await requireRangerByDiscordId(input.member.id);
   if (applicant.status !== "Active" || !rankAtLeast(applicant.current_rank, "Ranger")) {
     throw new UserFacingError("Only active full Rangers or higher may apply for Runecloak study.");
   }
   const settings = await requireRunecloakSettings(input.member.guild.id);
-  if (settings.program_state !== "Admissions Open" && settings.program_state !== "Organizing") {
+  if (!settings.admissions_open) {
     throw new UserFacingError("Runecloak applications are not currently open.");
   }
   if (await rangerHasRunecloakQualification(applicant.id)) {
     throw new UserFacingError("You already hold the Ranger Runecloak qualification.");
   }
+  const membership = await getRunecloakMembership(input.member.guild.id, applicant.id);
+  if (membership?.status === "Learner" || membership?.status === "Qualified") {
+    throw new UserFacingError("You are already enrolled in Runecloak study.");
+  }
   const existing = await getOpenRunecloakApplication(applicant.id);
   if (existing) {
+    if (existing.status === "Submitted") {
+      const existingDetails = await getRunecloakApplicationDetails(existing.id);
+      if (existingDetails) {
+        return existingDetails;
+      }
+    }
     throw new UserFacingError(`You already have a Runecloak application in **${existing.status}** status.`);
   }
 
   const { data, error } = await supabase.from("runecloak_applications").insert({
     applicant_ranger_id: applicant.id,
     rank_snapshot: applicant.current_rank,
+    entry_path: "standard",
+    initial_screening_skipped: false,
+    preferred_regional_slot: input.preferredRegionalSlot ?? regionalPreferenceFromAvailability(input.availability),
     reason: normalizedRequired(input.reason, 1500),
     experience: normalizedOptional(input.experience, 1500),
     availability: normalizedRequired(input.availability, 1000),
@@ -300,9 +461,9 @@ export async function attachRunecloakApplicationReview(input: {
   threadId: string;
 }): Promise<RunecloakApplicationRow> {
   const { data, error } = await supabase.from("runecloak_applications").update({
-    strongbox_channel_id: input.channelId,
-    strongbox_message_id: input.messageId,
-    strongbox_thread_id: input.threadId
+    review_channel_id: input.channelId,
+    review_message_id: input.messageId,
+    review_thread_id: input.threadId
   }).eq("id", input.applicationId).select("*").single();
   assertNoDbError(error, "attach Runecloak review thread");
   if (!data) {
@@ -377,6 +538,20 @@ export async function transitionRunecloakApplication(input: {
   if (input.nextStatus === "Approved" && details.site?.status !== "Approved") {
     throw new UserFacingError("Approve the applicant's research site before approving their Runecloak admission.");
   }
+  if (input.nextStatus === "Approved") {
+    const { error } = await supabase.rpc("approve_runecloak_admission", {
+      guild_id_input: input.guildId,
+      application_id_input: input.applicationId,
+      actor_discord_user_id_input: input.actorDiscordUserId,
+      note_input: normalizedOptional(input.note ?? null, 1500)
+    });
+    assertNoDbError(error, "approve Runecloak admission");
+    const approved = await getRunecloakApplicationDetails(input.applicationId);
+    if (!approved) {
+      throw new Error("The approved Runecloak application could not be reloaded.");
+    }
+    return approved;
+  }
   const { data, error } = await supabase.from("runecloak_applications").update({
     status: input.nextStatus,
     review_note: normalizedOptional(input.note ?? null, 1500),
@@ -406,18 +581,54 @@ export async function submitRunecloakSurvey(input: {
   siteName: string;
   holdRegion: string;
   atlasReference: string;
-  reportUrl: string;
-  resonanceDescription: string;
-  screenshotUrl?: string | null;
+  researchRationale: string;
+  screenshotUrl: string | null;
 }): Promise<RunecloakApplicationDetails> {
   const ranger = await requireRangerByDiscordId(input.rangerDiscordUserId);
-  const application = await getOpenRunecloakApplication(ranger.id);
-  if (!application || (application.status !== "Survey Requested" && application.status !== "Revision Requested")) {
-    throw new UserFacingError("Leadership must request your Runecloak survey before you can submit it.");
+  let application = await getOpenRunecloakApplication(ranger.id);
+  if (!application && ranger.status === "Active" && rankAtLeast(ranger.current_rank, "Ranger Marshal")) {
+    const settings = await requireRunecloakSettings(input.guildId);
+    if (!settings.admissions_open) {
+      throw new UserFacingError("Runecloak admissions are currently closed.");
+    }
+    const existingMembership = await getRunecloakMembership(input.guildId, ranger.id);
+    if (existingMembership?.status === "Learner" || existingMembership?.status === "Qualified") {
+      throw new UserFacingError("You already have a Runecloak membership record.");
+    }
+    const { data: directApplication, error } = await supabase.from("runecloak_applications").insert({
+      applicant_ranger_id: ranger.id,
+      rank_snapshot: ranger.current_rank,
+      entry_path: "marshal_direct",
+      initial_screening_skipped: true,
+      preferred_regional_slot: null,
+      status: "Survey Requested",
+      reason: null,
+      experience: null,
+      availability: null,
+      loyalties_conflicts: null
+    }).select("*").single();
+    assertNoDbError(error, "open Marshal-direct Runecloak survey");
+    await recordRunecloakAudit({
+      guildId: input.guildId,
+      entityType: "application",
+      entityId: directApplication.id,
+      action: "marshal_direct_survey_started",
+      actorDiscordUserId: input.rangerDiscordUserId,
+      after: { status: directApplication.status, entry_path: directApplication.entry_path }
+    });
+    application = directApplication;
   }
-  assertHttpsOrDiscordUrl(input.reportUrl, "Ranger report link");
+  if (application?.status === "Survey Submitted") {
+    const submitted = await getRunecloakApplicationDetails(application.id);
+    if (submitted?.site) {
+      return submitted;
+    }
+  }
+  if (!application || (application.status !== "Survey Requested" && application.status !== "Revision Requested")) {
+    throw new UserFacingError("A Runecloak Guide must request your survey first. Ranger Marshals and above may begin directly while admissions are open.");
+  }
   if (input.screenshotUrl) {
-    assertHttpsOrDiscordUrl(input.screenshotUrl, "Screenshot");
+    assertHttpsOrDiscordUrl(input.screenshotUrl, "Survey image link");
   }
   const existing = await getRunecloakApplicationDetails(application.id);
   const siteRecord = {
@@ -426,8 +637,7 @@ export async function submitRunecloakSurvey(input: {
     name: normalizedRequired(input.siteName, 200),
     hold_region: normalizedRequired(input.holdRegion, 100),
     atlas_reference: normalizedRequired(input.atlasReference, 500),
-    report_url: input.reportUrl.trim(),
-    resonance_description: normalizedRequired(input.resonanceDescription, 1800),
+    research_rationale: normalizedRequired(input.researchRationale, 1800),
     screenshot_url: input.screenshotUrl?.trim() || existing?.site?.screenshot_url || null,
     status: "Proposed" as const,
     review_note: null,
@@ -501,6 +711,14 @@ export async function reviewRunecloakSite(input: {
       reviewed_at: new Date().toISOString()
     }).eq("id", site.application_id);
     assertNoDbError(appError, "request Runecloak survey revision");
+  } else if (input.outcome === "Rejected") {
+    const { error: appError } = await supabase.from("runecloak_applications").update({
+      status: "Denied",
+      review_note: normalizedOptional(input.note ?? null, 1500),
+      reviewed_by_discord_user_id: input.actorDiscordUserId,
+      reviewed_at: new Date().toISOString()
+    }).eq("id", site.application_id);
+    assertNoDbError(appError, "close rejected Runecloak survey");
   }
   await recordRunecloakAudit({
     guildId: input.guildId,
@@ -519,25 +737,7 @@ export async function reviewRunecloakSite(input: {
   return details;
 }
 
-export async function isAuthorizedRunecloakMarshal(member: GuildMember): Promise<boolean> {
-  if (memberRankAtLeast(member, "Ranger Captain")) {
-    return true;
-  }
-  if (!memberRankAtLeast(member, "Ranger Marshal")) {
-    return false;
-  }
-  const ranger = await requireRangerByDiscordId(member.id);
-  const { data, error } = await supabase.from("runecloak_team_assignments")
-    .select("id")
-    .eq("ranger_id", ranger.id)
-    .eq("assignment_kind", "authorized_marshal")
-    .eq("active", true)
-    .maybeSingle();
-  assertNoDbError(error, "check authorized Runecloak Marshal");
-  return Boolean(data);
-}
-
-export async function isRunecloakOrganizer(member: GuildMember): Promise<boolean> {
+export async function isRunecloakGuide(member: GuildMember): Promise<boolean> {
   if (memberRankAtLeast(member, "Ranger Captain")) {
     return true;
   }
@@ -548,30 +748,27 @@ export async function isRunecloakOrganizer(member: GuildMember): Promise<boolean
   const { data, error } = await supabase.from("runecloak_team_assignments")
     .select("id")
     .eq("ranger_id", ranger.id)
-    .eq("assignment_kind", "organizer")
+    .eq("assignment_kind", "guide")
     .eq("active", true)
     .maybeSingle();
-  assertNoDbError(error, "check Runecloak organizer");
+  assertNoDbError(error, "check Runecloak Guide");
   return Boolean(data);
 }
 
 export async function setRunecloakTeamAssignment(input: {
   guildId: string;
   target: RangerRow;
-  kind: "organizer" | "authorized_marshal";
   active: boolean;
   actorDiscordUserId: string;
   reason?: string | null;
 }): Promise<void> {
-  if (input.target.status !== "Active" || !rankAtLeast(input.target.current_rank, input.kind === "organizer" ? "Ranger" : "Ranger Marshal")) {
-    throw new UserFacingError(input.kind === "organizer"
-      ? "A Runecloak organizer must be an active full Ranger or higher."
-      : "An authorized Runecloak Marshal must be an active Ranger Marshal or higher.");
+  if (input.target.status !== "Active" || !rankAtLeast(input.target.current_rank, "Ranger")) {
+    throw new UserFacingError("A Runecloak Guide must be an active full Ranger or higher.");
   }
   if (input.active) {
     const { error } = await supabase.from("runecloak_team_assignments").insert({
       ranger_id: input.target.id,
-      assignment_kind: input.kind,
+      assignment_kind: "guide",
       assigned_by_discord_user_id: input.actorDiscordUserId
     });
     assertNoDbError(error, "assign Runecloak team role");
@@ -581,16 +778,16 @@ export async function setRunecloakTeamAssignment(input: {
       ended_by_discord_user_id: input.actorDiscordUserId,
       ended_at: new Date().toISOString(),
       end_reason: normalizedOptional(input.reason ?? null, 1000)
-    }).eq("ranger_id", input.target.id).eq("assignment_kind", input.kind).eq("active", true);
+    }).eq("ranger_id", input.target.id).eq("assignment_kind", "guide").eq("active", true);
     assertNoDbError(error, "end Runecloak team assignment");
   }
   await recordRunecloakAudit({
     guildId: input.guildId,
     entityType: "team_assignment",
-    action: input.active ? `${input.kind}_assigned` : `${input.kind}_ended`,
+    action: input.active ? "guide_assigned" : "guide_ended",
     actorDiscordUserId: input.actorDiscordUserId,
     reason: input.reason ?? null,
-    after: { ranger_id: input.target.id, kind: input.kind, active: input.active }
+    after: { ranger_id: input.target.id, kind: "guide", active: input.active }
   });
 }
 
@@ -615,6 +812,17 @@ export async function createRunecloakCycle(input: {
   const settings = await requireRunecloakSettings(input.guildId);
   const { data: spell, error: spellError } = await supabase.from("runecloak_spells").select("*").eq("id", input.spellId).eq("active", true).single();
   assertNoDbError(spellError, "get Runecloak spell");
+  if (spell.prerequisite_spell_id) {
+    const { data: prerequisiteUnlock, error: unlockError } = await supabase.from("runecloak_spell_unlocks")
+      .select("id")
+      .eq("guild_id", input.guildId)
+      .eq("spell_id", spell.prerequisite_spell_id)
+      .maybeSingle();
+    assertNoDbError(unlockError, "check Runecloak campaign prerequisite");
+    if (!prerequisiteUnlock) {
+      throw new UserFacingError(`The shared prerequisite for ${spell.name} has not been unlocked yet.`);
+    }
+  }
   const { data: latest, error: latestError } = await supabase.from("runecloak_cycles").select("sequence").eq("guild_id", input.guildId).order("sequence", { ascending: false }).limit(1).maybeSingle();
   assertNoDbError(latestError, "get latest Runecloak cycle sequence");
   const { data, error } = await supabase.from("runecloak_cycles").insert({
@@ -624,7 +832,7 @@ export async function createRunecloakCycle(input: {
     sequence: (latest?.sequence ?? 0) + 1,
     minimum_roster_size: settings.minimum_roster_size,
     quorum_percent: settings.quorum_percent,
-    point_target: spell.default_target_points || settings.point_target,
+    point_target: settings.point_target,
     created_by_discord_user_id: input.actorDiscordUserId
   }).select("*").single();
   assertNoDbError(error, "create Runecloak cycle");
@@ -665,88 +873,18 @@ export async function getRunecloakCycleDetails(cycleId: string): Promise<Runeclo
 export async function getCurrentRunecloakCycle(guildId: string): Promise<RunecloakCycleDetails | null> {
   const { data, error } = await supabase.from("runecloak_cycles").select("id")
     .eq("guild_id", guildId)
-    .in("status", ["Locked", "Awaiting Moonshadow Start", "Active", "Awaiting Moonshadow Grant"])
+    .in("status", ["Awaiting Moonshadow Start", "Active", "Awaiting GM Approval"])
     .maybeSingle();
   assertNoDbError(error, "get current Runecloak cycle");
   return data ? getRunecloakCycleDetails(data.id) : null;
 }
 
-export async function addRunecloakCycleMember(input: {
-  cycleId: string;
-  applicationId: string;
-  actorDiscordUserId: string;
-}): Promise<RunecloakCycleMemberRow> {
-  const [cycle, application] = await Promise.all([
-    getRunecloakCycleDetails(input.cycleId),
-    getRunecloakApplicationDetails(input.applicationId)
-  ]);
-  if (!cycle || cycle.cycle.status !== "Draft") {
-    throw new UserFacingError("Learners may only be added to a Draft Runecloak cycle.");
-  }
-  if (!application || application.application.status !== "Approved" || application.site?.status !== "Approved") {
-    throw new UserFacingError("Choose an approved applicant with an approved research site.");
-  }
-  const { data: completedSpell, error: completedSpellError } = await supabase.from("runecloak_spell_progress")
-    .select("ranger_id")
-    .eq("ranger_id", application.applicant.id)
-    .eq("spell_id", cycle.spell.id)
-    .eq("status", "completed")
-    .maybeSingle();
-  assertNoDbError(completedSpellError, "check completed Runecloak spell");
-  if (completedSpell || (cycle.spell.sequence === 1 && await rangerHasRunecloakQualification(application.applicant.id))) {
-    throw new UserFacingError(`That Ranger has already completed ${cycle.spell.name}.`);
-  }
-  const { data, error } = await supabase.from("runecloak_cycle_members").insert({
-    cycle_id: cycle.cycle.id,
-    ranger_id: application.applicant.id,
-    application_id: application.application.id,
-    selected_by_discord_user_id: input.actorDiscordUserId
-  }).select("*").single();
-  assertNoDbError(error, "add Runecloak cycle learner");
-  await recordRunecloakAudit({
-    guildId: cycle.cycle.guild_id,
-    entityType: "cycle_member",
-    entityId: data.id,
-    action: "learner_selected",
-    actorDiscordUserId: input.actorDiscordUserId,
-    after: { cycle_id: cycle.cycle.id, ranger_id: data.ranger_id, application_id: data.application_id }
-  });
-  return data;
-}
-
-export async function removeRunecloakCycleMember(input: {
-  cycleId: string;
-  rangerId: string;
-  actorDiscordUserId: string;
-}): Promise<void> {
-  const cycle = await getRunecloakCycleDetails(input.cycleId);
-  if (!cycle || cycle.cycle.status !== "Draft") {
-    throw new UserFacingError("Learners may only be removed from a Draft Runecloak cycle.");
-  }
-  const { data: member, error: memberError } = await supabase.from("runecloak_cycle_members").select("*")
-    .eq("cycle_id", input.cycleId).eq("ranger_id", input.rangerId).maybeSingle();
-  assertNoDbError(memberError, "get draft Runecloak learner");
-  if (!member) {
-    throw new UserFacingError("That Ranger is not on the selected draft roster.");
-  }
-  const { error } = await supabase.from("runecloak_cycle_members").delete().eq("id", member.id);
-  assertNoDbError(error, "remove Runecloak cycle learner");
-  await recordRunecloakAudit({
-    guildId: cycle.cycle.guild_id,
-    entityType: "cycle_member",
-    entityId: member.id,
-    action: "learner_removed_before_lock",
-    actorDiscordUserId: input.actorDiscordUserId,
-    before: { cycle_id: cycle.cycle.id, ranger_id: member.ranger_id, application_id: member.application_id }
-  });
-}
-
-export async function lockRunecloakCycle(cycleId: string, actorDiscordUserId: string): Promise<unknown> {
-  const { data, error } = await supabase.rpc("lock_runecloak_cycle", {
+export async function prepareRunecloakCycle(cycleId: string, actorDiscordUserId: string): Promise<unknown> {
+  const { data, error } = await supabase.rpc("prepare_runecloak_cycle", {
     cycle_id_input: cycleId,
     actor_discord_user_id_input: actorDiscordUserId
   });
-  assertNoDbError(error, "lock Runecloak cycle");
+  assertNoDbError(error, "prepare Runecloak cycle");
   return data;
 }
 
@@ -760,9 +898,13 @@ export async function startRunecloakCycle(input: {
   if (settings.program_state !== "Registered") {
     throw new UserFacingError("Moonshadow registration must be confirmed before an official cycle starts.");
   }
-  const details = await getRunecloakCycleDetails(input.cycleId);
-  if (!details || (details.cycle.status !== "Locked" && details.cycle.status !== "Awaiting Moonshadow Start")) {
-    throw new UserFacingError("That cycle is not waiting for Moonshadow start confirmation.");
+  let details = await getRunecloakCycleDetails(input.cycleId);
+  if (details?.cycle.status === "Draft") {
+    await prepareRunecloakCycle(input.cycleId, input.actorDiscordUserId);
+    details = await getRunecloakCycleDetails(input.cycleId);
+  }
+  if (!details || details.cycle.status !== "Awaiting Moonshadow Start") {
+    throw new UserFacingError("That campaign is not waiting for its study start confirmation.");
   }
   const { data, error } = await supabase.from("runecloak_cycles").update({
     status: "Active",
@@ -789,43 +931,60 @@ export async function createRunecloakStage(input: {
   cycleId: string;
   title: string;
   theme: string;
-  cooldownLabel: string;
   euPlannedAt: string | null;
   naPlannedAt: string | null;
   notes: string | null;
   actorDiscordUserId: string;
 }): Promise<{ stage: RunecloakStageRow; sessions: RunecloakSessionRow[] }> {
   const cycle = await getRunecloakCycleDetails(input.cycleId);
-  if (!cycle || cycle.cycle.status !== "Active" || !cycle.cycle.required_stage_attendance) {
-    throw new UserFacingError("Stages may only be opened for an active, locked cycle.");
+  if (!cycle || cycle.cycle.status !== "Active") {
+    throw new UserFacingError("Paired expeditions may only be opened for an active Runecloak campaign.");
   }
-  const sequence = (cycle.stages.at(-1)?.sequence ?? 0) + 1;
-  const { data: stage, error } = await supabase.from("runecloak_stages").insert({
-    cycle_id: cycle.cycle.id,
-    sequence,
-    cooldown_label: normalizedRequired(input.cooldownLabel, 100),
-    title: normalizedRequired(input.title, 150),
-    theme: normalizedRequired(input.theme, 1000),
-    notes: normalizedOptional(input.notes, 1800),
-    status: "Open",
-    required_unique_attendance: cycle.cycle.required_stage_attendance,
-    created_by_discord_user_id: input.actorDiscordUserId
-  }).select("*").single();
-  assertNoDbError(error, "create Runecloak stage");
-  const { data: sessions, error: sessionsError } = await supabase.from("runecloak_sessions").insert([
-    { stage_id: stage.id, regional_slot: "EU", planned_at: input.euPlannedAt, logged_by_discord_user_id: input.actorDiscordUserId },
-    { stage_id: stage.id, regional_slot: "NA", planned_at: input.naPlannedAt, logged_by_discord_user_id: input.actorDiscordUserId }
-  ]).select("*");
-  assertNoDbError(sessionsError, "create Runecloak regional sessions");
-  await recordRunecloakAudit({
-    guildId: input.guildId,
-    entityType: "stage",
-    entityId: stage.id,
-    action: "stage_opened",
-    actorDiscordUserId: input.actorDiscordUserId,
-    after: { sequence, title: stage.title, cooldown: stage.cooldown_label }
+  for (const [slot, plannedAt] of [["EU", input.euPlannedAt], ["NA", input.naPlannedAt]] as const) {
+    if (!plannedAt) {
+      continue;
+    }
+    const availableAt = await getRunecloakRegionalSlotAvailableAt(input.guildId, slot);
+    if (availableAt && new Date(plannedAt).getTime() < new Date(availableAt).getTime()) {
+      throw new UserFacingError(`The ${slot} expedition must be scheduled at or after ${availableAt}; its cooldown is independent from the other regional slot.`);
+    }
+  }
+  const { data: created, error } = await supabase.rpc("create_runecloak_stage", {
+    cycle_id_input: cycle.cycle.id,
+    title_input: normalizedRequired(input.title, 150),
+    theme_input: normalizedRequired(input.theme, 1000),
+    eu_planned_at_input: input.euPlannedAt,
+    na_planned_at_input: input.naPlannedAt,
+    notes_input: normalizedOptional(input.notes, 1800),
+    actor_discord_user_id_input: input.actorDiscordUserId
   });
-  return { stage, sessions: sessions ?? [] };
+  assertNoDbError(error, "create and open Runecloak paired expedition");
+  const createdRecord = created && typeof created === "object" && !Array.isArray(created)
+    ? created as Record<string, unknown>
+    : null;
+  const stageId = typeof createdRecord?.stage_id === "string" ? createdRecord.stage_id : null;
+  if (!stageId) {
+    throw new Error("Supabase did not return the created Runecloak stage ID.");
+  }
+  const opened = await getRunecloakStage(stageId);
+  if (!opened) {
+    throw new Error("The newly opened Runecloak stage could not be reloaded.");
+  }
+  return { stage: opened.stage, sessions: opened.sessions };
+}
+
+export async function getRunecloakRegionalSlotAvailableAt(
+  guildId: string,
+  regionalSlot: "EU" | "NA",
+  excludeSessionId?: string | null
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("runecloak_regional_slot_available_at", {
+    guild_id_input: guildId,
+    regional_slot_input: regionalSlot,
+    exclude_session_id_input: excludeSessionId ?? null
+  });
+  assertNoDbError(error, `check ${regionalSlot} Runecloak cooldown`);
+  return typeof data === "string" ? data : null;
 }
 
 export async function attachRunecloakStageForumPost(input: {
@@ -883,10 +1042,17 @@ export async function recordRunecloakParticipation(input: {
     throw new UserFacingError("That Runecloak expedition is not accepting participation records.");
   }
   const ranger = await requireRangerByDiscordId(input.member.id);
-  const { data: cycleMember, error: memberError } = await supabase.from("runecloak_cycle_members").select("*")
-    .eq("cycle_id", stageDetails.cycle.id).eq("ranger_id", ranger.id).maybeSingle();
-  assertNoDbError(memberError, "check Runecloak cycle learner");
-  const kind = cycleMember?.participation_status === "Active" ? "learner" : "observer";
+  const [membershipResult, snapshotResult] = await Promise.all([
+    supabase.from("runecloak_memberships").select("*")
+      .eq("guild_id", input.guildId).eq("ranger_id", ranger.id).maybeSingle(),
+    supabase.from("runecloak_stage_eligible_learners").select("ranger_id")
+      .eq("stage_id", stageDetails.stage.id).eq("ranger_id", ranger.id).maybeSingle()
+  ]);
+  assertNoDbError(membershipResult.error, "check Runecloak membership");
+  assertNoDbError(snapshotResult.error, "check Runecloak stage eligibility");
+  const activeMembership = membershipResult.data
+    && (membershipResult.data.status === "Learner" || membershipResult.data.status === "Qualified");
+  const kind = activeMembership && snapshotResult.data ? "learner" : "observer";
   if (kind === "learner" && (ranger.status !== "Active" || !rankAtLeast(ranger.current_rank, "Ranger"))) {
     throw new UserFacingError("Only an active full Ranger may submit official Runecloak study results.");
   }
@@ -906,6 +1072,20 @@ export async function recordRunecloakParticipation(input: {
   const existingSessionRecord = stageDetails.participation.find((entry) =>
     entry.ranger_id === ranger.id && entry.session_id === session.id && entry.status !== "rejected"
   );
+  let studySpellId = existingRoll?.study_spell_id ?? existingSessionRecord?.study_spell_id ?? null;
+  if (kind === "learner" && !studySpellId) {
+    const [spells, progressResult] = await Promise.all([
+      listRunecloakSpells(),
+      supabase.from("runecloak_spell_progress").select("spell_id")
+        .eq("ranger_id", ranger.id).eq("status", "completed")
+    ]);
+    assertNoDbError(progressResult.error, "load completed Runecloak spells");
+    studySpellId = earliestRunecloakStudySpell(
+      spells,
+      new Set((progressResult.data ?? []).map(({ spell_id }) => spell_id)),
+      stageDetails.spell.sequence
+    )?.id ?? null;
+  }
   const roll = kind === "learner"
     ? existingRoll && existingRoll.session_id !== session.id
       ? null
@@ -915,6 +1095,7 @@ export async function recordRunecloakParticipation(input: {
     stage_id: stageDetails.stage.id,
     session_id: session.id,
     ranger_id: ranger.id,
+    study_spell_id: kind === "learner" ? studySpellId : null,
     participation_kind: kind,
     status: "provisional",
     roll_value: roll,
@@ -928,7 +1109,7 @@ export async function recordRunecloakParticipation(input: {
     entityId: data.id,
     action: kind === "learner" ? "learner_participation_recorded" : "observer_participation_recorded",
     actorDiscordUserId: input.member.id,
-    after: { stage_id: stageDetails.stage.id, slot: input.regionalSlot, kind, roll_value: roll }
+    after: { stage_id: stageDetails.stage.id, slot: input.regionalSlot, kind, roll_value: roll, study_spell_id: studySpellId }
   });
   return { participation: data, kind };
 }
@@ -953,32 +1134,37 @@ export async function submitRunecloakSession(input: {
   if (!stage || !session || stage.stage.status !== "Open") {
     throw new UserFacingError("That Runecloak session is not open for a lesson record.");
   }
+  if (!runecloakSessionCanBeSubmitted(session.status)) {
+    throw new UserFacingError(`The ${input.regionalSlot} session is already ${session.status.toLowerCase()} and cannot be replaced.`);
+  }
   const { data: site, error: siteError } = await supabase.from("runecloak_research_sites").select("id").eq("id", input.siteId).eq("status", "Approved").maybeSingle();
   assertNoDbError(siteError, "check approved Runecloak research site");
   if (!site) {
     throw new UserFacingError("Choose an approved Runecloak research site.");
   }
-  const { data, error } = await supabase.from("runecloak_sessions").update({
-    actual_at: actualAt,
-    research_site_id: site.id,
-    leader_discord_user_id: input.leaderDiscordUserId,
-    lesson_summary: normalizedRequired(input.lessonSummary, 1800),
-    study_method: normalizedRequired(input.studyMethod, 1800),
-    recording_url: input.recordingUrl.trim(),
-    moonshadow_reference: normalizedOptional(input.moonshadowReference, 1000),
-    status: "Submitted",
-    logged_by_discord_user_id: input.actorDiscordUserId
-  }).eq("id", session.id).select("*").single();
-  assertNoDbError(error, "submit Runecloak session record");
-  await recordRunecloakAudit({
-    guildId: input.guildId,
-    entityType: "session",
-    entityId: session.id,
-    action: "session_submitted",
-    actorDiscordUserId: input.actorDiscordUserId,
-    after: { stage_id: input.stageId, slot: input.regionalSlot, recording_url: data.recording_url }
+  const availableAt = await getRunecloakRegionalSlotAvailableAt(input.guildId, input.regionalSlot, session.id);
+  if (availableAt && new Date(actualAt).getTime() < new Date(availableAt).getTime()) {
+    throw new UserFacingError(
+      `The ${input.regionalSlot} expedition is still on cooldown. Its next valid time is ${availableAt}; the other regional slot has its own clock.`
+    );
+  }
+  const { data, error } = await supabase.rpc("submit_runecloak_session", {
+    guild_id_input: input.guildId,
+    session_id_input: session.id,
+    actual_at_input: actualAt,
+    research_site_id_input: site.id,
+    leader_discord_user_id_input: input.leaderDiscordUserId,
+    lesson_summary_input: normalizedRequired(input.lessonSummary, 1800),
+    study_method_input: normalizedRequired(input.studyMethod, 1800),
+    recording_url_input: input.recordingUrl.trim(),
+    moonshadow_reference_input: normalizedOptional(input.moonshadowReference, 1000),
+    actor_discord_user_id_input: input.actorDiscordUserId
   });
-  return data;
+  assertNoDbError(error, "submit Runecloak session record");
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Supabase did not return the submitted Runecloak session.");
+  }
+  return data as unknown as RunecloakSessionRow;
 }
 
 export async function verifyRunecloakSession(input: {
@@ -997,45 +1183,18 @@ export async function verifyRunecloakSession(input: {
       || !session.study_method || !session.recording_url) {
     throw new UserFacingError("The session record is missing required fieldwork or recording details.");
   }
-  const verifiedAt = new Date().toISOString();
-  const [sessionResult, participationResult] = await Promise.all([
-    supabase.from("runecloak_sessions").update({
-      status: "Verified",
-      verified_by_discord_user_id: input.actorDiscordUserId,
-      verification_basis: input.basis,
-      verified_at: verifiedAt
-    }).eq("id", session.id).select("*").single(),
-    supabase.from("runecloak_session_participation").update({
-      status: "verified",
-      verified_by_discord_user_id: input.actorDiscordUserId,
-      verified_at: verifiedAt
-    }).eq("session_id", session.id).eq("status", "provisional")
-  ]);
-  assertNoDbError(sessionResult.error, "verify Runecloak session");
-  assertNoDbError(participationResult.error, "verify Runecloak session participation");
-  await recordRunecloakAudit({
-    guildId: input.guildId,
-    entityType: "session",
-    entityId: session.id,
-    action: "session_verified",
-    actorDiscordUserId: input.actorDiscordUserId,
-    after: { stage_id: input.stageId, slot: input.regionalSlot, basis: input.basis }
-  });
-  return sessionResult.data;
-}
-
-export async function verifyRunecloakStage(input: {
-  stageId: string;
-  actorDiscordUserId: string;
-  reason?: string | null;
-}): Promise<unknown> {
-  const { data, error } = await supabase.rpc("verify_runecloak_stage", {
-    stage_id_input: input.stageId,
+  const { error } = await supabase.rpc("verify_runecloak_session", {
+    session_id_input: session.id,
     actor_discord_user_id_input: input.actorDiscordUserId,
-    reason_input: input.reason ?? null
+    verification_basis_input: input.basis
   });
-  assertNoDbError(error, "verify paired Runecloak stage");
-  return data;
+  assertNoDbError(error, "verify Runecloak session and participation");
+  const refreshed = await getRunecloakStage(input.stageId);
+  const verifiedSession = refreshed?.sessions.find(({ id }) => id === session.id);
+  if (!verifiedSession) {
+    throw new Error("The verified Runecloak session could not be reloaded.");
+  }
+  return verifiedSession;
 }
 
 export async function getRunecloakCycleCompletionPreview(cycleId: string): Promise<RunecloakCompletionPreview> {
@@ -1043,55 +1202,58 @@ export async function getRunecloakCycleCompletionPreview(cycleId: string): Promi
   if (!details) {
     throw new UserFacingError("That Runecloak cycle no longer exists.");
   }
-  if (details.cycle.status !== "Awaiting Moonshadow Grant" || details.cycle.verified_points < details.cycle.point_target) {
-    throw new UserFacingError("That cycle has not reached its verified target and cannot receive a final grant yet.");
+  if (details.cycle.status !== "Awaiting GM Approval" || details.cycle.verified_points < details.cycle.point_target) {
+    throw new UserFacingError("That cycle has not reached its verified target and cannot record GM approval yet.");
   }
   const validStageIds = details.stages.filter(({ status }) => status === "Valid").map(({ id }) => id);
   if (!validStageIds.length) {
     throw new UserFacingError("That cycle has no valid paired stages.");
   }
-  const rangerIds = details.members.map(({ ranger_id }) => ranger_id);
-  const [rangersResult, progressResult, attendanceResult] = await Promise.all([
-    supabase.from("rangers").select("*").in("id", rangerIds),
-    supabase.from("runecloak_spell_progress").select("*").eq("spell_id", details.spell.id).in("ranger_id", rangerIds),
-    supabase.from("runecloak_session_participation").select("ranger_id, stage_id")
-      .eq("participation_kind", "learner")
-      .eq("status", "verified")
-      .in("stage_id", validStageIds)
-      .in("ranger_id", rangerIds)
+  const [settings, memberships] = await Promise.all([
+    requireRunecloakSettings(details.cycle.guild_id),
+    listRunecloakMemberships(details.cycle.guild_id)
   ]);
+  const rangerIds = memberships.map(({ ranger_id }) => ranger_id);
+  const [rangersResult, progressResult, prerequisiteResult] = rangerIds.length
+    ? await Promise.all([
+      supabase.from("rangers").select("*").in("id", rangerIds),
+      supabase.from("runecloak_spell_progress").select("*").eq("spell_id", details.spell.id).in("ranger_id", rangerIds),
+      details.spell.prerequisite_spell_id
+        ? supabase.from("runecloak_spell_progress").select("ranger_id")
+          .eq("spell_id", details.spell.prerequisite_spell_id).eq("status", "completed").in("ranger_id", rangerIds)
+        : Promise.resolve({ data: rangerIds.map((ranger_id) => ({ ranger_id })), error: null })
+    ])
+    : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
   assertNoDbError(rangersResult.error, "load Runecloak completion Rangers");
-  assertNoDbError(progressResult.error, "load Runecloak carried attendance");
-  assertNoDbError(attendanceResult.error, "load Runecloak cycle attendance");
+  assertNoDbError(progressResult.error, "load Runecloak personal progress");
+  assertNoDbError(prerequisiteResult.error, "load Runecloak personal prerequisites");
   const rangersById = new Map((rangersResult.data ?? []).map((ranger) => [ranger.id, ranger]));
   const progressByRangerId = new Map((progressResult.data ?? []).map((progress) => [progress.ranger_id, progress]));
-  const stagesByRangerId = new Map<string, Set<string>>();
-  for (const attendance of attendanceResult.data ?? []) {
-    const stages = stagesByRangerId.get(attendance.ranger_id) ?? new Set<string>();
-    stages.add(attendance.stage_id);
-    stagesByRangerId.set(attendance.ranger_id, stages);
-  }
-  const defaultRequired = requiredPersonalAttendance(validStageIds.length);
-  const candidates = details.members.flatMap((member): RunecloakCompletionCandidate[] => {
-    const ranger = rangersById.get(member.ranger_id);
+  const prerequisiteCompleted = new Set((prerequisiteResult.data ?? []).map(({ ranger_id }) => ranger_id));
+  const candidates = memberships.flatMap((membership): RunecloakCompletionCandidate[] => {
+    const ranger = rangersById.get(membership.ranger_id);
     if (!ranger) {
       return [];
     }
-    const progress = progressByRangerId.get(member.ranger_id);
-    const requiredAttendanceCredits = progress?.required_attendance_credits ?? defaultRequired;
-    const credit = calculateRunecloakAttendanceCredit({
-      priorCredits: progress?.verified_attendance_credits ?? 0,
-      requiredCredits: requiredAttendanceCredits,
-      attendedStages: stagesByRangerId.get(member.ranger_id)?.size ?? 0
-    });
+    const progress = progressByRangerId.get(membership.ranger_id);
+    const verifiedPoints = progress?.verified_points ?? 0;
+    const verifiedStages = progress?.verified_valid_stages ?? 0;
+    const requiredPoints = progress?.required_points ?? settings.personal_point_requirement;
+    const requiredStages = progress?.required_valid_stages ?? settings.personal_stage_requirement;
+    const activeMembership = membership.status === "Learner" || membership.status === "Qualified";
     return [{
       ranger,
-      participationStatus: member.participation_status,
-      priorAttendanceCredits: progress?.verified_attendance_credits ?? 0,
-      cycleAttendanceCredits: credit.earnedCredits,
-      retainedAttendanceCredits: credit.retainedCredits,
-      requiredAttendanceCredits,
-      eligible: credit.complete && member.participation_status !== "Withdrawn" && member.participation_status !== "Ineligible"
+      membershipStatus: membership.status,
+      verifiedPoints,
+      verifiedStages,
+      requiredPoints,
+      requiredStages,
+      eligible: activeMembership
+        && ranger.status === "Active"
+        && rankAtLeast(ranger.current_rank, "Ranger")
+        && progress?.status !== "completed"
+        && prerequisiteCompleted.has(membership.ranger_id)
+        && runecloakPersonalEligibility({ verifiedPoints, verifiedStages, requiredPoints, requiredStages })
     }];
   });
   return { details, validStageCount: validStageIds.length, candidates };
@@ -1100,24 +1262,58 @@ export async function getRunecloakCycleCompletionPreview(cycleId: string): Promi
 export async function completeRunecloakCycle(input: {
   cycleId: string;
   actorDiscordUserId: string;
-  grantReference: string;
-  confirmedRangerIds: string[];
-}): Promise<unknown> {
-  const preview = await getRunecloakCycleCompletionPreview(input.cycleId);
-  const eligibleRangerIds = new Set(preview.candidates.filter(({ eligible }) => eligible).map(({ ranger }) => ranger.id));
-  const confirmed = [...new Set(input.confirmedRangerIds)];
-  const invalid = confirmed.filter((rangerId) => !eligibleRangerIds.has(rangerId));
-  if (invalid.length) {
-    throw new UserFacingError("The confirmed list contains a Ranger who is not currently eligible. Refresh the completion preview and try again.");
-  }
+  gmApprovalReference: string;
+}): Promise<{ unlock_id: string; eligible_learners: number; verified_points: number }> {
+  await getRunecloakCycleCompletionPreview(input.cycleId);
   const { data, error } = await supabase.rpc("complete_runecloak_cycle", {
     cycle_id_input: input.cycleId,
     actor_discord_user_id_input: input.actorDiscordUserId,
-    grant_reference_input: input.grantReference,
-    confirmed_ranger_ids_input: confirmed
+    gm_approval_reference_input: normalizedRequired(input.gmApprovalReference, 1000)
   });
   assertNoDbError(error, "complete Runecloak cycle");
-  return data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Supabase did not return the Runecloak cycle-completion result.");
+  }
+  return data as { unlock_id: string; eligible_learners: number; verified_points: number };
+}
+
+export async function recordRunecloakSpellDelivery(input: {
+  guildId: string;
+  rangerId: string;
+  spellId: string;
+  deliveryReference: string;
+  actorDiscordUserId: string;
+}): Promise<{
+  ranger_id: string;
+  spell_id: string;
+  status: "completed";
+  unlock_id: string;
+  unlock_reference: string;
+  source_cycle_id: string;
+  delivery_reference: string;
+  newly_completed: boolean;
+}> {
+  const { data, error } = await supabase.rpc("record_runecloak_spell_delivery", {
+    guild_id_input: input.guildId,
+    ranger_id_input: input.rangerId,
+    spell_id_input: input.spellId,
+    delivery_reference_input: normalizedRequired(input.deliveryReference, 1000),
+    actor_discord_user_id_input: input.actorDiscordUserId
+  });
+  assertNoDbError(error, "record Runecloak spell delivery");
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Supabase did not return the Runecloak spell-delivery result.");
+  }
+  return data as {
+    ranger_id: string;
+    spell_id: string;
+    status: "completed";
+    unlock_id: string;
+    unlock_reference: string;
+    source_cycle_id: string;
+    delivery_reference: string;
+    newly_completed: boolean;
+  };
 }
 
 export async function setRunecloakCycleMemberStatus(input: {
@@ -1129,42 +1325,19 @@ export async function setRunecloakCycleMemberStatus(input: {
   actorDiscordUserId: string;
 }): Promise<string[]> {
   const cycle = await getRunecloakCycleDetails(input.cycleId);
-  if (!cycle || !["Locked", "Awaiting Moonshadow Start", "Active", "Awaiting Moonshadow Grant"].includes(cycle.cycle.status)) {
-    throw new UserFacingError("Only a learner on a locked, unfinished Runecloak cycle may be withdrawn or marked ineligible.");
+  if (!cycle || !["Awaiting Moonshadow Start", "Active", "Awaiting GM Approval"].includes(cycle.cycle.status)) {
+    throw new UserFacingError("Choose an unfinished Runecloak campaign.");
   }
-  const { data: before, error: beforeError } = await supabase.from("runecloak_cycle_members").select("*")
-    .eq("cycle_id", input.cycleId).eq("ranger_id", input.rangerId).single();
-  assertNoDbError(beforeError, "get Runecloak cycle learner");
-  const { error } = await supabase.from("runecloak_cycle_members").update({
-    participation_status: input.status,
-    status_reason: normalizedRequired(input.reason, 1000),
-    status_changed_by_discord_user_id: input.actorDiscordUserId,
-    status_changed_at: new Date().toISOString()
-  }).eq("id", before.id);
-  assertNoDbError(error, "update Runecloak cycle learner status");
-  await recordRunecloakAudit({
-    guildId: input.guildId,
-    entityType: "cycle_member",
-    entityId: before.id,
-    action: `learner_${input.status.toLowerCase()}`,
-    actorDiscordUserId: input.actorDiscordUserId,
-    reason: input.reason,
-    before: { status: before.participation_status },
-    after: { status: input.status }
+  const { error } = await supabase.rpc("set_runecloak_cycle_member_status", {
+    guild_id_input: input.guildId,
+    cycle_id_input: input.cycleId,
+    ranger_id_input: input.rangerId,
+    status_input: input.status,
+    reason_input: normalizedRequired(input.reason, 1000),
+    actor_discord_user_id_input: input.actorDiscordUserId
   });
-  if (input.status !== "Ineligible" || (cycle.cycle.status !== "Active" && cycle.cycle.status !== "Awaiting Moonshadow Grant")) {
-    return [];
-  }
-  const revalidatedStageIds: string[] = [];
-  for (const stage of cycle.stages.filter(({ status }) => status === "Valid" || status === "Invalid")) {
-    await verifyRunecloakStage({
-      stageId: stage.id,
-      actorDiscordUserId: input.actorDiscordUserId,
-      reason: `Recalculated after ${input.reason}`
-    });
-    revalidatedStageIds.push(stage.id);
-  }
-  return revalidatedStageIds;
+  assertNoDbError(error, "update Runecloak campaign member status");
+  return [];
 }
 
 export async function listRangerQualifications(rangerId: string): Promise<Array<{
@@ -1184,20 +1357,20 @@ export async function listRangerQualifications(rangerId: string): Promise<Array<
   });
 }
 
-export async function listRunecloakSpellProgress(rangerId: string): Promise<Array<{
-  progress: RunecloakSpellProgressRow;
-  spell: RunecloakSpellRow;
-}>> {
-  const [progressResult, spellResult] = await Promise.all([
+export async function listRunecloakSpellProgress(rangerId: string, guildId: string): Promise<RunecloakPersonalProgressDetails[]> {
+  const [progressResult, spellResult, unlockResult] = await Promise.all([
     supabase.from("runecloak_spell_progress").select("*").eq("ranger_id", rangerId),
-    supabase.from("runecloak_spells").select("*").order("sequence")
+    supabase.from("runecloak_spells").select("*").order("sequence"),
+    supabase.from("runecloak_spell_unlocks").select("*").eq("guild_id", guildId)
   ]);
   assertNoDbError(progressResult.error, "list Runecloak spell progress");
   assertNoDbError(spellResult.error, "list Runecloak spells");
+  assertNoDbError(unlockResult.error, "list shared Runecloak approvals");
   const byId = new Map((spellResult.data ?? []).map((spell) => [spell.id, spell]));
+  const unlockBySpellId = new Map((unlockResult.data ?? []).map((unlock) => [unlock.spell_id, unlock]));
   return (progressResult.data ?? []).flatMap((progress) => {
     const spell = byId.get(progress.spell_id);
-    return spell ? [{ progress, spell }] : [];
+    return spell ? [{ progress, spell, unlock: unlockBySpellId.get(progress.spell_id) ?? null }] : [];
   });
 }
 
@@ -1306,6 +1479,16 @@ function normalizedRequired(value: string, maxLength: number): string {
 function normalizedOptional(value: string | null | undefined, maxLength: number): string | null {
   const result = value?.trim().slice(0, maxLength) ?? "";
   return result || null;
+}
+
+function regionalPreferenceFromAvailability(value: string): "EU" | "NA" | "Flexible" | null {
+  const normalized = value.toLocaleUpperCase();
+  const mentionsEu = /(^|\W)EU($|\W)/u.test(normalized);
+  const mentionsNa = /(^|\W)NA($|\W)/u.test(normalized);
+  if (mentionsEu && mentionsNa) {
+    return "Flexible";
+  }
+  return mentionsEu ? "EU" : mentionsNa ? "NA" : null;
 }
 
 function assertHttpsOrDiscordUrl(value: string, label: string): void {

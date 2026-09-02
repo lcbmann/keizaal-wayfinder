@@ -64,7 +64,11 @@ import {
   syncIntelReportChannelNames
 } from "./services/intelService.js";
 import {
+  STRONGBOX_BUTTON_PREFIX,
+  STRONGBOX_MODAL_PREFIX,
+  handleStrongboxButton,
   handleStrongboxDropMessage,
+  handleStrongboxModal,
   recordStrongboxBriefingActivity,
   refreshStrongboxDropInstructions
 } from "./services/strongboxService.js";
@@ -428,19 +432,20 @@ client.on("messageCreate", (message) => {
   }
 
   const guild = message.guild;
-  void recordMessageActivity(message.author.id, message.channelId)
-    .then(async (result) => {
-      if (result.reactivated) {
-        await refreshStoredAssignmentsBoard(guild);
-      }
-      if (await handleStrongboxDropMessage(message)) {
-        return;
-      }
-      await recordStrongboxBriefingActivity(message);
-      await captureTrailmarkIntelReports(message);
-    })
+  void (async () => {
+    const strongboxHandled = await handleStrongboxDropMessage(message);
+    const result = await recordMessageActivity(message.author.id, message.channelId);
+    if (result.reactivated) {
+      await refreshStoredAssignmentsBoard(guild);
+    }
+    if (strongboxHandled) {
+      return;
+    }
+    await recordStrongboxBriefingActivity(message);
+    await captureTrailmarkIntelReports(message);
+  })()
     .catch((error) => {
-      console.warn(`Failed to record message activity for ${message.author.id}:`, error);
+      console.warn(`Failed to process Corps message from ${message.author.id}:`, error);
     });
 });
 
@@ -540,6 +545,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleBriefingButton(interaction);
+    return;
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith(STRONGBOX_BUTTON_PREFIX)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Strongbox forms are only available in the Ranger Corps server.");
+    }
+    void safelyRecordInteraction(interaction.user.id);
+    await handleStrongboxButton(interaction);
     return;
   }
 
@@ -649,6 +663,15 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     }
     await safelyRecordInteraction(interaction.user.id);
     await handleBriefingDispatchModal(interaction);
+    return;
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId.startsWith(STRONGBOX_MODAL_PREFIX)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) {
+      throw new UserFacingError("Strongbox forms are only available in the Ranger Corps server.");
+    }
+    void safelyRecordInteraction(interaction.user.id);
+    await handleStrongboxModal(interaction);
     return;
   }
 

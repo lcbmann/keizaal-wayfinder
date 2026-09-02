@@ -25,7 +25,7 @@ export async function buildPatrolSuggestion(params: {
   assertNoDbError(trailmarkError, "list patrol Trailmarks");
   const activeTrailmarks = trailmarks ?? [];
   const sessions = await listTrailmarkSessions(activeTrailmarks);
-  const route = leastRecentlyVisitedTrailmarks(activeTrailmarks, sessions).slice(0, 2);
+  const route = rankPatrolLocationsByActivity(activeTrailmarks, sessions).slice(0, 2);
   const contact = stalestContact(contacts);
 
   const embed = emojiEmbed(params.guild, "atlas", `Patrol Route: ${hold}`)
@@ -74,17 +74,87 @@ async function listTrailmarkSessions(trailmarks: TrailmarkRow[]): Promise<Trailm
   return data ?? [];
 }
 
-function leastRecentlyVisitedTrailmarks(trailmarks: TrailmarkRow[], sessions: TrailmarkSessionRow[]): TrailmarkRow[] {
-  const latestByTrailmark = new Map<string, number>();
-  for (const session of sessions) {
-    if (!latestByTrailmark.has(session.trailmark_id)) {
-      latestByTrailmark.set(session.trailmark_id, new Date(session.created_at).getTime());
-    }
+export function rankPatrolLocationsByActivity(
+  trailmarks: TrailmarkRow[],
+  sessions: TrailmarkSessionRow[]
+): TrailmarkRow[] {
+  const activeTrailmarks = trailmarks.filter((trailmark) => trailmark.active);
+  const trailmarkById = new Map(activeTrailmarks.map((trailmark) => [trailmark.id, trailmark]));
+  const groupKeyByTrailmarkId = new Map<string, string>();
+  const membersByGroupKey = new Map<string, TrailmarkRow[]>();
+
+  for (const trailmark of activeTrailmarks) {
+    const groupKey = resolvePatrolGroupKey(trailmark, trailmarkById);
+    groupKeyByTrailmarkId.set(trailmark.id, groupKey);
+    const members = membersByGroupKey.get(groupKey) ?? [];
+    members.push(trailmark);
+    membersByGroupKey.set(groupKey, members);
   }
-  return [...trailmarks].sort((left, right) =>
-    (latestByTrailmark.get(left.id) ?? 0) - (latestByTrailmark.get(right.id) ?? 0)
-      || left.name.localeCompare(right.name)
-  );
+
+  const latestActivityByGroupKey = new Map<string, number>();
+  for (const session of sessions) {
+    const groupKey = groupKeyByTrailmarkId.get(session.trailmark_id);
+    if (!groupKey) {
+      continue;
+    }
+
+    const timestamp = new Date(session.created_at).getTime();
+    if (!Number.isFinite(timestamp)) {
+      continue;
+    }
+
+    latestActivityByGroupKey.set(
+      groupKey,
+      Math.max(latestActivityByGroupKey.get(groupKey) ?? 0, timestamp)
+    );
+  }
+
+  return [...membersByGroupKey.entries()]
+    .map(([groupKey, members]) => ({
+      freshness: latestActivityByGroupKey.get(groupKey) ?? 0,
+      representative: trailmarkById.get(groupKey) ?? deterministicTrailmark(members)
+    }))
+    .sort((left, right) =>
+      left.freshness - right.freshness
+        || compareTrailmarks(left.representative, right.representative)
+    )
+    .map(({ representative }) => representative);
+}
+
+function resolvePatrolGroupKey(trailmark: TrailmarkRow, trailmarkById: Map<string, TrailmarkRow>): string {
+  const visitedIds: string[] = [];
+  const visitedIndexById = new Map<string, number>();
+  let current = trailmark;
+
+  while (current.patrol_anchor_trailmark_id) {
+    const cycleStart = visitedIndexById.get(current.id);
+    if (cycleStart !== undefined) {
+      return visitedIds.slice(cycleStart).sort()[0] ?? trailmark.id;
+    }
+
+    visitedIndexById.set(current.id, visitedIds.length);
+    visitedIds.push(current.id);
+    const anchorId = current.patrol_anchor_trailmark_id;
+    const anchor = trailmarkById.get(anchorId);
+    if (!anchor) {
+      return anchorId;
+    }
+    current = anchor;
+  }
+
+  return current.id;
+}
+
+function deterministicTrailmark(trailmarks: TrailmarkRow[]): TrailmarkRow {
+  const trailmark = [...trailmarks].sort(compareTrailmarks)[0];
+  if (!trailmark) {
+    throw new Error("A patrol location group must contain at least one active Trailmark.");
+  }
+  return trailmark;
+}
+
+function compareTrailmarks(left: TrailmarkRow, right: TrailmarkRow): number {
+  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
 }
 
 function stalestContact(contacts: ContactDetails[]): ContactDetails | null {

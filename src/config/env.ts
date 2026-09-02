@@ -39,6 +39,7 @@ const envSchema = z.object({
   PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER: z.coerce.number().int().nonnegative().default(7),
   ATLAS_DISCORD_PRESENCE_ENABLED: optionalBoolean,
   GENERAL_CHANNEL_ID: z.string().min(1).default("1510362617410097262"),
+  AGENTS_CHANNEL_ID: z.string().min(1).default("1527341151076618270"),
   INVITE_CHANNEL_ID: optionalId,
   CORPS_FUNDS_CHANNEL_ID: optionalId,
   NOTICE_BOARD_CHANNEL_ID: optionalId,

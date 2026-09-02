@@ -92,7 +92,7 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
       addToList(
         runecloakSpellsByRangerId,
         progress.ranger_id,
-        `${spell.name}: ${progress.status === "completed" ? "Complete" : `${progress.verified_attendance_credits}/${progress.required_attendance_credits} attendance`}`
+        `${spell.name}: ${progress.status === "completed" ? "Delivered in game" : `${progress.verified_points}/${progress.required_points} points; ${progress.verified_valid_stages}/${progress.required_valid_stages} expeditions`}`
       );
     }
   }
@@ -100,7 +100,7 @@ export async function exportRosterCsv(guild?: Guild): Promise<string> {
   const currentRunecloakMemberByRangerId = new Map(
     (runecloakMembersResult.data ?? []).flatMap((member) => {
       const cycle = runecloakCycleById.get(member.cycle_id);
-      return cycle && ["Locked", "Awaiting Moonshadow Start", "Active", "Awaiting Moonshadow Grant"].includes(cycle.status)
+      return cycle && ["Awaiting Moonshadow Start", "Active", "Awaiting GM Approval"].includes(cycle.status)
         ? [[member.ranger_id, member] as const]
         : [];
     })

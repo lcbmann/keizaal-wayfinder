@@ -85,6 +85,13 @@ export const trailmarkCommand: BotCommand = {
         .addStringOption((option) => option.setName("atlas_location_id").setDescription("Set or replace the Atlas location UUID."))
         .addBooleanOption((option) => option.setName("clear_atlas").setDescription("Remove the Atlas location UUID."))
         .addBooleanOption((option) => option.setName("pinned").setDescription("Pin or unpin this Trailmark at the top of the panel."))
+        .addStringOption((option) => option
+          .setName("patrol_primary")
+          .setDescription("Primary Trailmark this one shares patrol activity with.")
+          .setAutocomplete(true))
+        .addBooleanOption((option) => option
+          .setName("clear_patrol_primary")
+          .setDescription("Stop sharing patrol activity with another Trailmark."))
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -241,6 +248,8 @@ export const trailmarkCommand: BotCommand = {
       const atlasLocationId = optionalTrimmedString(interaction.options.getString("atlas_location_id"));
       const clearAtlas = interaction.options.getBoolean("clear_atlas") ?? false;
       const pinned = interaction.options.getBoolean("pinned");
+      const patrolAnchorTrailmarkId = optionalTrimmedString(interaction.options.getString("patrol_primary"));
+      const clearPatrolAnchor = interaction.options.getBoolean("clear_patrol_primary") ?? false;
 
       if (screenshot && clearScreenshot) {
         throw new UserFacingError("Choose either a replacement screenshot or clear_screenshot, not both.");
@@ -254,6 +263,14 @@ export const trailmarkCommand: BotCommand = {
         throw new UserFacingError("Atlas location ID must be a valid UUID.");
       }
 
+      if (patrolAnchorTrailmarkId && clearPatrolAnchor) {
+        throw new UserFacingError("Choose either a patrol primary or clear_patrol_primary, not both.");
+      }
+
+      if (patrolAnchorTrailmarkId && !isUuid(patrolAnchorTrailmarkId)) {
+        throw new UserFacingError("Patrol primary must be an existing Trailmark.");
+      }
+
       const hasEdits = Boolean(
         name ||
           interaction.options.getString("hold") ||
@@ -262,7 +279,9 @@ export const trailmarkCommand: BotCommand = {
           clearScreenshot ||
           atlasLocationId ||
           clearAtlas ||
-          pinned !== null
+          pinned !== null ||
+          patrolAnchorTrailmarkId ||
+          clearPatrolAnchor
       );
       if (!hasEdits) {
         throw new UserFacingError("Provide at least one Trailmark field to edit.");
@@ -278,7 +297,9 @@ export const trailmarkCommand: BotCommand = {
         ...(clearScreenshot ? { screenshotUrl: null } : {}),
         ...(atlasLocationId ? { atlasLocationId } : {}),
         ...(clearAtlas ? { atlasLocationId: null } : {}),
-        ...(pinned !== null ? { pinned } : {})
+        ...(pinned !== null ? { pinned } : {}),
+        ...(patrolAnchorTrailmarkId ? { patrolAnchorTrailmarkId } : {}),
+        ...(clearPatrolAnchor ? { patrolAnchorTrailmarkId: null } : {})
       });
 
       await interaction.reply({

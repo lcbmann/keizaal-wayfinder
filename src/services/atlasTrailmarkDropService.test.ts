@@ -24,6 +24,7 @@ const trailmark: TrailmarkRow = {
   screenshot_url: null,
   discord_channel_id: "discord-channel-id",
   atlas_location_id: "atlas-dawnstar",
+  patrol_anchor_trailmark_id: null,
   active: true,
   pinned: false,
   created_by_discord_user_id: "marshal-id",

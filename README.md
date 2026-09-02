@@ -51,6 +51,7 @@ Optional:
 
 - `DEFAULT_TRAILMARK_ACCESS_MINUTES`, default `30`
 - `PROMOTION_MIN_DAYS_APPRENTICE_TO_RANGER`, default `7`
+- `AGENTS_CHANNEL_ID`, destination for sensitive external IC reports, default `1527341151076618270`
 - `INVITE_CHANNEL_ID`, required only for `/recruit invite`
 - `CORPS_FUNDS_CHANNEL_ID`, required only for `/funds`
 - `NOTICE_BOARD_CHANNEL_ID`, optional explicit channel for apprenticeship matching notices; otherwise Wayfinder finds a text channel ending in `notice-board`
@@ -157,12 +158,16 @@ The migration creates:
 - `runecloak_applications`
 - `runecloak_research_sites`
 - `runecloak_spells`
+- `runecloak_memberships`
 - `runecloak_cycles`
 - `runecloak_cycle_members`
 - `runecloak_spell_progress`
 - `runecloak_stages`
 - `runecloak_sessions`
+- `runecloak_stage_eligible_learners`
 - `runecloak_session_participation`
+- `runecloak_personal_study_credits`
+- `runecloak_spell_unlocks`
 - `runecloak_audit_events`
 
 It also creates enum types, update triggers, indexes, the Trailmark pinned flag, a partial unique index enforcing one active Trailmark session per Discord user, and intel catchall topic state.
@@ -323,26 +328,22 @@ Implemented commands:
 - `/runecloak apply`
 - `/runecloak withdraw`
 - `/runecloak survey`
-- `/runecloak survey-screenshot`
 - `/runecloak status`
 - `/runecloak record`
+- `/runecloak delivery`
 - `/runecloak manage`
 - `/runecloak audit`
 - `/runecloak setup`
+- `/runecloak program admissions`
 - `/runecloak program set`
 - `/runecloak team add`
 - `/runecloak team remove`
 - `/runecloak cycle create`
-- `/runecloak cycle add`
-- `/runecloak cycle remove`
-- `/runecloak cycle lock`
 - `/runecloak cycle start`
 - `/runecloak cycle exclude`
 - `/runecloak cycle complete`
 - `/runecloak stage create`
 - `/runecloak stage submit-session`
-- `/runecloak stage verify-session`
-- `/runecloak stage verify`
 
 ## Corps Funds
 
@@ -366,7 +367,7 @@ Each Trailmark is a private text channel under `TRAILMARK_CATEGORY_ID`. Everyone
 
 Users visit Trailmarks by selecting one from the bot message posted by `/trailmark panel`. When a user selects a Trailmark, any previous active Trailmark session is revoked, the selected channel is opened for the configured duration, and the session is stored in Supabase. The dropdown also includes `No Trailmark`, which revokes current access and clears the user's selection path. A background job runs every minute and also runs on startup, so expired access is revoked after bot restarts. The stored panel refreshes automatically when Trailmarks are created, edited, or deactivated.
 
-`/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, or pinned status. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
+`/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, pinned status, or shared patrol location. Set `patrol_primary` when two Trailmarks represent essentially the same place; the selected primary becomes the single route and reporting destination while visits to either Trailmark refresh their shared patrol activity. `clear_patrol_primary` separates them again. Linked Trailmarks must stay in the same Hold, and a primary cannot be deactivated while active Trailmarks still point to it. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
 
 Apprentice or higher can use `/trailmark report` while inside an open Trailmark channel. The command opens either a **General** or **Incident** Discord form and can link up to three existing contacts plus three participating Rangers. Submission posts one visible, standardized report card in that Trailmark and passes its full text through the same Intel keyword and catchall flow as an ordinary message. Reports linked to contacts are copied into those contacts' Forum threads only after the report reaches Corps Headquarters; reports written at Headquarters are eligible immediately.
 
@@ -386,25 +387,29 @@ By default, deliberate collection sends the packet by DM and confirms privately 
 
 ## Ranger Runecloaks
 
-Apply `src/db/migrations/046_create_runecloak_system.sql`, redeploy slash commands, and run `/runecloak setup` as Commander. Select the existing **THE RUNIC CLOAK** category, the existing `runecloak` discussion channel, and the permanent `Ranger Runecloak` role (`1543999251820839073`). The server must already have the `:runecloak:` emoji, and Wayfinder's Discord role must sit above every Runecloak role it manages. Wayfinder creates or reuses a Ranger+ read-only `runecloak-information` channel, a `runecloak-expeditions` Forum, and a temporary non-hoisted `Runecloak Learner` role. The optional organizer role remains an operating assignment rather than a qualification or internal rank. No new environment variable is required.
+Apply `src/db/migrations/046_create_runecloak_system.sql`, redeploy slash commands, and run `/runecloak setup` as Commander. Select the existing **THE RUNIC CLOAK** category, the existing `runecloak` channel, and the permanent `Ranger Runecloak` role (`1543999251820839073`). The server must already have the `:runecloak:` emoji, and Wayfinder's Discord role must sit above every Runecloak role it manages. Wayfinder creates or reuses `runecloak-desk`, private `runecloak-applications`, `runecloak-learner`, and the `runecloak-expeditions` Forum, plus non-hoisted `Runecloak Guide` and `Runecloak Learner` roles. `runecloak` is visible to full Runecloaks, Guides, and Captain+ administrators; `runecloak-learner` is visible to learners, Guides, and Captain+ administrators. The expedition Forum is shared by learners, full Runecloaks, Guides, and Captain+ administrators. Captain+ counts as a Guide for administration, but Marshals are not Guides automatically and Guide status grants no Corps command authority.
 
-Ranger Runecloak is a specialist qualification. It does not grant command authority, Corps standing, or duty permissions. Every applicant, including the original organizing group, follows the same entry path: use `/runecloak apply`, receive a survey request through the Headquarters briefing, find a place in Skyrim resonant with Magicka, add it to the Atlas, file a short Ranger report, and submit the Atlas reference with `/runecloak survey`. A screenshot is encouraged and can be attached immediately afterward with `/runecloak survey-screenshot`. Authorized Runecloak Marshals review surveys; Captain+ gives final admission approval. Approved applicants enter a waiting pool rather than receiving the qualification immediately.
+The normal Ranger uses the four buttons in `runecloak-desk`: **Apply**, **Submit Field Survey**, **My Progress**, and **Current Study**. The application form asks why they want to join; relevant field or magical experience (optional, and none is acceptable); timezone, availability, and EU/NA preference; and other duties or scheduling conflicts (optional). A new application becomes a private review card and discussion thread in `runecloak-applications`, never a Marshal Strongbox item. A Guide requests or rejects the survey through that card. Marshal+ may skip only the initial application screening and begin with the survey, but still needs Guide approval.
 
-Official study uses one locked cycle at a time. The initial minimum roster is 20. Each study stage contains a paired EU and NA expedition, and a learner may attend either one. At least 51 percent of the original locked roster must attend across the pair for the stage to count. Learners record the result of their in-game `/roll 100`; Wayfinder never generates a roll and accepts only one roll per learner per paired stage. Authorized Marshals verify the session evidence, and only verified valid stages add to the shared 8,000-point target. Apprentices may attend suitable expeditions as non-counting observers after the program is registered.
+The survey form asks for the research site, Hold or region, Atlas location code or identifying reference, combined survey notes and research value, and an optional Imgur or Discord image link. The combined notes should cover records searched, people consulted, access, hazards, and why the Ranger believes the place is worth revisiting. No separate report URL or screenshot command is required, and no magical expertise or claim of detecting magical phenomena is expected. The desk and survey dispatch warn about hostile terrain, wildlife, ruins, and unstable or poorly understood magic. The private review card lets a Guide approve the survey and admission together, request revision, or reject it. Approval immediately grants the learner membership and role, opens `runecloak-learner` and the expedition Forum, enrolls the learner in the active campaign, and adds them to any currently open paired expedition with its quorum recalculated.
 
-When the target is reached, `/runecloak cycle complete` shows Captain+ a final attendance preview. The confirmation form is prefilled with eligible Rangers so staff can remove anyone Moonshadow did not actually approve before recording the grant reference. A learner must attend a majority of valid paired stages. Anyone who falls short keeps proportional verified attendance credit for a later cycle of the same spell without carrying old roll points into the new shared total. Completing the first confirmed Oakflesh cycle grants the permanent Runecloak role, adds a separate **Qualifications** field to `/ranger info`, records the qualification in the Honors Record, and includes its badge in synchronized Atlas profiles.
+The program needs 20 active learners for initial Moonshadow registration, but admissions and individual progress remain open. A campaign targets one shared spell, and every stage is one paired expedition with an EU session and an NA session. At least 51 percent of the learners eligible when that stage opened must attend across the two sessions for it to count. EU and NA have separate 72-hour cooldown clocks, so a delayed NA session does not change when EU may next run; however, Wayfinder will not permit another paired stage to open until both sessions of the current pair are filed. On the expedition Forum post, each learner records attendance and their real in-game `/roll 100`; only one roll is credited per person across the pair. A Guide files and verifies each regional session with `/runecloak stage submit-session`, including its approved site, leader, actual time, lesson, study method, recording, evidence basis, and optional external reference. When the second regional record is filed, Wayfinder automatically evaluates quorum, validates or rejects the pair, credits personal progress, and updates the campaign and desk. There is no separate stage-verification command.
+
+Each spell has a shared and personal requirement. The active campaign must reach 8,000 verified points before a Guide records the GMs' shared approval or ticket reference with `/runecloak cycle complete`. Individually, a Ranger needs 400 verified points across at least five valid paired expeditions. Each roll advances the active shared campaign while its personal credit is fixed to that Ranger's earliest unfinished available spell: during a Lesser Ward campaign, for example, a late learner may still work on Oakflesh. Points above 400 continue helping the group but never transfer to another spell.
+
+Shared GM approval, personal eligibility, and actual spell delivery are three separate records. Personal eligibility updates automatically as paired expeditions close. Once the group approval and personal requirement both exist, the learner's desk record says **Ready for in-game delivery**. It does not claim the spell has been granted. The learner still opens or joins the appropriate ticket and must be online with a GM; afterward, a Guide uses `/runecloak delivery` with that learner, spell, and ticket or delivery reference. Only this final delivery record marks the spell complete. The first delivered spell grants the permanent Runecloak role, updates `/ranger info`, records the qualification in the Honors Record, and updates synchronized Atlas profiles.
 
 ## Managed Assignments and Patrol Suggestions
 
 After applying migration `045`, run `/assignment setup` once as a Marshal and select the existing Assignments Forum. Wayfinder adds its status, rank, and Hold tags without converting or editing any legacy posts. Ranger+ can then use `/assignment create` to open a five-field Discord form. Each new managed post has Join, Withdraw, and Mark Complete controls, a live participant list, and a briefing dispatch for eligible members. Only the organizer or Marshal+ can complete it.
 
-Apprentice+ can use `/patrol suggest` in `#general`, optionally choosing a Hold. Without a choice, Wayfinder uses the member's assigned Hold or a stable daily rotation. The suggestion combines the Hold's least recently opened Trailmark with its stalest active contact or group record. It creates no assignment and uses no AI or external API.
+After applying migration `047`, Apprentice+ can use `/patrol suggest` in `#general`, optionally choosing a Hold. Without a choice, Wayfinder uses the member's assigned Hold or a stable daily rotation. The suggestion combines the Hold's least recently visited patrol locations with its stalest active contact or group record. Co-located Trailmarks explicitly linked through `patrol_primary` count as one location: their newest visit is shared, they consume only one route slot, and the primary Trailmark is used as the waypoint and reporting destination. Migration `047` links the Whiterun Notice Board to normal Whiterun. Patrol suggestions create no assignment and use no AI or external API.
 
 ## HQ Strongbox
 
-`/strongbox setup` creates or repairs two channels under the Trailmarks category: `strongbox-drop`, where members leave private reports, and `hq-strongbox`, where Ranger Marshal or higher reads them. When someone posts in `strongbox-drop`, Wayfinder forwards the message and attachments to `hq-strongbox`, removes the public copy, and starts a separate discussion thread from the private entry. Marshal+ can reply inside that thread without mixing separate Strongbox discussions together. `/strongbox drop` remains available as a backup slash-command path and creates the same threaded entry.
+`/strongbox setup` creates or repairs two channels under the Trailmarks category: `strongbox-drop`, where members leave private reports, and `hq-strongbox`, where Ranger Marshal or higher reads them. The pinned Strongbox Drop panel offers two form routes: sensitive IC information about people or events outside the Corps goes directly to the configured Agents channel, while internal Corps issues go to the private Marshal Strongbox. When someone posts an ordinary message in `strongbox-drop`, Wayfinder forwards the message and attachments to `hq-strongbox`, removes the public copy, and starts a separate discussion thread from the private entry. Marshal+ can reply inside that thread without mixing separate Strongbox discussions together. `/strongbox drop` remains available as a backup slash-command path and creates the same threaded Marshal entry.
 
-After deploying the threaded Strongbox update, run `/strongbox setup` once to add the required thread permissions to the existing channels.
+Wayfinder refreshes the stored Strongbox Drop panel on startup. Run `/strongbox setup` to create the channels initially or repair their permissions and pinned instructions later.
 
 ## Corps Duties
 

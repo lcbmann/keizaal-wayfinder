@@ -27,11 +27,14 @@ export type RangerContactRecordType = "Person" | "Group";
 export type BriefingKind = "ic" | "ooc";
 export type BriefingAudience = "everyone" | "apprentice_plus" | "ranger_plus" | "marshal_plus" | "captain_plus" | "individual";
 export type ManagedAssignmentStatus = "Open" | "Completed" | "Cancelled";
-export type RunecloakProgramState = "Organizing" | "Admissions Open" | "Registration Pending" | "Registered" | "Paused";
+export type RunecloakProgramState = "Organizing" | "Registration Pending" | "Registered" | "Paused";
 export type RunecloakApplicationStatus = "Submitted" | "Survey Requested" | "Survey Submitted" | "Revision Requested" | "Approved" | "Denied" | "Withdrawn";
+export type RunecloakApplicationEntryPath = "standard" | "marshal_direct";
+export type RunecloakRegionalSlot = "EU" | "NA" | "Flexible";
 export type RunecloakResearchSiteStatus = "Draft" | "Proposed" | "Revision Requested" | "Approved" | "Rejected" | "Retired";
-export type RunecloakCycleStatus = "Draft" | "Locked" | "Awaiting Moonshadow Start" | "Active" | "Awaiting Moonshadow Grant" | "Completed" | "Cancelled";
-export type RunecloakCycleMemberStatus = "Selected" | "Active" | "Withdrawn" | "Ineligible" | "Completed" | "Study Incomplete";
+export type RunecloakCycleStatus = "Draft" | "Awaiting Moonshadow Start" | "Active" | "Awaiting GM Approval" | "Completed" | "Cancelled";
+export type RunecloakCycleMemberStatus = "Selected" | "Active" | "Withdrawn" | "Ineligible" | "Eligible for Delivery" | "Completed" | "Study Incomplete";
+export type RunecloakMembershipStatus = "Learner" | "Qualified" | "Withdrawn" | "Ineligible";
 export type RunecloakStageStatus = "Draft" | "Open" | "Ready for Review" | "Valid" | "Invalid";
 export type RunecloakSessionStatus = "Planned" | "Submitted" | "Verified" | "Cancelled";
 export type RunecloakParticipationKind = "learner" | "support" | "observer";
@@ -69,6 +72,7 @@ export interface TrailmarkRow {
   screenshot_url: string | null;
   discord_channel_id: string;
   atlas_location_id: string | null;
+  patrol_anchor_trailmark_id: string | null;
   active: boolean;
   pinned: boolean;
   created_by_discord_user_id: string;
@@ -569,13 +573,16 @@ export interface CorpsQualificationRow {
 export interface RunecloakSettingsRow {
   guild_id: string;
   category_id: string;
-  information_channel_id: string;
-  discussion_channel_id: string;
+  desk_channel_id: string;
+  application_review_channel_id: string;
+  runecloak_channel_id: string;
+  learner_channel_id: string;
   expedition_forum_id: string;
   dashboard_message_id: string | null;
-  organizer_role_id: string | null;
-  learner_role_id: string | null;
+  guide_role_id: string;
+  learner_role_id: string;
   qualification_role_id: string;
+  admissions_open: boolean;
   program_state: RunecloakProgramState;
   registration_reference: string | null;
   registration_confirmed_by_discord_user_id: string | null;
@@ -583,6 +590,9 @@ export interface RunecloakSettingsRow {
   minimum_roster_size: number;
   quorum_percent: number;
   point_target: number;
+  personal_point_requirement: number;
+  personal_stage_requirement: number;
+  regional_cooldown_hours: number;
   configured_by_discord_user_id: string;
   created_at: string;
   updated_at: string;
@@ -591,7 +601,7 @@ export interface RunecloakSettingsRow {
 export interface RunecloakTeamAssignmentRow {
   id: string;
   ranger_id: string;
-  assignment_kind: "organizer" | "authorized_marshal";
+  assignment_kind: "guide";
   active: boolean;
   assigned_by_discord_user_id: string;
   assigned_at: string;
@@ -604,17 +614,20 @@ export interface RunecloakApplicationRow {
   id: string;
   applicant_ranger_id: string;
   rank_snapshot: MainRank;
+  entry_path: RunecloakApplicationEntryPath;
+  initial_screening_skipped: boolean;
+  preferred_regional_slot: RunecloakRegionalSlot | null;
   status: RunecloakApplicationStatus;
-  reason: string;
+  reason: string | null;
   experience: string | null;
-  availability: string;
+  availability: string | null;
   loyalties_conflicts: string | null;
   review_note: string | null;
   reviewed_by_discord_user_id: string | null;
   reviewed_at: string | null;
-  strongbox_channel_id: string | null;
-  strongbox_message_id: string | null;
-  strongbox_thread_id: string | null;
+  review_channel_id: string | null;
+  review_message_id: string | null;
+  review_thread_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -626,9 +639,8 @@ export interface RunecloakResearchSiteRow {
   name: string;
   hold_region: string;
   atlas_reference: string;
-  report_url: string;
   structured_report_id: string | null;
-  resonance_description: string;
+  research_rationale: string;
   screenshot_url: string | null;
   status: RunecloakResearchSiteStatus;
   review_note: string | null;
@@ -664,18 +676,14 @@ export interface RunecloakCycleRow {
   minimum_roster_size: number;
   quorum_percent: number;
   point_target: number;
-  locked_roster_count: number | null;
-  required_stage_attendance: number | null;
-  roster_hash: string | null;
-  locked_by_discord_user_id: string | null;
-  locked_at: string | null;
   start_reference: string | null;
   started_by_discord_user_id: string | null;
   started_at: string | null;
-  grant_reference: string | null;
-  grant_confirmed_by_discord_user_id: string | null;
-  grant_confirmed_at: string | null;
+  gm_approval_reference: string | null;
+  gm_approval_recorded_by_discord_user_id: string | null;
+  gm_approval_recorded_at: string | null;
   verified_points: number;
+  enrollment_remains_open: boolean;
   created_by_discord_user_id: string;
   created_at: string;
   updated_at: string;
@@ -686,7 +694,8 @@ export interface RunecloakCycleMemberRow {
   id: string;
   cycle_id: string;
   ranger_id: string;
-  application_id: string;
+  application_id: string | null;
+  membership_id: string | null;
   rank_snapshot: MainRank | null;
   status_snapshot: RangerStatus | null;
   participation_status: RunecloakCycleMemberStatus;
@@ -697,23 +706,24 @@ export interface RunecloakCycleMemberRow {
   status_changed_at: string | null;
   final_valid_stages_attended: number | null;
   final_required_attendance: number | null;
-  prior_attendance_credits: number;
-  cycle_attendance_credits: number;
-  retained_attendance_credits: number;
   final_contributed_points: number;
   final_result: string | null;
-  spell_confirmed_at: string | null;
+  spell_delivered_at: string | null;
 }
 
 export interface RunecloakSpellProgressRow {
   ranger_id: string;
   spell_id: string;
-  required_attendance_credits: number;
-  verified_attendance_credits: number;
-  status: "in_progress" | "completed";
+  required_points: number;
+  required_valid_stages: number;
+  verified_points: number;
+  verified_valid_stages: number;
+  status: "in_progress" | "eligible" | "completed";
   completion_cycle_id: string | null;
-  confirmed_by_discord_user_id: string | null;
-  confirmed_at: string | null;
+  unlock_id: string | null;
+  delivery_reference: string | null;
+  delivery_recorded_by_discord_user_id: string | null;
+  delivered_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -722,13 +732,11 @@ export interface RunecloakStageRow {
   id: string;
   cycle_id: string;
   sequence: number;
-  cooldown_label: string;
-  cooldown_starts_at: string | null;
-  cooldown_ends_at: string | null;
   title: string;
   theme: string;
   notes: string | null;
   status: RunecloakStageStatus;
+  eligible_learner_count: number;
   required_unique_attendance: number;
   actual_unique_attendance: number;
   verified_points: number;
@@ -748,6 +756,7 @@ export interface RunecloakSessionRow {
   regional_slot: "EU" | "NA";
   planned_at: string | null;
   actual_at: string | null;
+  regional_cooldown_ends_at: string | null;
   research_site_id: string | null;
   leader_discord_user_id: string | null;
   lesson_summary: string | null;
@@ -768,6 +777,7 @@ export interface RunecloakSessionParticipationRow {
   stage_id: string;
   session_id: string;
   ranger_id: string;
+  study_spell_id: string | null;
   participation_kind: RunecloakParticipationKind;
   status: RunecloakParticipationStatus;
   roll_value: number | null;
@@ -779,6 +789,58 @@ export interface RunecloakSessionParticipationRow {
   correction_note: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface RunecloakMembershipRow {
+  id: string;
+  guild_id: string;
+  ranger_id: string;
+  application_id: string | null;
+  status: RunecloakMembershipStatus;
+  preferred_regional_slot: RunecloakRegionalSlot | null;
+  admitted_by_discord_user_id: string;
+  admitted_at: string;
+  status_reason: string | null;
+  status_changed_by_discord_user_id: string | null;
+  status_changed_at: string | null;
+  first_qualified_spell_id: string | null;
+  first_qualified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RunecloakStageEligibleLearnerRow {
+  stage_id: string;
+  ranger_id: string;
+  membership_id: string;
+  rank_snapshot: MainRank;
+  ranger_status_snapshot: RangerStatus;
+  membership_status_snapshot: "Learner" | "Qualified";
+  captured_at: string;
+}
+
+export interface RunecloakSpellUnlockRow {
+  id: string;
+  guild_id: string;
+  spell_id: string;
+  source_cycle_id: string;
+  unlock_reference: string;
+  unlocked_by_discord_user_id: string;
+  unlocked_at: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface RunecloakPersonalStudyCreditRow {
+  id: string;
+  ranger_id: string;
+  spell_id: string;
+  stage_id: string;
+  participation_id: string;
+  verified_points: number;
+  verified_by_discord_user_id: string;
+  verified_at: string;
+  created_at: string;
 }
 
 export interface RangerQualificationRow {
@@ -1005,7 +1067,8 @@ export interface Database {
       };
       trailmarks: {
         Row: TrailmarkRow;
-        Insert: Omit<TrailmarkRow, "id" | "created_at" | "updated_at">;
+        Insert: Omit<TrailmarkRow, "id" | "created_at" | "updated_at" | "patrol_anchor_trailmark_id">
+          & { patrol_anchor_trailmark_id?: string | null };
         Update: Partial<TrailmarkRow>;
       };
       trailmark_sessions: {
@@ -1281,7 +1344,7 @@ export interface Database {
       };
       runecloak_settings: {
         Row: RunecloakSettingsRow;
-        Insert: Omit<RunecloakSettingsRow, "dashboard_message_id" | "organizer_role_id" | "learner_role_id" | "program_state" | "registration_reference" | "registration_confirmed_by_discord_user_id" | "registration_confirmed_at" | "minimum_roster_size" | "quorum_percent" | "point_target" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSettingsRow, "dashboard_message_id" | "organizer_role_id" | "learner_role_id" | "program_state" | "registration_reference" | "registration_confirmed_by_discord_user_id" | "registration_confirmed_at" | "minimum_roster_size" | "quorum_percent" | "point_target" | "created_at" | "updated_at">>;
+        Insert: Omit<RunecloakSettingsRow, "dashboard_message_id" | "admissions_open" | "program_state" | "registration_reference" | "registration_confirmed_by_discord_user_id" | "registration_confirmed_at" | "minimum_roster_size" | "quorum_percent" | "point_target" | "personal_point_requirement" | "personal_stage_requirement" | "regional_cooldown_hours" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSettingsRow, "dashboard_message_id" | "admissions_open" | "program_state" | "registration_reference" | "registration_confirmed_by_discord_user_id" | "registration_confirmed_at" | "minimum_roster_size" | "quorum_percent" | "point_target" | "personal_point_requirement" | "personal_stage_requirement" | "regional_cooldown_hours" | "created_at" | "updated_at">>;
         Update: Partial<RunecloakSettingsRow>;
       };
       runecloak_team_assignments: {
@@ -1291,7 +1354,7 @@ export interface Database {
       };
       runecloak_applications: {
         Row: RunecloakApplicationRow;
-        Insert: Omit<RunecloakApplicationRow, "id" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "strongbox_channel_id" | "strongbox_message_id" | "strongbox_thread_id" | "created_at" | "updated_at"> & Partial<Pick<RunecloakApplicationRow, "id" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "strongbox_channel_id" | "strongbox_message_id" | "strongbox_thread_id" | "created_at" | "updated_at">>;
+        Insert: Omit<RunecloakApplicationRow, "id" | "entry_path" | "initial_screening_skipped" | "preferred_regional_slot" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "review_channel_id" | "review_message_id" | "review_thread_id" | "created_at" | "updated_at"> & Partial<Pick<RunecloakApplicationRow, "id" | "entry_path" | "initial_screening_skipped" | "preferred_regional_slot" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "review_channel_id" | "review_message_id" | "review_thread_id" | "created_at" | "updated_at">>;
         Update: Partial<RunecloakApplicationRow>;
       };
       runecloak_research_sites: {
@@ -1306,33 +1369,53 @@ export interface Database {
       };
       runecloak_cycles: {
         Row: RunecloakCycleRow;
-        Insert: Omit<RunecloakCycleRow, "id" | "status" | "locked_roster_count" | "required_stage_attendance" | "roster_hash" | "locked_by_discord_user_id" | "locked_at" | "start_reference" | "started_by_discord_user_id" | "started_at" | "grant_reference" | "grant_confirmed_by_discord_user_id" | "grant_confirmed_at" | "verified_points" | "created_at" | "updated_at" | "completed_at"> & Partial<Pick<RunecloakCycleRow, "id" | "status" | "locked_roster_count" | "required_stage_attendance" | "roster_hash" | "locked_by_discord_user_id" | "locked_at" | "start_reference" | "started_by_discord_user_id" | "started_at" | "grant_reference" | "grant_confirmed_by_discord_user_id" | "grant_confirmed_at" | "verified_points" | "created_at" | "updated_at" | "completed_at">>;
+        Insert: Omit<RunecloakCycleRow, "id" | "status" | "start_reference" | "started_by_discord_user_id" | "started_at" | "gm_approval_reference" | "gm_approval_recorded_by_discord_user_id" | "gm_approval_recorded_at" | "verified_points" | "enrollment_remains_open" | "created_at" | "updated_at" | "completed_at"> & Partial<Pick<RunecloakCycleRow, "id" | "status" | "start_reference" | "started_by_discord_user_id" | "started_at" | "gm_approval_reference" | "gm_approval_recorded_by_discord_user_id" | "gm_approval_recorded_at" | "verified_points" | "enrollment_remains_open" | "created_at" | "updated_at" | "completed_at">>;
         Update: Partial<RunecloakCycleRow>;
+      };
+      runecloak_memberships: {
+        Row: RunecloakMembershipRow;
+        Insert: Omit<RunecloakMembershipRow, "id" | "status" | "preferred_regional_slot" | "admitted_at" | "status_reason" | "status_changed_by_discord_user_id" | "status_changed_at" | "first_qualified_spell_id" | "first_qualified_at" | "created_at" | "updated_at"> & Partial<Pick<RunecloakMembershipRow, "id" | "status" | "preferred_regional_slot" | "admitted_at" | "status_reason" | "status_changed_by_discord_user_id" | "status_changed_at" | "first_qualified_spell_id" | "first_qualified_at" | "created_at" | "updated_at">>;
+        Update: Partial<RunecloakMembershipRow>;
       };
       runecloak_cycle_members: {
         Row: RunecloakCycleMemberRow;
-        Insert: Omit<RunecloakCycleMemberRow, "id" | "rank_snapshot" | "status_snapshot" | "participation_status" | "selected_at" | "status_reason" | "status_changed_by_discord_user_id" | "status_changed_at" | "final_valid_stages_attended" | "final_required_attendance" | "prior_attendance_credits" | "cycle_attendance_credits" | "retained_attendance_credits" | "final_contributed_points" | "final_result" | "spell_confirmed_at"> & Partial<Pick<RunecloakCycleMemberRow, "id" | "rank_snapshot" | "status_snapshot" | "participation_status" | "selected_at" | "status_reason" | "status_changed_by_discord_user_id" | "status_changed_at" | "final_valid_stages_attended" | "final_required_attendance" | "prior_attendance_credits" | "cycle_attendance_credits" | "retained_attendance_credits" | "final_contributed_points" | "final_result" | "spell_confirmed_at">>;
+        Insert: Omit<RunecloakCycleMemberRow, "id" | "rank_snapshot" | "status_snapshot" | "participation_status" | "selected_at" | "status_reason" | "status_changed_by_discord_user_id" | "status_changed_at" | "final_valid_stages_attended" | "final_required_attendance" | "final_contributed_points" | "final_result" | "spell_delivered_at"> & Partial<Pick<RunecloakCycleMemberRow, "id" | "rank_snapshot" | "status_snapshot" | "participation_status" | "selected_at" | "status_reason" | "status_changed_by_discord_user_id" | "status_changed_at" | "final_valid_stages_attended" | "final_required_attendance" | "final_contributed_points" | "final_result" | "spell_delivered_at">>;
         Update: Partial<RunecloakCycleMemberRow>;
       };
       runecloak_spell_progress: {
         Row: RunecloakSpellProgressRow;
-        Insert: Omit<RunecloakSpellProgressRow, "verified_attendance_credits" | "status" | "completion_cycle_id" | "confirmed_by_discord_user_id" | "confirmed_at" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSpellProgressRow, "verified_attendance_credits" | "status" | "completion_cycle_id" | "confirmed_by_discord_user_id" | "confirmed_at" | "created_at" | "updated_at">>;
+        Insert: Omit<RunecloakSpellProgressRow, "required_points" | "required_valid_stages" | "verified_points" | "verified_valid_stages" | "status" | "completion_cycle_id" | "unlock_id" | "delivery_reference" | "delivery_recorded_by_discord_user_id" | "delivered_at" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSpellProgressRow, "required_points" | "required_valid_stages" | "verified_points" | "verified_valid_stages" | "status" | "completion_cycle_id" | "unlock_id" | "delivery_reference" | "delivery_recorded_by_discord_user_id" | "delivered_at" | "created_at" | "updated_at">>;
         Update: Partial<RunecloakSpellProgressRow>;
       };
       runecloak_stages: {
         Row: RunecloakStageRow;
-        Insert: Omit<RunecloakStageRow, "id" | "cooldown_starts_at" | "cooldown_ends_at" | "notes" | "status" | "actual_unique_attendance" | "verified_points" | "validated_by_discord_user_id" | "validated_at" | "validation_reason" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at"> & Partial<Pick<RunecloakStageRow, "id" | "cooldown_starts_at" | "cooldown_ends_at" | "notes" | "status" | "actual_unique_attendance" | "verified_points" | "validated_by_discord_user_id" | "validated_at" | "validation_reason" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at">>;
+        Insert: Omit<RunecloakStageRow, "id" | "notes" | "status" | "eligible_learner_count" | "required_unique_attendance" | "actual_unique_attendance" | "verified_points" | "validated_by_discord_user_id" | "validated_at" | "validation_reason" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at"> & Partial<Pick<RunecloakStageRow, "id" | "notes" | "status" | "eligible_learner_count" | "required_unique_attendance" | "actual_unique_attendance" | "verified_points" | "validated_by_discord_user_id" | "validated_at" | "validation_reason" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at">>;
         Update: Partial<RunecloakStageRow>;
       };
       runecloak_sessions: {
         Row: RunecloakSessionRow;
-        Insert: Omit<RunecloakSessionRow, "id" | "planned_at" | "actual_at" | "research_site_id" | "leader_discord_user_id" | "lesson_summary" | "study_method" | "recording_url" | "moonshadow_reference" | "status" | "logged_by_discord_user_id" | "verified_by_discord_user_id" | "verification_basis" | "verified_at" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSessionRow, "id" | "planned_at" | "actual_at" | "research_site_id" | "leader_discord_user_id" | "lesson_summary" | "study_method" | "recording_url" | "moonshadow_reference" | "status" | "logged_by_discord_user_id" | "verified_by_discord_user_id" | "verification_basis" | "verified_at" | "created_at" | "updated_at">>;
+        Insert: Omit<RunecloakSessionRow, "id" | "planned_at" | "actual_at" | "regional_cooldown_ends_at" | "research_site_id" | "leader_discord_user_id" | "lesson_summary" | "study_method" | "recording_url" | "moonshadow_reference" | "status" | "logged_by_discord_user_id" | "verified_by_discord_user_id" | "verification_basis" | "verified_at" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSessionRow, "id" | "planned_at" | "actual_at" | "regional_cooldown_ends_at" | "research_site_id" | "leader_discord_user_id" | "lesson_summary" | "study_method" | "recording_url" | "moonshadow_reference" | "status" | "logged_by_discord_user_id" | "verified_by_discord_user_id" | "verification_basis" | "verified_at" | "created_at" | "updated_at">>;
         Update: Partial<RunecloakSessionRow>;
       };
       runecloak_session_participation: {
         Row: RunecloakSessionParticipationRow;
-        Insert: Omit<RunecloakSessionParticipationRow, "id" | "participation_kind" | "status" | "roll_value" | "evidence_url" | "submitted_at" | "verified_by_discord_user_id" | "verified_at" | "correction_note" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSessionParticipationRow, "id" | "participation_kind" | "status" | "roll_value" | "evidence_url" | "submitted_at" | "verified_by_discord_user_id" | "verified_at" | "correction_note" | "created_at" | "updated_at">>;
+        Insert: Omit<RunecloakSessionParticipationRow, "id" | "study_spell_id" | "participation_kind" | "status" | "roll_value" | "evidence_url" | "submitted_at" | "verified_by_discord_user_id" | "verified_at" | "correction_note" | "created_at" | "updated_at"> & Partial<Pick<RunecloakSessionParticipationRow, "id" | "study_spell_id" | "participation_kind" | "status" | "roll_value" | "evidence_url" | "submitted_at" | "verified_by_discord_user_id" | "verified_at" | "correction_note" | "created_at" | "updated_at">>;
         Update: Partial<RunecloakSessionParticipationRow>;
+      };
+      runecloak_stage_eligible_learners: {
+        Row: RunecloakStageEligibleLearnerRow;
+        Insert: Omit<RunecloakStageEligibleLearnerRow, "captured_at"> & { captured_at?: string };
+        Update: never;
+      };
+      runecloak_spell_unlocks: {
+        Row: RunecloakSpellUnlockRow;
+        Insert: Omit<RunecloakSpellUnlockRow, "id" | "unlocked_at" | "notes" | "created_at"> & Partial<Pick<RunecloakSpellUnlockRow, "id" | "unlocked_at" | "notes" | "created_at">>;
+        Update: Partial<RunecloakSpellUnlockRow>;
+      };
+      runecloak_personal_study_credits: {
+        Row: RunecloakPersonalStudyCreditRow;
+        Insert: Omit<RunecloakPersonalStudyCreditRow, "id" | "verified_at" | "created_at"> & Partial<Pick<RunecloakPersonalStudyCreditRow, "id" | "verified_at" | "created_at">>;
+        Update: never;
       };
       ranger_qualifications: {
         Row: RangerQualificationRow;
@@ -1556,10 +1639,61 @@ export interface Database {
         };
         Returns: boolean;
       };
-      lock_runecloak_cycle: {
+      prepare_runecloak_cycle: {
         Args: {
           cycle_id_input: string;
           actor_discord_user_id_input: string;
+        };
+        Returns: Json;
+      };
+      approve_runecloak_admission: {
+        Args: {
+          guild_id_input: string;
+          application_id_input: string;
+          actor_discord_user_id_input: string;
+          note_input?: string | null;
+        };
+        Returns: Json;
+      };
+      open_runecloak_stage: {
+        Args: {
+          stage_id_input: string;
+          actor_discord_user_id_input: string;
+        };
+        Returns: Json;
+      };
+      create_runecloak_stage: {
+        Args: {
+          cycle_id_input: string;
+          title_input: string;
+          theme_input: string;
+          eu_planned_at_input: string | null;
+          na_planned_at_input: string | null;
+          notes_input: string | null;
+          actor_discord_user_id_input: string;
+        };
+        Returns: Json;
+      };
+      submit_runecloak_session: {
+        Args: {
+          guild_id_input: string;
+          session_id_input: string;
+          actual_at_input: string;
+          research_site_id_input: string;
+          leader_discord_user_id_input: string;
+          lesson_summary_input: string;
+          study_method_input: string;
+          recording_url_input: string;
+          moonshadow_reference_input: string | null;
+          actor_discord_user_id_input: string;
+        };
+        Returns: Json;
+      };
+      verify_runecloak_session: {
+        Args: {
+          session_id_input: string;
+          actor_discord_user_id_input: string;
+          verification_basis_input: "present" | "recording_review";
         };
         Returns: Json;
       };
@@ -1575,10 +1709,38 @@ export interface Database {
         Args: {
           cycle_id_input: string;
           actor_discord_user_id_input: string;
-          grant_reference_input: string;
-          confirmed_ranger_ids_input: string[];
+          gm_approval_reference_input: string;
         };
         Returns: Json;
+      };
+      record_runecloak_spell_delivery: {
+        Args: {
+          guild_id_input: string;
+          ranger_id_input: string;
+          spell_id_input: string;
+          delivery_reference_input: string;
+          actor_discord_user_id_input: string;
+        };
+        Returns: Json;
+      };
+      set_runecloak_cycle_member_status: {
+        Args: {
+          guild_id_input: string;
+          cycle_id_input: string;
+          ranger_id_input: string;
+          status_input: "Withdrawn" | "Ineligible";
+          reason_input: string;
+          actor_discord_user_id_input: string;
+        };
+        Returns: Json;
+      };
+      runecloak_regional_slot_available_at: {
+        Args: {
+          guild_id_input: string;
+          regional_slot_input: "EU" | "NA";
+          exclude_session_id_input?: string | null;
+        };
+        Returns: string | null;
       };
     };
   };

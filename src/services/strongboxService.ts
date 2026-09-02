@@ -6,19 +6,29 @@ import {
   PermissionFlagsBits,
   ThreadAutoArchiveDuration,
   type Attachment,
+  type ButtonInteraction,
   type Guild,
   type GuildMember,
   type Message,
+  type ModalSubmitInteraction,
   type ThreadChannel,
   type TextChannel
 } from "discord.js";
 import { env } from "../config/env.js";
 import { roleIdForRank } from "../config/roles.js";
 import { UserFacingError } from "../utils/errors.js";
-import { canCreateTrailmarks } from "../utils/permissions.js";
 import { emojiEmbed, emojiText, guildEmoji, type WayfinderEmojiName } from "../utils/guildEmojis.js";
 import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import { queueBriefingDispatch } from "./briefingService.js";
+import {
+  STRONGBOX_BUTTON_PREFIX,
+  STRONGBOX_MODAL_PREFIX,
+  parseStrongboxFormDestination,
+  strongboxDropActionRow,
+  strongboxSubmissionModal
+} from "./strongboxFormService.js";
+
+export { STRONGBOX_BUTTON_PREFIX, STRONGBOX_MODAL_PREFIX } from "./strongboxFormService.js";
 
 const STRONGBOX_STATE_KEY = "hq-strongbox-channel";
 const STRONGBOX_DROP_STATE_KEY = "hq-strongbox-drop-channel";
@@ -126,7 +136,10 @@ async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Me
     }
   }
 
-  const overviewPayload = { embeds: [strongboxDropOverviewEmbed(channel.guild)] };
+  const overviewPayload = {
+    embeds: [strongboxDropOverviewEmbed(channel.guild)],
+    components: [strongboxDropActionRow()]
+  };
   const commandsPayload = { embeds: [strongboxCommandsEmbed(channel.guild)] };
   overviewMessage = overviewMessage
     ? await overviewMessage.edit(overviewPayload)
@@ -148,7 +161,8 @@ async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Me
 
 function strongboxDropTopic(): string {
   return [
-    "Private submissions to Ranger Marshal+. Member messages are moved to the Strongbox and removed here. Marshal+ messages remain as notices.",
+    "Private reports: send sensitive IC information about people or events outside the Corps to Agents; send internal Corps issues to Ranger Marshal+.",
+    "Use the buttons for either route. /strongbox drop accepts one attachment and always goes to the Marshal Strongbox. Ordinary messages may be briefly visible before removal.",
     "Applications: /application apply, /application withdraw.",
     "Apprenticeships: /apprenticeship looking-for, /apprenticeship withdraw-looking, /apprenticeship propose, /apprenticeship sponsor, /apprenticeship info, /apprenticeship end."
   ].join(" ");
@@ -157,20 +171,118 @@ function strongboxDropTopic(): string {
 function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
   return emojiEmbed(guild, "strongbox", "Strongbox Drop")
     .setDescription([
-      "Leave private messages and applications for the Marshals here.",
-      "Wayfinder moves each submission into the HQ Strongbox and removes it from this channel."
+      "Choose the group that should receive your sensitive report.",
+      "Use the buttons below to open a form. Your submission stays out of this channel and goes directly to that group."
     ].join("\n"))
     .addFields(
       {
-        name: "Private Message",
+        name: emojiText(guild, "agent", "Send to the Agents"),
         value: [
-          "Type an ordinary message here, or use `/strongbox drop` with an optional attachment.",
-          "Marshal notices remain visible. Other messages are moved into the private Strongbox."
+          "Use this for sensitive **IC information about people, groups, threats, or events outside the Corps**.",
+          "When in doubt about external field intelligence, start with the Agents."
+        ].join("\n")
+      },
+      {
+        name: emojiText(guild, "rangermarshal", "Send to the Marshals"),
+        value: [
+          "Use this for **internal Corps issues**, including member conduct, safety, discipline, leadership, or administration.",
+          "These reports go into the private HQ Strongbox as before."
+        ].join("\n")
+      },
+      {
+        name: "Attachments and the Legacy Route",
+        value: [
+          "For a Marshal report with a file, use `/strongbox drop`; it accepts one attachment and creates the same private Strongbox entry.",
+          "Ordinary channel messages are still moved to the Marshals, but they can appear here briefly before removal. Do not type sensitive content directly into the channel."
         ].join("\n")
       }
     )
     .setColor(0x587c4a)
     .setFooter({ text: "Wayfinder replies privately to submissions." });
+}
+
+export async function handleStrongboxButton(interaction: ButtonInteraction): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    throw new UserFacingError("Strongbox forms are only available in the Ranger Corps server.");
+  }
+  const destination = parseStrongboxFormDestination(interaction.customId, STRONGBOX_BUTTON_PREFIX);
+  if (!destination) {
+    throw new UserFacingError("That Strongbox form is no longer valid. Please use the current buttons.");
+  }
+  await interaction.showModal(strongboxSubmissionModal(destination));
+}
+
+export async function handleStrongboxModal(interaction: ModalSubmitInteraction): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    throw new UserFacingError("Strongbox forms are only available in the Ranger Corps server.");
+  }
+  const destination = parseStrongboxFormDestination(interaction.customId, STRONGBOX_MODAL_PREFIX);
+  if (!destination) {
+    throw new UserFacingError("That Strongbox form is no longer valid. Please open it again.");
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  await requireStrongboxDropInteraction(interaction.guild, interaction.channelId);
+  const subject = interaction.fields.getTextInputValue("subject").replace(/\s+/gu, " ").trim();
+  const message = interaction.fields.getTextInputValue("message").trim();
+  const references = interaction.fields.getTextInputValue("references").trim() || null;
+  if (!subject || !message) {
+    throw new UserFacingError("A subject and message are required.");
+  }
+
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  if (destination === "agents") {
+    await sendAgentFieldReport({ guild: interaction.guild, member, subject, message, references });
+    await interaction.editReply({ content: "Your sensitive field report was delivered directly to the Agents." });
+    return;
+  }
+
+  await dropStrongboxMessage({
+    guild: interaction.guild,
+    member,
+    subject,
+    message,
+    references
+  });
+  await interaction.editReply({ content: "Your sealed report was delivered privately to the Marshals." });
+}
+
+async function requireStrongboxDropInteraction(guild: Guild, channelId: string | null): Promise<void> {
+  const dropChannel = await getStrongboxDropChannel(guild);
+  if (!dropChannel || channelId !== dropChannel.id) {
+    throw new UserFacingError("Use the report buttons in the configured Strongbox Drop channel.");
+  }
+}
+
+async function sendAgentFieldReport(params: {
+  guild: Guild;
+  member: GuildMember;
+  subject: string;
+  message: string;
+  references: string | null;
+}): Promise<Message> {
+  const channel = await params.guild.channels.fetch(env.AGENTS_CHANNEL_ID).catch(() => null);
+  if (channel?.type !== ChannelType.GuildText) {
+    throw new UserFacingError("The Agents channel is unavailable. Please ask Corps leadership to check its configuration.");
+  }
+
+  const embed = emojiEmbed(params.guild, "agent", `Field Report: ${params.subject.slice(0, 150)}`)
+    .setDescription(params.message.slice(0, 4096))
+    .addFields(
+      ...(params.references ? [{ name: "Evidence or references", value: params.references.slice(0, 1024) }] : []),
+      { name: "Submitted by", value: `${params.member} (${params.member.displayName})`, inline: true },
+      { name: "Submitted", value: formatDiscordTime(new Date()), inline: true }
+    )
+    .setColor(0x385f7a)
+    .setTimestamp(new Date());
+
+  return channel.send({
+    embeds: [embed],
+    allowedMentions: { parse: [] }
+  }).catch(() => {
+    console.warn(`Could not deliver an Agent field report to channel ${channel.id}.`);
+    throw new UserFacingError("Wayfinder could not deliver the report to the Agents channel. Please ask Corps leadership to check its permissions.");
+  });
 }
 
 function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
@@ -204,7 +316,7 @@ function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
       }
     )
     .setColor(0x587c4a)
-    .setFooter({ text: "The private /strongbox drop command remains limited to this channel." });
+    .setFooter({ text: "The /strongbox drop command always routes to the Marshals and accepts one attachment." });
 }
 
 function roleLabel(guild: Guild, emojiName: WayfinderEmojiName, label: string): string {
@@ -216,16 +328,24 @@ export async function dropStrongboxMessage(params: {
   guild: Guild;
   member: GuildMember;
   message: string;
+  subject?: string | null;
+  references?: string | null;
   attachments?: Attachment[];
 }): Promise<StrongboxThreadResult> {
-  const embed = emojiEmbed(params.guild, "strongbox", "Strongbox Drop")
+  const subject = params.subject?.replace(/\s+/gu, " ").trim();
+  const references = params.references?.trim();
+  const embed = emojiEmbed(params.guild, "strongbox", subject ? `Strongbox: ${subject.slice(0, 150)}` : "Strongbox Drop")
     .setDescription(params.message.slice(0, 4096))
-    .addFields(
-      { name: "Submitted by", value: `${params.member} (${params.member.displayName})`, inline: true },
-      { name: "Submitted", value: formatDiscordTime(new Date()), inline: true }
-    )
     .setColor(0x587c4a)
     .setTimestamp(new Date());
+
+  if (references) {
+    embed.addFields({ name: "Evidence or references", value: references.slice(0, 1024) });
+  }
+  embed.addFields(
+    { name: "Submitted by", value: `${params.member} (${params.member.displayName})`, inline: true },
+    { name: "Submitted", value: formatDiscordTime(new Date()), inline: true }
+  );
 
   const attachments = params.attachments ?? [];
   if (attachments.length > 0) {
@@ -242,7 +362,9 @@ export async function dropStrongboxMessage(params: {
 
   return postStrongboxThread({
     guild: params.guild,
-    threadName: `Strongbox - ${params.member.displayName}`,
+    threadName: subject
+      ? `Strongbox - ${params.member.displayName} - ${subject}`
+      : `Strongbox - ${params.member.displayName}`,
     embed,
     reason: `Strongbox drop from ${params.member.user.tag}`
   });
@@ -329,10 +451,6 @@ export async function handleStrongboxDropMessage(message: Message): Promise<bool
   }
 
   const member = message.member ?? await message.guild.members.fetch(message.author.id);
-  if (canCreateTrailmarks(member)) {
-    return true;
-  }
-
   await dropStrongboxMessage({
     guild: message.guild,
     member,
@@ -340,14 +458,20 @@ export async function handleStrongboxDropMessage(message: Message): Promise<bool
     attachments
   });
 
-  await message.delete().catch((error) => console.warn(`Could not delete strongbox drop ${message.id}:`, error));
+  let originalRemoved = true;
+  await message.delete().catch((error) => {
+    originalRemoved = false;
+    console.warn(`Could not delete strongbox drop ${message.id}:`, error);
+  });
   const confirmation = await dropChannel.send({
-    content: `${message.author}, you place a sealed message in the HQ Strongbox for the Marshals.`,
+    content: originalRemoved
+      ? `${message.author}, you place a sealed message in the HQ Strongbox for the Marshals.`
+      : `${message.author}, your report reached the Marshals, but Wayfinder could not remove the public copy. Please delete your original message immediately.`,
     allowedMentions: { users: [message.author.id] }
   });
   setTimeout(() => {
     void confirmation.delete().catch(() => undefined);
-  }, 10000);
+  }, originalRemoved ? 10000 : 30000);
   return true;
 }
 

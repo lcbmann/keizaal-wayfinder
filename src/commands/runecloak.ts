@@ -8,11 +8,11 @@ import {
 } from "discord.js";
 import { assertNoDbError, supabase, type RunecloakProgramState } from "../db/supabase.js";
 import { UserFacingError } from "../utils/errors.js";
-import { memberRankAtLeast } from "../utils/permissions.js";
 import {
-  addRunecloakSurveyScreenshot,
   postRunecloakStage,
+  publishRunecloakCycleQualifications,
   reconcileRunecloakRoles,
+  refreshRunecloakApplicationReview,
   refreshRunecloakDesk,
   refreshRunecloakStagePost,
   runecloakApplicationModal,
@@ -21,12 +21,10 @@ import {
   runecloakPersonalRecordPayload,
   runecloakStatusPayload,
   runecloakSurveyModal,
-  setupRunecloakDiscord,
-  updateRunecloakObserverAccess
+  setupRunecloakDiscord
 } from "../services/runecloakDiscordService.js";
 import {
   DEFAULT_RUNECLOAK_ROLE_ID,
-  addRunecloakCycleMember,
   assertRunecloakCaptain,
   assertRunecloakCommander,
   createRunecloakCycle,
@@ -36,23 +34,22 @@ import {
   getRunecloakApplicationDetails,
   getRunecloakCycleDetails,
   getRunecloakStage,
-  isAuthorizedRunecloakMarshal,
-  isRunecloakOrganizer,
+  isRunecloakGuide,
   listActiveRunecloakTeamAssignments,
+  listActiveRunecloakMemberships,
   listRunecloakApplications,
   listRunecloakCycles,
   listRunecloakSpells,
-  lockRunecloakCycle,
-  removeRunecloakCycleMember,
   requireRunecloakSettings,
+  recordRunecloakSpellDelivery,
+  setRunecloakAdmissionsOpen,
   setRunecloakCycleMemberStatus,
   setRunecloakProgramState,
   setRunecloakTeamAssignment,
   startRunecloakCycle,
   submitRunecloakSession,
   transitionRunecloakApplication,
-  verifyRunecloakSession,
-  verifyRunecloakStage
+  verifyRunecloakSession
 } from "../services/runecloakService.js";
 import { queueBriefingDispatch } from "../services/briefingService.js";
 import { requireRangerByDiscordId } from "../services/rangerService.js";
@@ -60,29 +57,28 @@ import type { BotCommand } from "./types.js";
 
 const command = new SlashCommandBuilder()
   .setName("runecloak")
-  .setDescription("Apply for Runecloak study and maintain its expedition records.")
+  .setDescription("Join Runecloak field study and maintain its research records.")
   .addSubcommand((subcommand) => subcommand
     .setName("apply")
-    .setDescription("Ranger+: apply to begin the Runecloak admission path."))
+    .setDescription("Ranger+: apply for the Runecloak research specialization."))
   .addSubcommand((subcommand) => subcommand
     .setName("withdraw")
     .setDescription("Withdraw your open Runecloak application."))
   .addSubcommand((subcommand) => subcommand
     .setName("survey")
-    .setDescription("Submit the research-site survey requested by leadership."))
-  .addSubcommand((subcommand) => subcommand
-    .setName("survey-screenshot")
-    .setDescription("Attach a screenshot to your submitted research-site survey.")
-    .addAttachmentOption((option) => option
-      .setName("image")
-      .setDescription("A screenshot of the surveyed location.")
-      .setRequired(true)))
+    .setDescription("Submit your researched field survey (required for every learner)."))
   .addSubcommand((subcommand) => subcommand
     .setName("status")
-    .setDescription("View the current Runecloak program and study cycle."))
+    .setDescription("View Runecloak admissions and the current research campaign."))
   .addSubcommand((subcommand) => subcommand
     .setName("record")
     .setDescription("View your private Runecloak application and study record."))
+  .addSubcommand((subcommand) => subcommand
+    .setName("delivery")
+    .setDescription("Runecloak Guide: record a spell actually delivered to one learner in game.")
+    .addUserOption((option) => option.setName("learner").setDescription("Ranger who received the spell in game.").setRequired(true))
+    .addStringOption((option) => option.setName("spell").setDescription("Delivered spell.").setRequired(true).setAutocomplete(true))
+    .addStringOption((option) => option.setName("reference").setDescription("GM ticket or in-game delivery reference.").setRequired(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("manage")
     .setDescription("Runecloak staff: view the current operating record."))
@@ -91,7 +87,7 @@ const command = new SlashCommandBuilder()
     .setDescription("Authorized staff: export the Runecloak audit ledger.")
     .addStringOption((option) => option
       .setName("cycle")
-      .setDescription("Limit the export to one study cycle.")
+      .setDescription("Limit the export to one research campaign.")
       .setAutocomplete(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("setup")
@@ -102,8 +98,8 @@ const command = new SlashCommandBuilder()
       .addChannelTypes(ChannelType.GuildCategory)
       .setRequired(true))
     .addChannelOption((option) => option
-      .setName("discussion")
-      .setDescription("The existing Runecloak discussion channel.")
+      .setName("runecloak")
+      .setDescription("The existing full-Runecloak channel.")
       .addChannelTypes(ChannelType.GuildText)
       .setRequired(true))
     .addRoleOption((option) => option
@@ -111,22 +107,37 @@ const command = new SlashCommandBuilder()
       .setDescription("The permanent Ranger Runecloak role.")
       .setRequired(true))
     .addChannelOption((option) => option
-      .setName("information")
-      .setDescription("Optional existing information channel; Wayfinder creates one if omitted.")
+      .setName("desk")
+      .setDescription("Optional existing Runecloak desk; Wayfinder creates runecloak-desk if omitted.")
+      .addChannelTypes(ChannelType.GuildText))
+    .addChannelOption((option) => option
+      .setName("applications")
+      .setDescription("Optional private Guide review channel; Wayfinder creates one if omitted.")
+      .addChannelTypes(ChannelType.GuildText))
+    .addChannelOption((option) => option
+      .setName("learner_channel")
+      .setDescription("Optional learner channel; Wayfinder creates runecloak-learner if omitted.")
       .addChannelTypes(ChannelType.GuildText))
     .addChannelOption((option) => option
       .setName("expeditions")
       .setDescription("Optional existing expedition Forum; Wayfinder creates one if omitted.")
       .addChannelTypes(ChannelType.GuildForum))
     .addRoleOption((option) => option
-      .setName("organizer_role")
-      .setDescription("Optional temporary organizer role, if you decide to use one."))
+      .setName("guide_role")
+      .setDescription("Optional existing Runecloak Guide role; Wayfinder creates one if omitted."))
     .addRoleOption((option) => option
       .setName("learner_role")
       .setDescription("Optional existing learner role; Wayfinder creates one if omitted.")))
   .addSubcommandGroup((group) => group
     .setName("program")
     .setDescription("Manage Runecloak admissions and Moonshadow registration.")
+    .addSubcommand((subcommand) => subcommand
+      .setName("admissions")
+      .setDescription("Runecloak Guide: open or close applications independently of research.")
+      .addBooleanOption((option) => option
+        .setName("open")
+        .setDescription("Whether Ranger+ applications are open.")
+        .setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("set")
       .setDescription("Captain+: set the Runecloak program state.")
@@ -136,7 +147,6 @@ const command = new SlashCommandBuilder()
         .setRequired(true)
         .addChoices(
           { name: "Organizing", value: "Organizing" },
-          { name: "Admissions Open", value: "Admissions Open" },
           { name: "Registration Pending", value: "Registration Pending" },
           { name: "Registered", value: "Registered" },
           { name: "Paused", value: "Paused" }
@@ -146,67 +156,37 @@ const command = new SlashCommandBuilder()
         .setDescription("Required when confirming registration."))))
   .addSubcommandGroup((group) => group
     .setName("team")
-    .setDescription("Manage the Runecloak organizing and verification team.")
+    .setDescription("Manage the Runecloak Guides who operate the specialization.")
     .addSubcommand((subcommand) => subcommand
       .setName("add")
-      .setDescription("Captain+: add an organizer or authorized Marshal.")
-      .addUserOption((option) => option.setName("member").setDescription("Corps member.").setRequired(true))
-      .addStringOption((option) => option
-        .setName("kind")
-        .setDescription("Operational assignment.")
-        .setRequired(true)
-        .addChoices(
-          { name: "Organizer", value: "organizer" },
-          { name: "Authorized Marshal", value: "authorized_marshal" }
-        )))
+      .setDescription("Captain+: appoint a Runecloak Guide.")
+      .addUserOption((option) => option.setName("member").setDescription("Active Ranger+ to appoint.").setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("remove")
-      .setDescription("Captain+: remove an operational Runecloak assignment.")
+      .setDescription("Captain+: remove a Runecloak Guide.")
       .addUserOption((option) => option.setName("member").setDescription("Corps member.").setRequired(true))
-      .addStringOption((option) => option
-        .setName("kind")
-        .setDescription("Operational assignment.")
-        .setRequired(true)
-        .addChoices(
-          { name: "Organizer", value: "organizer" },
-          { name: "Authorized Marshal", value: "authorized_marshal" }
-        ))
       .addStringOption((option) => option.setName("reason").setDescription("Why the assignment ended.").setRequired(true))))
   .addSubcommandGroup((group) => group
     .setName("cycle")
-    .setDescription("Build and operate an official spell-study cycle.")
+    .setDescription("Build and operate a shared spell-research campaign.")
     .addSubcommand((subcommand) => subcommand
       .setName("create")
-      .setDescription("Authorized staff: create a draft study cycle.")
+      .setDescription("Runecloak Guide: create a draft research campaign.")
       .addStringOption((option) => option.setName("spell").setDescription("Approved spell.").setRequired(true).setAutocomplete(true))
-      .addStringOption((option) => option.setName("label").setDescription("Company or cohort label.").setRequired(true)))
-    .addSubcommand((subcommand) => subcommand
-      .setName("add")
-      .setDescription("Authorized staff: add an approved applicant to a draft cycle.")
-      .addStringOption((option) => option.setName("cycle").setDescription("Draft cycle.").setRequired(true).setAutocomplete(true))
-      .addUserOption((option) => option.setName("applicant").setDescription("Approved applicant.").setRequired(true)))
-    .addSubcommand((subcommand) => subcommand
-      .setName("remove")
-      .setDescription("Authorized staff: remove a learner before roster lock.")
-      .addStringOption((option) => option.setName("cycle").setDescription("Draft cycle.").setRequired(true).setAutocomplete(true))
-      .addUserOption((option) => option.setName("learner").setDescription("Learner to remove.").setRequired(true)))
-    .addSubcommand((subcommand) => subcommand
-      .setName("lock")
-      .setDescription("Captain+: validate and permanently lock the study roster.")
-      .addStringOption((option) => option.setName("cycle").setDescription("Draft cycle.").setRequired(true).setAutocomplete(true)))
+      .addStringOption((option) => option.setName("label").setDescription("Research campaign label.").setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("start")
-      .setDescription("Captain+: record Moonshadow start approval and open the cycle.")
-      .addStringOption((option) => option.setName("cycle").setDescription("Locked cycle.").setRequired(true).setAutocomplete(true))
+      .setDescription("Runecloak Guide: record Moonshadow approval and open the campaign.")
+      .addStringOption((option) => option.setName("cycle").setDescription("Validated campaign.").setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option.setName("moonshadow_reference").setDescription("Approval or ticket reference.").setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("exclude")
-      .setDescription("Captain+: mark a locked learner withdrawn or ineligible.")
-      .addStringOption((option) => option.setName("cycle").setDescription("Official cycle.").setRequired(true).setAutocomplete(true))
-      .addUserOption((option) => option.setName("learner").setDescription("Locked learner.").setRequired(true))
+      .setDescription("Runecloak Guide: mark a campaign learner withdrawn or ineligible.")
+      .addStringOption((option) => option.setName("cycle").setDescription("Official campaign.").setRequired(true).setAutocomplete(true))
+      .addUserOption((option) => option.setName("learner").setDescription("Campaign learner.").setRequired(true))
       .addStringOption((option) => option
         .setName("status")
-        .setDescription("How to preserve the learner in the locked record.")
+        .setDescription("How to preserve the learner in the audit record.")
         .setRequired(true)
         .addChoices(
           { name: "Withdrawn", value: "Withdrawn" },
@@ -215,24 +195,23 @@ const command = new SlashCommandBuilder()
       .addStringOption((option) => option.setName("reason").setDescription("Required audit reason.").setRequired(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("complete")
-      .setDescription("Captain+: record Moonshadow's final spell grant.")
-      .addStringOption((option) => option.setName("cycle").setDescription("Cycle awaiting a grant.").setRequired(true).setAutocomplete(true))))
+      .setDescription("Runecloak Guide: record the GM's approval of completed shared research.")
+      .addStringOption((option) => option.setName("cycle").setDescription("Campaign awaiting GM approval.").setRequired(true).setAutocomplete(true))))
   .addSubcommandGroup((group) => group
     .setName("stage")
     .setDescription("Open and verify paired regional study expeditions.")
     .addSubcommand((subcommand) => subcommand
       .setName("create")
-      .setDescription("Organizer or authorized staff: open a paired stage.")
-      .addStringOption((option) => option.setName("cycle").setDescription("Active cycle.").setRequired(true).setAutocomplete(true))
+      .setDescription("Runecloak Guide: open a paired stage.")
+      .addStringOption((option) => option.setName("cycle").setDescription("Active research campaign.").setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option.setName("title").setDescription("Short stage title.").setRequired(true))
       .addStringOption((option) => option.setName("theme").setDescription("What the expeditions will study.").setRequired(true))
-      .addStringOption((option) => option.setName("study_window").setDescription("Moonshadow cooldown or study-window label.").setRequired(true))
       .addStringOption((option) => option.setName("eu_time").setDescription("Optional ISO date/time for the EU session."))
       .addStringOption((option) => option.setName("na_time").setDescription("Optional ISO date/time for the NA session."))
       .addStringOption((option) => option.setName("notes").setDescription("Optional planning notes.")))
     .addSubcommand((subcommand) => subcommand
       .setName("submit-session")
-      .setDescription("Organizer or authorized staff: file a completed regional session.")
+      .setDescription("Runecloak Guide: close, file, and verify one regional session after rolls are recorded.")
       .addStringOption((option) => option.setName("stage").setDescription("Open stage.").setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option.setName("slot").setDescription("Regional session.").setRequired(true).addChoices(
         { name: "EU", value: "EU" }, { name: "NA", value: "NA" }
@@ -243,23 +222,11 @@ const command = new SlashCommandBuilder()
       .addStringOption((option) => option.setName("recording").setDescription("HTTPS recording link.").setRequired(true))
       .addStringOption((option) => option.setName("lesson_summary").setDescription("What was taught or observed.").setRequired(true))
       .addStringOption((option) => option.setName("study_method").setDescription("How field study was performed.").setRequired(true))
-      .addStringOption((option) => option.setName("moonshadow_reference").setDescription("Optional submission reference.")))
-    .addSubcommand((subcommand) => subcommand
-      .setName("verify-session")
-      .setDescription("Authorized Marshal+: verify attendance and evidence for one session.")
-      .addStringOption((option) => option.setName("stage").setDescription("Open stage.").setRequired(true).setAutocomplete(true))
-      .addStringOption((option) => option.setName("slot").setDescription("Regional session.").setRequired(true).addChoices(
-        { name: "EU", value: "EU" }, { name: "NA", value: "NA" }
-      ))
-      .addStringOption((option) => option.setName("basis").setDescription("How you verified the record.").setRequired(true).addChoices(
+      .addStringOption((option) => option.setName("basis").setDescription("How the Guide verified this record.").setRequired(true).addChoices(
         { name: "I was present", value: "present" },
         { name: "I reviewed the recording", value: "recording_review" }
-      )))
-    .addSubcommand((subcommand) => subcommand
-      .setName("verify")
-      .setDescription("Authorized Marshal+: evaluate the paired stage for quorum and points.")
-      .addStringOption((option) => option.setName("stage").setDescription("Stage with two verified sessions.").setRequired(true).setAutocomplete(true))
-      .addStringOption((option) => option.setName("note").setDescription("Optional validation note."))));
+      ))
+      .addStringOption((option) => option.setName("moonshadow_reference").setDescription("Optional submission reference."))));
 
 export const runecloakCommand: BotCommand = {
   data: command,
@@ -328,20 +295,6 @@ export const runecloakCommand: BotCommand = {
       await interaction.showModal(runecloakSurveyModal());
       return;
     }
-    if (!group && subcommand === "survey-screenshot") {
-      const attachment = interaction.options.getAttachment("image", true);
-      if (!attachment.contentType?.startsWith("image/")) {
-        throw new UserFacingError("Attach an image file for the research-site screenshot.");
-      }
-      await interaction.deferReply({ ephemeral: true });
-      const details = await addRunecloakSurveyScreenshot({
-        guild: interaction.guild,
-        discordUserId: interaction.user.id,
-        screenshotUrl: attachment.url
-      });
-      await interaction.editReply({ content: `The screenshot is now attached to **${details.site?.name}**.` });
-      return;
-    }
     if (!group && subcommand === "withdraw") {
       const ranger = await requireRangerByDiscordId(actor.id);
       const application = await getOpenRunecloakApplication(ranger.id);
@@ -356,6 +309,7 @@ export const runecloakCommand: BotCommand = {
         actorDiscordUserId: actor.id,
         note: "Withdrawn by applicant"
       });
+      await refreshRunecloakApplicationReview(interaction.guild, application.id);
       await refreshRunecloakDesk(interaction.guild);
       await interaction.editReply({ content: "Your Runecloak application has been withdrawn." });
       return;
@@ -370,13 +324,53 @@ export const runecloakCommand: BotCommand = {
       await interaction.editReply(await runecloakPersonalRecordPayload(interaction.guild, actor.id));
       return;
     }
+    if (!group && subcommand === "delivery") {
+      if (!await isRunecloakGuide(actor)) {
+        throw new UserFacingError("A Runecloak Guide is required to record an in-game spell delivery.");
+      }
+      const learnerUser = interaction.options.getUser("learner", true);
+      const learner = await requireRangerByDiscordId(learnerUser.id);
+      const spellId = interaction.options.getString("spell", true);
+      const spell = (await listRunecloakSpells()).find(({ id }) => id === spellId);
+      if (!spell) {
+        throw new UserFacingError("Choose a configured Runecloak spell.");
+      }
+      await interaction.deferReply({ ephemeral: true });
+      const result = await recordRunecloakSpellDelivery({
+        guildId: interaction.guild.id,
+        rangerId: learner.id,
+        spellId,
+        deliveryReference: interaction.options.getString("reference", true),
+        actorDiscordUserId: actor.id
+      });
+      if (result.newly_completed) {
+        await reconcileRunecloakRoles(interaction.guild);
+        await publishRunecloakCycleQualifications(interaction.guild, result.source_cycle_id);
+        await queueBriefingDispatch({
+          guildId: interaction.guild.id,
+          audience: "individual",
+          targetDiscordUserId: learner.discord_user_id,
+          title: `${spell.name} Delivered`,
+          body: `A Runecloak Guide recorded that a GM delivered **${spell.name}** to you in game. Reference: ${result.delivery_reference}${spell.sequence === 1 ? " This is your first completed Runecloak spell, so you now hold the full Runecloak qualification." : ""}`,
+          sourceKind: "runecloak-spell-delivery",
+          sourceId: `${spell.id}:${learner.id}`
+        });
+        await refreshRunecloakDesk(interaction.guild);
+      }
+      await interaction.editReply({
+        content: result.newly_completed
+          ? `Recorded **${spell.name}** as delivered in game to ${learnerUser}. Their qualification and Discord access are now synchronized.`
+          : `${learnerUser} was already recorded as having received **${spell.name}**; no duplicate award was created.`
+      });
+      return;
+    }
     if (!group && subcommand === "setup") {
       assertRunecloakCommander(actor);
       const category = interaction.options.getChannel("category", true);
-      const discussion = interaction.options.getChannel("discussion", true);
+      const runecloakChannel = interaction.options.getChannel("runecloak", true);
       const qualificationRole = interaction.options.getRole("qualification_role", true);
-      if (category.type !== ChannelType.GuildCategory || discussion.type !== ChannelType.GuildText) {
-        throw new UserFacingError("Choose the existing Runic Cloak category and its normal text discussion channel.");
+      if (category.type !== ChannelType.GuildCategory || runecloakChannel.type !== ChannelType.GuildText) {
+        throw new UserFacingError("Choose the existing Runic Cloak category and full-Runecloak text channel.");
       }
       if (qualificationRole.id !== DEFAULT_RUNECLOAK_ROLE_ID) {
         throw new UserFacingError(`Choose the permanent Ranger Runecloak role with ID ${DEFAULT_RUNECLOAK_ROLE_ID}.`);
@@ -385,29 +379,32 @@ export const runecloakCommand: BotCommand = {
       const result = await setupRunecloakDiscord({
         guild: interaction.guild,
         category: category as CategoryChannel,
-        discussionChannel: discussion as TextChannel,
+        runecloakChannel: runecloakChannel as TextChannel,
         qualificationRole: qualificationRole as Role,
-        informationChannel: interaction.options.getChannel("information") as TextChannel | null,
+        deskChannel: interaction.options.getChannel("desk") as TextChannel | null,
+        applicationReviewChannel: interaction.options.getChannel("applications") as TextChannel | null,
+        learnerChannel: interaction.options.getChannel("learner_channel") as TextChannel | null,
         expeditionForum: interaction.options.getChannel("expeditions") as ForumChannel | null,
-        organizerRole: interaction.options.getRole("organizer_role") as Role | null,
+        guideRole: interaction.options.getRole("guide_role") as Role | null,
         learnerRole: interaction.options.getRole("learner_role") as Role | null,
         actorDiscordUserId: actor.id
       });
       await interaction.editReply({
-        content: `The Runecloak desk is ready in ${result.informationChannel}; expedition records will be kept in ${result.expeditionForum}. The existing ${discussion} channel remains the member discussion room.`
+        content: `The desk is ready in ${result.deskChannel}; Guide-only reviews go to ${result.applicationReviewChannel}; learners use ${result.learnerChannel}; full Runecloaks use ${runecloakChannel}; and expedition records are kept in ${result.expeditionForum}. The managed roles are ${result.guideRole}, ${result.learnerRole}, and ${qualificationRole}.`
       });
       return;
     }
     if (!group && subcommand === "manage") {
-      if (!await isRunecloakOrganizer(actor) && !await isAuthorizedRunecloakMarshal(actor)) {
-        throw new UserFacingError("A Runecloak organizer or authorized Runecloak Marshal is required to view the operating record.");
+      if (!await isRunecloakGuide(actor)) {
+        throw new UserFacingError("A Runecloak Guide is required to view the operating record.");
       }
       await interaction.deferReply({ ephemeral: true });
-      const [settings, cycle, applications, team] = await Promise.all([
+      const [settings, cycle, applications, team, memberships] = await Promise.all([
         requireRunecloakSettings(interaction.guild.id),
         getCurrentRunecloakCycle(interaction.guild.id),
-        listRunecloakApplications(["Submitted", "Survey Requested", "Survey Submitted", "Revision Requested", "Approved"]),
-        listActiveRunecloakTeamAssignments()
+        listRunecloakApplications(["Submitted", "Survey Requested", "Survey Submitted", "Revision Requested"]),
+        listActiveRunecloakTeamAssignments(),
+        listActiveRunecloakMemberships(interaction.guild.id)
       ]);
       const statusCounts = new Map<string, number>();
       for (const details of applications) {
@@ -416,9 +413,10 @@ export const runecloakCommand: BotCommand = {
       await interaction.editReply({
         content: [
           `**Runecloak program:** ${settings.program_state}`,
+          `**Admissions:** ${settings.admissions_open ? "Open" : "Closed"} (independent of the active campaign)`,
           `**Applications:** ${[...statusCounts].map(([status, count]) => `${status}: ${count}`).join(", ") || "none"}`,
-          `**Team:** ${team.filter(({ assignment_kind }) => assignment_kind === "organizer").length} organizers, ${team.filter(({ assignment_kind }) => assignment_kind === "authorized_marshal").length} authorized Marshals`,
-          cycle ? `**Current cycle:** ${cycle.cycle.label} (${cycle.spell.name}) - ${cycle.cycle.status}, ${cycle.members.length} learners, ${cycle.cycle.verified_points}/${cycle.cycle.point_target} points` : "**Current cycle:** none",
+          `**Guides:** ${team.length} appointed, with Captain+ retaining administrative access`,
+          cycle ? `**Current campaign:** ${cycle.cycle.label} (${cycle.spell.name}) - ${cycle.cycle.status}, ${memberships.length} active members, ${cycle.cycle.verified_points}/${cycle.cycle.point_target} shared points` : "**Current campaign:** none",
           "",
           "Use the `program`, `team`, `cycle`, and `stage` Runecloak command groups for audited changes."
         ].join("\n")
@@ -426,30 +424,46 @@ export const runecloakCommand: BotCommand = {
       return;
     }
     if (!group && subcommand === "audit") {
-      if (!await isAuthorizedRunecloakMarshal(actor)) {
-        throw new UserFacingError("An authorized Runecloak Marshal or Captain is required to export the audit ledger.");
+      if (!await isRunecloakGuide(actor)) {
+        throw new UserFacingError("A Runecloak Guide is required to export the audit ledger.");
       }
       await interaction.deferReply({ ephemeral: true });
       const cycleId = interaction.options.getString("cycle");
       await interaction.editReply({
-        content: cycleId ? "Runecloak audit for the selected study cycle:" : "Complete Runecloak audit ledger:",
+        content: cycleId ? "Runecloak audit for the selected research campaign:" : "Complete Runecloak audit ledger:",
         files: [await runecloakAuditAttachment(interaction.guild.id, cycleId)]
       });
       return;
     }
 
     if (group === "program") {
-      assertRunecloakCaptain(actor);
+      if (subcommand === "admissions") {
+        if (!await isRunecloakGuide(actor)) {
+          throw new UserFacingError("A Runecloak Guide is required to open or close applications.");
+        }
+      } else {
+        assertRunecloakCaptain(actor);
+      }
+      await interaction.deferReply({ ephemeral: true });
+      if (subcommand === "admissions") {
+        const open = interaction.options.getBoolean("open", true);
+        await setRunecloakAdmissionsOpen({
+          guildId: interaction.guild.id,
+          open,
+          actorDiscordUserId: actor.id
+        });
+        await refreshRunecloakDesk(interaction.guild);
+        await interaction.editReply({ content: `Runecloak applications are now **${open ? "open" : "closed"}**. The current research campaign is unchanged.` });
+        return;
+      }
       const state = interaction.options.getString("state", true) as RunecloakProgramState;
       const reference = interaction.options.getString("moonshadow_reference");
-      await interaction.deferReply({ ephemeral: true });
       await setRunecloakProgramState({
         guildId: interaction.guild.id,
         state,
         actorDiscordUserId: actor.id,
         registrationReference: reference
       });
-      await updateRunecloakObserverAccess(interaction.guild, state === "Registered");
       await refreshRunecloakDesk(interaction.guild);
       await interaction.editReply({ content: `The Runecloak program is now **${state}**.` });
       return;
@@ -459,30 +473,24 @@ export const runecloakCommand: BotCommand = {
       assertRunecloakCaptain(actor);
       const targetUser = interaction.options.getUser("member", true);
       const target = await requireRangerByDiscordId(targetUser.id);
-      const kind = interaction.options.getString("kind", true) as "organizer" | "authorized_marshal";
       const active = subcommand === "add";
       const reason = interaction.options.getString("reason");
       await interaction.deferReply({ ephemeral: true });
       await setRunecloakTeamAssignment({
         guildId: interaction.guild.id,
         target,
-        kind,
         active,
         actorDiscordUserId: actor.id,
         reason
       });
       await reconcileRunecloakRoles(interaction.guild);
-      await interaction.editReply({ content: `${targetUser} is ${active ? "now" : "no longer"} recorded as ${kind === "organizer" ? "a Runecloak organizer" : "an authorized Runecloak Marshal"}.` });
+      await interaction.editReply({ content: `${targetUser} is ${active ? "now" : "no longer"} a Runecloak Guide.` });
       return;
     }
 
     if (group === "cycle") {
-      if (subcommand === "create" || subcommand === "add" || subcommand === "remove") {
-        if (!await isAuthorizedRunecloakMarshal(actor)) {
-          throw new UserFacingError("An authorized Runecloak Marshal or Captain is required to build a study roster.");
-        }
-      } else {
-        assertRunecloakCaptain(actor);
+      if (!await isRunecloakGuide(actor)) {
+        throw new UserFacingError("A Runecloak Guide is required to manage a research campaign.");
       }
       await interaction.deferReply({ ephemeral: true });
       if (subcommand === "create") {
@@ -492,46 +500,19 @@ export const runecloakCommand: BotCommand = {
           label: interaction.options.getString("label", true),
           actorDiscordUserId: actor.id
         });
-        await interaction.editReply({ content: `Created draft cycle **${cycle.label}**. Add only applicants whose surveys and admissions are approved.` });
+        await interaction.editReply({ content: `Created draft research campaign **${cycle.label}**. Active Runecloak members are enrolled when each paired expedition opens, and newly admitted learners can join an open pair immediately.` });
         return;
       }
       const cycleId = interaction.options.getString("cycle", true);
-      if (subcommand === "add") {
-        const applicantUser = interaction.options.getUser("applicant", true);
-        const ranger = await requireRangerByDiscordId(applicantUser.id);
-        const application = await getOpenRunecloakApplication(ranger.id);
-        if (!application || application.status !== "Approved") {
-          throw new UserFacingError("That Ranger is not in the approved Runecloak waiting pool.");
-        }
-        await addRunecloakCycleMember({ cycleId, applicationId: application.id, actorDiscordUserId: actor.id });
-        await interaction.editReply({ content: `${applicantUser} has been added to the draft roster.` });
-        return;
-      }
-      if (subcommand === "remove") {
-        const learner = interaction.options.getUser("learner", true);
-        const ranger = await requireRangerByDiscordId(learner.id);
-        await removeRunecloakCycleMember({ cycleId, rangerId: ranger.id, actorDiscordUserId: actor.id });
-        await interaction.editReply({ content: `${learner} has been removed from the draft roster.` });
-        return;
-      }
-      if (subcommand === "lock") {
-        await lockRunecloakCycle(cycleId, actor.id);
-        const details = await getRunecloakCycleDetails(cycleId);
-        await reconcileRunecloakRoles(interaction.guild);
-        await dispatchCycleRoster(interaction.guild.id, details, "Runecloak Study Roster Locked", `You have been selected for **${details?.cycle.label ?? "the next Runecloak study cycle"}**. Watch the Runecloak expedition board for the first paired study stage.`);
-        await refreshRunecloakDesk(interaction.guild);
-        await interaction.editReply({ content: `The roster is locked with **${details?.members.length ?? 0}** learners and now awaits Moonshadow start approval.` });
-        return;
-      }
       if (subcommand === "start") {
-        const detailsBefore = await getRunecloakCycleDetails(cycleId);
         await startRunecloakCycle({
           guildId: interaction.guild.id,
           cycleId,
           reference: interaction.options.getString("moonshadow_reference", true),
           actorDiscordUserId: actor.id
         });
-        await dispatchCycleRoster(interaction.guild.id, detailsBefore, "Runecloak Study Begins", `Moonshadow has cleared **${detailsBefore?.cycle.label ?? "your Runecloak cycle"}** to begin official study.`);
+        const detailsBefore = await getRunecloakCycleDetails(cycleId);
+        await dispatchCycleRoster(interaction.guild.id, detailsBefore, "Runecloak Study Begins", `Moonshadow has cleared **${detailsBefore?.cycle.label ?? "the Runecloak campaign"}** to begin official study. Each valid paired expedition adds to the shared spell effort and to your own earliest unfinished spell.`);
         await refreshRunecloakDesk(interaction.guild);
         await interaction.editReply({ content: "Moonshadow start approval is recorded. Official stages may now be opened." });
         return;
@@ -552,7 +533,7 @@ export const runecloakCommand: BotCommand = {
           await refreshRunecloakStagePost(interaction.guild, stageId);
         }
         await refreshRunecloakDesk(interaction.guild);
-        await interaction.editReply({ content: `${learner} remains in the locked record and is now marked **${interaction.options.getString("status", true)}**.` });
+        await interaction.editReply({ content: `${learner} remains in the audit record and is now marked **${interaction.options.getString("status", true)}**.` });
         return;
       }
       if (subcommand === "complete") {
@@ -562,12 +543,8 @@ export const runecloakCommand: BotCommand = {
     }
 
     if (group === "stage") {
-      if (subcommand === "verify-session" || subcommand === "verify") {
-        if (!await isAuthorizedRunecloakMarshal(actor)) {
-          throw new UserFacingError("An authorized Runecloak Marshal or Captain is required to verify study evidence.");
-        }
-      } else if (!await isRunecloakOrganizer(actor) && !await isAuthorizedRunecloakMarshal(actor)) {
-        throw new UserFacingError("A Runecloak organizer or authorized Marshal is required to file study expeditions.");
+      if (!await isRunecloakGuide(actor)) {
+        throw new UserFacingError("A Runecloak Guide is required to operate and verify study expeditions.");
       }
       await interaction.deferReply({ ephemeral: true });
       if (subcommand === "create") {
@@ -576,7 +553,6 @@ export const runecloakCommand: BotCommand = {
           cycleId: interaction.options.getString("cycle", true),
           title: interaction.options.getString("title", true),
           theme: interaction.options.getString("theme", true),
-          cooldownLabel: interaction.options.getString("study_window", true),
           euPlannedAt: normalizedDateOption(interaction.options.getString("eu_time")),
           naPlannedAt: normalizedDateOption(interaction.options.getString("na_time")),
           notes: interaction.options.getString("notes"),
@@ -585,7 +561,7 @@ export const runecloakCommand: BotCommand = {
         await postRunecloakStage(interaction.guild, result.stage.id);
         await dispatchStage(interaction.guild.id, result.stage.id);
         await refreshRunecloakDesk(interaction.guild);
-        await interaction.editReply({ content: `Opened **Stage ${result.stage.sequence}: ${result.stage.title}** with separate EU and NA participation controls.` });
+        await interaction.editReply({ content: `Opened **Stage ${result.stage.sequence}: ${result.stage.title}** with separate EU and NA sessions. Each regional slot observes its own 72-hour cooldown.` });
         return;
       }
       const stageId = interaction.options.getString("stage", true);
@@ -604,11 +580,6 @@ export const runecloakCommand: BotCommand = {
           moonshadowReference: interaction.options.getString("moonshadow_reference"),
           actorDiscordUserId: actor.id
         });
-        await refreshRunecloakStagePost(interaction.guild, stageId);
-        await interaction.editReply({ content: `The ${slot} session record is ready for Marshal verification.` });
-        return;
-      }
-      if (subcommand === "verify-session") {
         await verifyRunecloakSession({
           guildId: interaction.guild.id,
           stageId,
@@ -617,19 +588,13 @@ export const runecloakCommand: BotCommand = {
           actorDiscordUserId: actor.id
         });
         await refreshRunecloakStagePost(interaction.guild, stageId);
-        await interaction.editReply({ content: `The ${slot} session and its submitted participation records are verified.` });
-        return;
-      }
-      if (subcommand === "verify") {
-        await verifyRunecloakStage({
-          stageId,
-          actorDiscordUserId: actor.id,
-          reason: interaction.options.getString("note")
-        });
-        await refreshRunecloakStagePost(interaction.guild, stageId);
         await refreshRunecloakDesk(interaction.guild);
         const stage = await getRunecloakStage(stageId);
-        await interaction.editReply({ content: `The paired stage is **${stage?.stage.status}** with **${stage?.stage.verified_points ?? 0}** verified points.` });
+        await interaction.editReply({
+          content: stage?.stage.status === "Open"
+            ? `The ${slot} session, evidence, and submitted participation records are filed and verified. The paired stage remains open for the other regional session.`
+            : `The ${slot} session is filed. With both regions complete, Wayfinder automatically evaluated the pair as **${stage?.stage.status}** with **${stage?.stage.verified_points ?? 0}** verified points.`
+        });
         return;
       }
     }
@@ -647,7 +612,13 @@ async function dispatchCycleRoster(
   if (!details) {
     return;
   }
-  const { data: rangers, error } = await supabase.from("rangers").select("id, discord_user_id").in("id", details.members.map(({ ranger_id }) => ranger_id));
+  const rangerIds = details.members
+    .filter(({ participation_status }) => participation_status === "Active" || participation_status === "Selected")
+    .map(({ ranger_id }) => ranger_id);
+  if (!rangerIds.length) {
+    return;
+  }
+  const { data: rangers, error } = await supabase.from("rangers").select("id, discord_user_id").in("id", rangerIds);
   assertNoDbError(error, "load Runecloak cycle recipients");
   await Promise.all((rangers ?? []).map((ranger) => queueBriefingDispatch({
     guildId,
@@ -670,7 +641,7 @@ async function dispatchStage(guildId: string, stageId: string): Promise<void> {
     guildId,
     cycle,
     `Runecloak Expedition: ${stage.stage.title}`,
-    `A new paired ${stage.spell.name} study stage has opened. Attend either the EU or NA expedition and record your in-game \`/roll 100\` result on the expedition post.`
+    `A new paired ${stage.spell.name} research stage has opened. Attend either the EU or NA expedition and record your in-game \`/roll 100\` result on the expedition post. Valid work advances the shared campaign and your own earliest unfinished spell.`
   );
 }
 

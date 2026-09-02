@@ -155,6 +155,7 @@ export async function createTrailmark(params: {
       screenshot_url: params.screenshotUrl ?? null,
       discord_channel_id: channel.id,
       atlas_location_id: params.atlasLocationId ?? null,
+      patrol_anchor_trailmark_id: null,
       active: true,
       pinned: false,
       created_by_discord_user_id: params.createdByDiscordUserId
@@ -169,6 +170,19 @@ export async function createTrailmark(params: {
 }
 
 export async function deactivateTrailmark(id: string, guild?: Guild): Promise<TrailmarkRow> {
+  const existing = await getTrailmark(id);
+  if (!existing) {
+    throw new UserFacingError("Trailmark was not found.");
+  }
+
+  const activeAliases = await listActivePatrolAliases(id);
+  if (activeAliases.length > 0) {
+    throw new UserFacingError(
+      `${existing.name} is the patrol primary for ${activeAliases.map((trailmark) => trailmark.name).join(", ")}. `
+        + "Reassign or clear those patrol-primary links before deactivating it."
+    );
+  }
+
   const { data, error } = await supabase
     .from("trailmarks")
     .update({ active: false, updated_at: new Date().toISOString() })
@@ -192,6 +206,7 @@ export async function editTrailmark(params: {
   screenshotUrl?: string | null;
   atlasLocationId?: string | null;
   pinned?: boolean;
+  patrolAnchorTrailmarkId?: string | null;
 }): Promise<TrailmarkRow> {
   const existing = await getTrailmark(params.id);
   if (!existing) {
@@ -224,6 +239,46 @@ export async function editTrailmark(params: {
     updates.pinned = params.pinned;
   }
 
+  const effectiveHold = params.hold ?? existing.hold;
+  const changesPatrolAnchor = "patrolAnchorTrailmarkId" in params;
+  if (changesPatrolAnchor) {
+    if (params.patrolAnchorTrailmarkId) {
+      const activeAliases = await listActivePatrolAliases(existing.id);
+      if (activeAliases.length > 0) {
+        throw new UserFacingError(
+          `${existing.name} is already the patrol primary for ${activeAliases.map((trailmark) => trailmark.name).join(", ")}. `
+            + "Reassign or clear those links before making it share another primary."
+        );
+      }
+
+      const anchor = await resolveCanonicalPatrolAnchor(existing.id, params.patrolAnchorTrailmarkId);
+      if (anchor.hold !== effectiveHold) {
+        throw new UserFacingError("Co-located Trailmarks must be in the same Hold.");
+      }
+      updates.patrol_anchor_trailmark_id = anchor.id;
+    } else {
+      updates.patrol_anchor_trailmark_id = null;
+    }
+  }
+
+  if (params.hold && params.hold !== existing.hold) {
+    if (!changesPatrolAnchor && existing.patrol_anchor_trailmark_id) {
+      const anchor = await getTrailmark(existing.patrol_anchor_trailmark_id);
+      if (!anchor || !anchor.active || anchor.hold !== params.hold) {
+        throw new UserFacingError(
+          "Clear or change this Trailmark's patrol primary before moving it to another Hold."
+        );
+      }
+    }
+
+    const activeAliases = await listActivePatrolAliases(existing.id);
+    if (activeAliases.some((trailmark) => trailmark.hold !== params.hold)) {
+      throw new UserFacingError(
+        "Reassign or clear this Trailmark's patrol-primary links before moving it to another Hold."
+      );
+    }
+  }
+
   if (Object.keys(updates).length === 1) {
     throw new UserFacingError("Provide at least one Trailmark field to edit.");
   }
@@ -245,6 +300,45 @@ export async function editTrailmark(params: {
   await postTrailmarkInfo(channel, data, { titlePrefix: "Trailmark Updated", timestamp: new Date() });
   await refreshStoredTrailmarkPanel(params.guild);
   return data;
+}
+
+async function resolveCanonicalPatrolAnchor(
+  editedTrailmarkId: string,
+  requestedAnchorId: string
+): Promise<TrailmarkRow> {
+  const visitedIds = new Set<string>();
+  let currentId = requestedAnchorId;
+
+  while (true) {
+    if (currentId === editedTrailmarkId) {
+      throw new UserFacingError("A Trailmark cannot use itself as its patrol primary.");
+    }
+    if (visitedIds.has(currentId)) {
+      throw new UserFacingError("The selected Trailmark has an invalid patrol-primary loop.");
+    }
+    visitedIds.add(currentId);
+
+    const current = await getTrailmark(currentId);
+    if (!current || !current.active) {
+      throw new UserFacingError("Patrol primary must be an active Trailmark.");
+    }
+    if (!current.patrol_anchor_trailmark_id) {
+      return current;
+    }
+    currentId = current.patrol_anchor_trailmark_id;
+  }
+}
+
+async function listActivePatrolAliases(anchorTrailmarkId: string): Promise<TrailmarkRow[]> {
+  const { data, error } = await supabase
+    .from("trailmarks")
+    .select("*")
+    .eq("active", true)
+    .eq("patrol_anchor_trailmark_id", anchorTrailmarkId)
+    .order("name", { ascending: true });
+
+  assertNoDbError(error, "list shared patrol Trailmarks");
+  return data ?? [];
 }
 
 export async function updateTrailmarkAtlasLocation(id: string, atlasLocationId: string | null): Promise<TrailmarkRow> {
@@ -474,6 +568,15 @@ async function postTrailmarkInfo(
 
   if (trailmark.atlas_location_id) {
     embed.addFields({ name: "Atlas Location ID", value: trailmark.atlas_location_id, inline: true });
+  }
+
+  if (trailmark.patrol_anchor_trailmark_id) {
+    const anchor = await getTrailmark(trailmark.patrol_anchor_trailmark_id);
+    embed.addFields({
+      name: "Patrol Primary",
+      value: anchor ? `<#${anchor.discord_channel_id}> (${anchor.name})` : "Unavailable",
+      inline: true
+    });
   }
 
   if (trailmark.screenshot_url) {

@@ -624,7 +624,7 @@ async function storedSupplyChannel(guild: Guild, assignment: SupplyAssignmentRow
 
 function progressBar(value: number, target: number): string {
   const filled = Math.min(10, Math.max(0, Math.round((value / target) * 10)));
-  return `[${"#".repeat(filled)}${"-".repeat(10 - filled)}]`;
+  return `[${"█".repeat(filled)}${"░".repeat(10 - filled)}]`;
 }
 
 function percent(value: number, target: number): number {

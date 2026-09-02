@@ -79,12 +79,12 @@ test("formats each multiple-choice option with its description and live progress
   assert.deepEqual(fields, [
     {
       name: "1. Oak Rune - Leading",
-      value: "[#######---] **2 votes** (67%)\nNature-focused specialist title",
+      value: "[███████░░░] **2 votes** (67%)\nNature-focused specialist title",
       inline: false
     },
     {
       name: "2. Rooted Stone",
-      value: "[###-------] **1 vote** (33%)\nA title centered on resilience",
+      value: "[███░░░░░░░] **1 vote** (33%)\nA title centered on resilience",
       inline: false
     }
   ]);

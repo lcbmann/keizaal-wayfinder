@@ -34,6 +34,7 @@ import {
   attachRunecloakStageForumPost,
   completeRunecloakCycle,
   createRunecloakApplication,
+  earliestRunecloakStudySpell,
   getCurrentRunecloakCycle,
   getLatestRunecloakApplication,
   getOpenRunecloakApplication,
@@ -337,7 +338,7 @@ export async function handleRunecloakModal(interaction: ModalSubmitInteraction):
     });
     details = await ensureRunecloakApplicationReview(interaction.guild, details);
     await interaction.editReply({
-      content: "Your application has been sent privately to the Runecloak Guides. If selected, you will receive a field-survey request through your briefing. Marshal+ may skip this initial application screening, but must still complete and pass the same survey."
+      content: "Your application has been sent privately to the Runecloak Guides. If selected, you will receive a field-survey request through your `/ranger briefing`."
     });
     await refreshRunecloakDesk(interaction.guild);
     return;
@@ -399,7 +400,7 @@ export async function handleRunecloakModal(interaction: ModalSubmitInteraction):
       }
       await refreshRunecloakApplicationReview(interaction.guild, details.application.id);
     }
-    await interaction.editReply({ content: action === "deny" ? "The decision has been recorded." : "The applicant will receive the revision request in their next briefing." });
+    await interaction.editReply({ content: action === "deny" ? "The decision has been recorded." : "The applicant will receive the revision request through their next `/ranger briefing`." });
     await refreshRunecloakDesk(interaction.guild);
     return;
   }
@@ -524,10 +525,10 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
         interaction.guild,
         details,
         "Runecloak Survey Requested",
-        "Conduct a serious field survey of a place in Skyrim that seems promising for the study of nature, runes, wilderness fieldcraft, or practical magic. Mark it on the Atlas; search nearby Atlas records, Ranger reports, and available intelligence; ask people familiar with the area; and document what you learned, how to reach it, any hazards, and why it seems worth revisiting. You are not expected to identify magical phenomena as an expert, and you should not take unnecessary risks to prove a site's value. Then use **Submit Field Survey** at the Runecloak Desk. The form includes an optional place for an Imgur or Discord image link."
+        "Conduct a serious field survey of a place in Skyrim that seems promising for the study of nature, runes, wilderness fieldcraft, or practical magic. Mark it on the Atlas; search nearby Atlas records, Ranger reports, and available intelligence; ask people familiar with the area; and document what you learned, how to reach it, any hazards, and why it seems worth revisiting. Then use **Submit Field Survey** at the Runecloak Desk. The form includes an optional place for an Imgur or Discord image link."
       );
       await refreshRunecloakApplicationReview(interaction.guild, applicationId);
-      await interaction.editReply({ content: "The applicant will receive the survey dispatch in their next briefing." });
+      await interaction.editReply({ content: "The applicant will receive the survey dispatch through their next `/ranger briefing`." });
       return;
     }
     if (reviewAction === "approve") {
@@ -946,16 +947,50 @@ export async function runecloakPersonalRecordPayload(guild: Guild, discordUserId
   if (!rangerResult.data) {
     throw new UserFacingError("You do not have a Ranger Corps record.");
   }
-  const [application, qualifications, spellProgress, currentCycle, membershipResult] = await Promise.all([
+  const [application, qualifications, spellProgress, currentCycle, membershipResult, settings, spells] = await Promise.all([
     getLatestRunecloakApplication(rangerResult.data.id),
     listRangerQualifications(rangerResult.data.id),
     listRunecloakSpellProgress(rangerResult.data.id, guild.id),
     getCurrentRunecloakCycle(guild.id),
-    supabase.from("runecloak_memberships").select("status, preferred_regional_slot").eq("guild_id", guild.id).eq("ranger_id", rangerResult.data.id).maybeSingle()
+    supabase.from("runecloak_memberships").select("status, preferred_regional_slot").eq("guild_id", guild.id).eq("ranger_id", rangerResult.data.id).maybeSingle(),
+    requireRunecloakSettings(guild.id),
+    listRunecloakSpells()
   ]);
   assertNoDbError(membershipResult.error, "load personal Runecloak membership");
   const applicationDetails = application ? await getRunecloakApplicationDetails(application.id) : null;
   const cycleMember = currentCycle?.members.find(({ ranger_id }) => ranger_id === rangerResult.data?.id);
+  const completedSpellIds = new Set(spellProgress
+    .filter(({ progress }) => progress.status === "completed")
+    .map(({ spell }) => spell.id));
+  const activeStudySpell = currentCycle && cycleMember
+    ? earliestRunecloakStudySpell(spells, completedSpellIds, currentCycle.spell.sequence)
+    : null;
+  const studyLines = [...spellProgress]
+    .sort((left, right) => left.spell.sequence - right.spell.sequence)
+    .map(({ progress, spell, unlock }) => formatRunecloakPersonalStudy({
+      spellName: spell.name,
+      status: progress.status === "completed"
+        ? "Delivered in game"
+        : progress.status === "eligible" && unlock
+          ? "Ready for in-game delivery"
+          : progress.status === "eligible"
+            ? "Personal requirement met; awaiting shared GM approval"
+            : "In progress",
+      verifiedPoints: progress.verified_points,
+      requiredPoints: progress.required_points,
+      verifiedStages: progress.verified_valid_stages,
+      requiredStages: progress.required_valid_stages
+    }));
+  if (activeStudySpell && !spellProgress.some(({ spell }) => spell.id === activeStudySpell.id)) {
+    studyLines.push(formatRunecloakPersonalStudy({
+      spellName: activeStudySpell.name,
+      status: "In progress",
+      verifiedPoints: 0,
+      requiredPoints: settings.personal_point_requirement,
+      verifiedStages: 0,
+      requiredStages: settings.personal_stage_requirement
+    }));
+  }
   const embed = emojiEmbed(guild, "runecloak", `Runecloak Record: ${rangerDisplayName(rangerResult.data)}`)
     .setColor(0x5b7fc4)
     .addFields(
@@ -963,11 +998,19 @@ export async function runecloakPersonalRecordPayload(guild: Guild, discordUserId
       { name: "Entry survey", value: applicationDetails?.site ? `${applicationDetails.site.status}: ${applicationDetails.site.name}` : "Not submitted", inline: true },
       { name: "Membership", value: membershipResult.data ? `${membershipResult.data.status} (${membershipResult.data.preferred_regional_slot ?? "Flexible"})` : "Not admitted", inline: true },
       { name: "Qualification", value: qualifications.map(({ name }) => name).join("\n") || "Not yet held", inline: true },
-      { name: "Current campaign", value: cycleMember ? `${currentCycle?.spell.name}: ${cycleMember.participation_status}` : "Not currently participating", inline: true },
+      {
+        name: "Current campaign",
+        value: cycleMember && currentCycle
+          ? [
+              `**${currentCycle.spell.name}** — ${cycleMember.participation_status}`,
+              `Shared research: ${runecloakProgressBar(currentCycle.cycle.verified_points, currentCycle.cycle.point_target)} **${currentCycle.cycle.verified_points.toLocaleString()} / ${currentCycle.cycle.point_target.toLocaleString()}**`
+            ].join("\n")
+          : "Not currently participating"
+      },
       {
         name: "Spell studies",
-        value: spellProgress.length
-          ? spellProgress.map(({ progress, spell, unlock }) => `${progress.status === "completed" ? "Delivered in game" : progress.status === "eligible" && unlock ? "Ready for in-game delivery" : progress.status === "eligible" ? "Personal requirement met; awaiting shared GM approval" : "In progress"}: **${spell.name}** (${progress.verified_points}/${progress.required_points} points; ${progress.verified_valid_stages}/${progress.required_valid_stages} valid paired expeditions)`).join("\n")
+        value: studyLines.length
+          ? studyLines.join("\n\n").slice(0, 1024)
           : "No confirmed spell study yet."
       }
     );
@@ -997,33 +1040,42 @@ export async function runecloakAuditAttachment(guildId: string, cycleId?: string
 
 async function runecloakDeskPayload(guild: Guild) {
   const settings = await requireRunecloakSettings(guild.id);
-  const status = await runecloakStatusPayload(guild);
-  const baseEmbed = status.embeds[0];
-  if (!baseEmbed) {
-    throw new Error("The Runecloak status embed could not be built.");
-  }
-  const embed = EmbedBuilder.from(baseEmbed)
+  const embed = new EmbedBuilder()
     .setTitle(`${guildEmoji(guild, "runecloak") ? `${guildEmoji(guild, "runecloak")} - ` : ""}Ranger Runecloak Desk`)
     .setDescription([
-      "The Runecloaks are an open Ranger+ field-research and training specialization: serious magical study for useful Corps fieldcraft, not a separate magical institution.",
-      `**Admission:** Rangers apply, and the Runecloak Guides may request a field survey. Marshal+ may begin with the survey, but nobody skips it. An approved survey grants the Runecloak Learner role and access to <#${settings.learner_channel_id}>. Admissions stay open during research, and a newly admitted learner can join any currently open expedition immediately.`,
-      `**Where things happen:** Application and survey buttons open private Discord forms. Guide reviews stay in <#${settings.application_review_channel_id}>. Approved research sites and each paired EU/NA expedition receive their own durable post in <#${settings.expedition_forum_id}>; that Forum is not another submission form.`,
-      "**Field survey:** Find a place that seems promising for studying nature, runes, wilderness fieldcraft, or practical magic. Mark it on the Atlas, search nearby Atlas entries and existing Ranger or intelligence reports, ask people familiar with the area, and document what you learned, access, hazards, and why it seems worth revisiting. No magical expertise is expected. The form accepts an optional Imgur or Discord image link.",
-      "**Risks:** This is serious field research. Hostile terrain, wildlife, ruins, and unstable or poorly understood magic may all be involved. Participation is voluntary; follow normal Corps safety practice and do not take unnecessary risks to produce a survey or roll.",
-      `**Progress:** Shared research becomes ready for GM approval at **${settings.point_target.toLocaleString()} verified points**. An individual needs **${settings.personal_point_requirement.toLocaleString()} verified points across at least ${settings.personal_stage_requirement} valid paired expeditions**. Extra points still help the shared target but do not carry into another spell.`,
-      `EU and NA sessions each observe their own **${settings.regional_cooldown_hours}-hour cooldown**. The same expedition may advance the active shared campaign while a late learner studies their earliest unfinished spell. Receiving your first spell in game grants the full Runecloak qualification.`
-    ].join("\n\n"));
+      "The Runecloaks are a voluntary Ranger specialization devoted to studying places of natural, spiritual, and magical significance, with the aim of developing practical defensive field magic for the Corps.",
+      "All information pertaining to the Runecloaks is kept at this desk, including applications, field surveys, and study records.",
+      settings.admissions_open
+        ? "Full Rangers interested in this work may apply below. Those already involved may submit a requested field survey or consult the current study and their own progress."
+        : "Applications are presently closed. Those already involved may submit a requested field survey or consult the current study and their own progress."
+    ].join("\n\n"))
+    .setColor(0x5b7fc4);
   return {
     embeds: [embed],
     components: [
       new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId("runecloak:apply").setLabel("Apply (Ranger+)").setStyle(ButtonStyle.Primary).setDisabled(!settings.admissions_open),
+        new ButtonBuilder().setCustomId("runecloak:apply").setLabel(settings.admissions_open ? "Apply (Ranger+)" : "Applications Closed").setStyle(ButtonStyle.Primary).setDisabled(!settings.admissions_open),
         new ButtonBuilder().setCustomId("runecloak:survey").setLabel("Submit Field Survey").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId("runecloak:record").setLabel("My Progress").setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId("runecloak:status").setLabel("Current Study").setStyle(ButtonStyle.Secondary)
       )
     ]
   };
+}
+
+function formatRunecloakPersonalStudy(input: {
+  spellName: string;
+  status: string;
+  verifiedPoints: number;
+  requiredPoints: number;
+  verifiedStages: number;
+  requiredStages: number;
+}): string {
+  return [
+    `**${input.spellName} — ${input.status}**`,
+    `Points: ${runecloakProgressBar(input.verifiedPoints, input.requiredPoints)} **${input.verifiedPoints.toLocaleString()} / ${input.requiredPoints.toLocaleString()}**`,
+    `Expeditions: ${runecloakProgressBar(input.verifiedStages, input.requiredStages)} **${input.verifiedStages} / ${input.requiredStages}**`
+  ].join("\n");
 }
 
 function runecloakApplicationReviewEmbed(guild: Guild, details: RunecloakApplicationDetails): EmbedBuilder {

@@ -111,6 +111,6 @@ test("Discord IDs are deduplicated when parsed from mentions", () => {
 });
 
 test("progress bars cap at their configured width", () => {
-  assert.equal(runecloakProgressBar(4000, 8000), "[#####-----]");
-  assert.equal(runecloakProgressBar(9000, 8000), "[##########]");
+  assert.equal(runecloakProgressBar(4000, 8000), "[█████░░░░░]");
+  assert.equal(runecloakProgressBar(9000, 8000), "[██████████]");
 });

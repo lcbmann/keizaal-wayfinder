@@ -495,7 +495,7 @@ function generalVoteProgressBar(value: number, total: number): string {
   const filled = total > 0
     ? Math.min(10, Math.max(0, Math.round((value / total) * 10)))
     : 0;
-  return `[${"#".repeat(filled)}${"-".repeat(10 - filled)}]`;
+  return `[${"█".repeat(filled)}${"░".repeat(10 - filled)}]`;
 }
 
 function formatAuditVoters(voterDiscordUserIds: string[], maxLength: number): string {

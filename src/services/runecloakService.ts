@@ -177,7 +177,7 @@ export function evaluateRunecloakStage(
 export function runecloakProgressBar(value: number, target: number, width = 10): string {
   const safeTarget = Math.max(1, target);
   const filled = Math.min(width, Math.max(0, Math.floor(value / safeTarget * width)));
-  return `[${"#".repeat(filled)}${"-".repeat(width - filled)}]`;
+  return `[${"█".repeat(filled)}${"░".repeat(width - filled)}]`;
 }
 
 export function parseDiscordUserIds(value: string): string[] {

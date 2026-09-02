@@ -101,10 +101,6 @@ function briefingDeskEmbed(guild: Guild): EmbedBuilder {
       "",
       "Check the desk when you return to Headquarters. Wayfinder will gather anything added since your last visit."
     ].join("\n"))
-    .addFields({
-      name: "OOC: Delivery",
-      value: "Briefings are sent by DM. Use `/briefing settings` to show them only to you here instead."
-    })
     .setColor(0x587c4a);
 }
 

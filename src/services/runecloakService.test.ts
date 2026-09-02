@@ -18,11 +18,11 @@ test("Runecloak stage quorum rounds upward from 51 percent", () => {
   assert.equal(requiredStageAttendance(22), 12);
 });
 
-test("personal spell eligibility requires both 400 points and five paired stages", () => {
-  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 399, verifiedStages: 5 }), false);
-  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 400, verifiedStages: 4 }), false);
-  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 400, verifiedStages: 5 }), true);
-  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 520, verifiedStages: 5 }), true);
+test("personal spell eligibility requires both 300 points and five paired stages", () => {
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 299, verifiedStages: 5 }), false);
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 300, verifiedStages: 4 }), false);
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 300, verifiedStages: 5 }), true);
+  assert.equal(runecloakPersonalEligibility({ verifiedPoints: 420, verifiedStages: 5 }), true);
 });
 
 test("paired regional attendance counts a learner once and accepts one roll", () => {

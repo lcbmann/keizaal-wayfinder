@@ -30,7 +30,7 @@ import { requireRangerByDiscordId } from "./rangerService.js";
 
 export const RUNECLOAK_QUALIFICATION_SLUG = "ranger-runecloak";
 export const DEFAULT_RUNECLOAK_ROLE_ID = "1543999251820839073";
-export const DEFAULT_RUNECLOAK_PERSONAL_POINT_TARGET = 400;
+export const DEFAULT_RUNECLOAK_PERSONAL_POINT_TARGET = 300;
 export const DEFAULT_RUNECLOAK_PERSONAL_STAGE_TARGET = 5;
 export const DEFAULT_RUNECLOAK_REGIONAL_COOLDOWN_HOURS = 72;
 

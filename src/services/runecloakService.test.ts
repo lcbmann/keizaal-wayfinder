@@ -4,6 +4,7 @@ import {
   canTransitionRunecloakApplication,
   earliestRunecloakStudySpell,
   evaluateRunecloakStage,
+  normalizeRunecloakImageUrl,
   parseDiscordUserIds,
   requiredStageAttendance,
   runecloakPersonalEligibility,
@@ -113,4 +114,12 @@ test("Discord IDs are deduplicated when parsed from mentions", () => {
 test("progress bars cap at their configured width", () => {
   assert.equal(runecloakProgressBar(4000, 8000), "[█████░░░░░]");
   assert.equal(runecloakProgressBar(9000, 8000), "[██████████]");
+});
+
+test("Imgur share links become direct image URLs for Discord embeds", () => {
+  assert.equal(normalizeRunecloakImageUrl("https://imgur.com/XbKDqO3"), "https://i.imgur.com/XbKDqO3.jpg");
+  assert.equal(normalizeRunecloakImageUrl("https://www.imgur.com/XbKDqO3.png?example=1"), "https://i.imgur.com/XbKDqO3.png");
+  assert.equal(normalizeRunecloakImageUrl("https://i.imgur.com/XbKDqO3.jpg"), "https://i.imgur.com/XbKDqO3.jpg");
+  assert.equal(normalizeRunecloakImageUrl("https://imgur.com/a/example"), "https://imgur.com/a/example");
+  assert.equal(normalizeRunecloakImageUrl("https://cdn.example.com/image.png"), "https://cdn.example.com/image.png");
 });

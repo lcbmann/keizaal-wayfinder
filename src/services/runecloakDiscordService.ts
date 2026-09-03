@@ -50,6 +50,7 @@ import {
   listRunecloakAuditEvents,
   listRunecloakSpellProgress,
   listRunecloakSpells,
+  normalizeRunecloakImageUrl,
   recordRunecloakParticipation,
   requireRunecloakSettings,
   reviewRunecloakSite,
@@ -677,6 +678,56 @@ export async function upsertRunecloakSitePost(guild: Guild, details: RunecloakAp
   }
 }
 
+export async function refreshRunecloakSitePosts(guild: Guild): Promise<number> {
+  const settings = await getRunecloakSettings(guild.id);
+  if (!settings) {
+    return 0;
+  }
+  const { data: sites, error } = await supabase.from("runecloak_research_sites")
+    .select("id, application_id, forum_thread_id, screenshot_url")
+    .not("forum_thread_id", "is", null)
+    .not("screenshot_url", "is", null);
+  assertNoDbError(error, "load Runecloak research-site posts");
+  let refreshed = 0;
+  for (const site of sites ?? []) {
+    if (!site.forum_thread_id || !site.screenshot_url) {
+      continue;
+    }
+    const normalizedImageUrl = normalizeRunecloakImageUrl(site.screenshot_url);
+    if (normalizedImageUrl === site.screenshot_url) {
+      continue;
+    }
+    const thread = await guild.channels.fetch(site.forum_thread_id).catch(() => null);
+    if (!thread?.isThread() || thread.parentId !== settings.expedition_forum_id) {
+      continue;
+    }
+    const details = await getRunecloakApplicationDetails(site.application_id);
+    if (!details?.site) {
+      continue;
+    }
+    const starter = await thread.fetchStarterMessage().catch(() => null);
+    if (!starter) {
+      continue;
+    }
+    await starter.edit(runecloakSitePayload(guild, {
+      ...details,
+      site: { ...details.site, screenshot_url: normalizedImageUrl }
+    }));
+    if (thread.parent?.type === ChannelType.GuildForum) {
+      await thread.setAppliedTags(
+        runecloakTagIds(thread.parent, ["Research Site", siteStatusTag(details.site.status)]),
+        "Refresh Runecloak research-site post"
+      );
+    }
+    const { error: updateError } = await supabase.from("runecloak_research_sites")
+      .update({ screenshot_url: normalizedImageUrl })
+      .eq("id", site.id);
+    assertNoDbError(updateError, "normalize Runecloak research-site image link");
+    refreshed += 1;
+  }
+  return refreshed;
+}
+
 export async function postRunecloakStage(guild: Guild, stageId: string): Promise<void> {
   const settings = await requireRunecloakSettings(guild.id);
   const forum = await fetchForumChannel(guild, settings.expedition_forum_id);
@@ -1101,7 +1152,7 @@ function runecloakApplicationReviewEmbed(guild: Guild, details: RunecloakApplica
         value: [
           `**${site.name}**, ${site.hold_region}`,
           `Atlas location code/reference: ${site.atlas_reference}`,
-          site.screenshot_url ? `[Screenshot](${site.screenshot_url})` : "No screenshot attached.",
+          site.screenshot_url ? `[Screenshot](${normalizeRunecloakImageUrl(site.screenshot_url)})` : "No screenshot attached.",
           `Site status: **${site.status}**${site.forum_thread_id ? ` - <#${site.forum_thread_id}>` : ""}`
         ].join("\n").slice(0, 1024)
       },
@@ -1155,7 +1206,7 @@ function runecloakSitePayload(guild: Guild, details: RunecloakApplicationDetails
     .setColor(site.status === "Approved" ? 0x4f8f5b : site.status === "Rejected" || site.status === "Retired" ? 0x747f8d : 0x5b7fc4)
     .setTimestamp(new Date(site.updated_at));
   if (site.screenshot_url) {
-    embed.setImage(site.screenshot_url);
+    embed.setImage(normalizeRunecloakImageUrl(site.screenshot_url));
   }
   if (site.review_note) {
     embed.addFields({ name: "Review note", value: site.review_note.slice(0, 1024) });

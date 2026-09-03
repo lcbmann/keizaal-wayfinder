@@ -106,7 +106,8 @@ import {
   handleRunecloakButton,
   handleRunecloakModal,
   reconcileRunecloakRoles,
-  refreshRunecloakDesk
+  refreshRunecloakDesk,
+  refreshRunecloakSitePosts
 } from "./services/runecloakDiscordService.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
@@ -225,8 +226,11 @@ client.once("ready", (readyClient) => {
     void refreshRunecloakDesk(corpsGuild)
       .then(async (refreshed) => {
         if (refreshed) {
-          const roles = await reconcileRunecloakRoles(corpsGuild);
-          console.log(`Refreshed the Runecloak desk and reconciled roles: ${roles.added} added, ${roles.removed} removed.`);
+          const [roles, sitePosts] = await Promise.all([
+            reconcileRunecloakRoles(corpsGuild),
+            refreshRunecloakSitePosts(corpsGuild)
+          ]);
+          console.log(`Refreshed the Runecloak desk and ${sitePosts} research-site image${sitePosts === 1 ? "" : "s"}; reconciled roles: ${roles.added} added, ${roles.removed} removed.`);
         }
       })
       .catch((error) => console.warn("Failed to refresh the Runecloak system:", error));

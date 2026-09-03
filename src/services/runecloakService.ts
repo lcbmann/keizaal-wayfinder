@@ -180,6 +180,27 @@ export function runecloakProgressBar(value: number, target: number, width = 10):
   return `[${"█".repeat(filled)}${"░".repeat(width - filled)}]`;
 }
 
+export function normalizeRunecloakImageUrl(value: string): string {
+  const trimmed = value.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return trimmed;
+  }
+  const hostname = parsed.hostname.toLocaleLowerCase().replace(/^www\./u, "");
+  if (hostname !== "imgur.com" && hostname !== "m.imgur.com" && hostname !== "i.imgur.com") {
+    return trimmed;
+  }
+  const pathParts = parsed.pathname.split("/").filter(Boolean);
+  if (pathParts.length !== 1 || !/^[a-z0-9]+(?:\.(?:jpe?g|png|gif|webp))?$/iu.test(pathParts[0] ?? "")) {
+    return trimmed;
+  }
+  const imageName = pathParts[0] ?? "";
+  const directName = /\.(?:jpe?g|png|gif|webp)$/iu.test(imageName) ? imageName : `${imageName}.jpg`;
+  return `https://i.imgur.com/${directName}`;
+}
+
 export function parseDiscordUserIds(value: string): string[] {
   return [...new Set(value.match(/\d{16,22}/gu) ?? [])];
 }
@@ -638,7 +659,7 @@ export async function submitRunecloakSurvey(input: {
     hold_region: normalizedRequired(input.holdRegion, 100),
     atlas_reference: normalizedRequired(input.atlasReference, 500),
     research_rationale: normalizedRequired(input.researchRationale, 1800),
-    screenshot_url: input.screenshotUrl?.trim() || existing?.site?.screenshot_url || null,
+    screenshot_url: input.screenshotUrl ? normalizeRunecloakImageUrl(input.screenshotUrl) : existing?.site?.screenshot_url || null,
     status: "Proposed" as const,
     review_note: null,
     reviewed_by_discord_user_id: null,

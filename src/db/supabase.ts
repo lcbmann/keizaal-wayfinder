@@ -634,6 +634,7 @@ export interface RunecloakApplicationRow {
 
 export interface RunecloakResearchSiteRow {
   id: string;
+  existing_site_id: string | null;
   application_id: string;
   ranger_id: string;
   name: string;
@@ -1359,7 +1360,7 @@ export interface Database {
       };
       runecloak_research_sites: {
         Row: RunecloakResearchSiteRow;
-        Insert: Omit<RunecloakResearchSiteRow, "id" | "structured_report_id" | "screenshot_url" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at"> & Partial<Pick<RunecloakResearchSiteRow, "id" | "structured_report_id" | "screenshot_url" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at">>;
+        Insert: Omit<RunecloakResearchSiteRow, "id" | "existing_site_id" | "structured_report_id" | "screenshot_url" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at"> & Partial<Pick<RunecloakResearchSiteRow, "id" | "existing_site_id" | "structured_report_id" | "screenshot_url" | "status" | "review_note" | "reviewed_by_discord_user_id" | "reviewed_at" | "forum_thread_id" | "forum_message_id" | "created_at" | "updated_at">>;
         Update: Partial<RunecloakResearchSiteRow>;
       };
       runecloak_spells: {
@@ -1643,6 +1644,15 @@ export interface Database {
         Args: {
           cycle_id_input: string;
           actor_discord_user_id_input: string;
+        };
+        Returns: Json;
+      };
+      accept_runecloak_survey: {
+        Args: {
+          guild_id_input: string;
+          application_id_input: string;
+          actor_discord_user_id_input: string;
+          existing_site_id_input?: string | null;
         };
         Returns: Json;
       };

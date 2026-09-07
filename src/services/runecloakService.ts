@@ -689,6 +689,38 @@ export async function submitRunecloakSurvey(input: {
   return { application: updatedApplication, applicant: ranger, site };
 }
 
+export async function acceptRunecloakSurvey(input: {
+  guildId: string;
+  applicationId: string;
+  actorDiscordUserId: string;
+  existingSiteId?: string | null;
+}): Promise<RunecloakApplicationDetails> {
+  const { error } = await supabase.rpc("accept_runecloak_survey", {
+    guild_id_input: input.guildId,
+    application_id_input: input.applicationId,
+    actor_discord_user_id_input: input.actorDiscordUserId,
+    existing_site_id_input: input.existingSiteId ?? null
+  });
+  assertNoDbError(error, "accept Runecloak survey and admission");
+  const details = await getRunecloakApplicationDetails(input.applicationId);
+  if (!details) throw new Error("The accepted survey could not be reloaded.");
+  return details;
+}
+
+export async function listRunecloakLocations(guildId: string, page = 0) {
+  const settings = await requireRunecloakSettings(guildId);
+  const { data: applications, error: appError } = await supabase.from("runecloak_applications")
+    .select("id").eq("review_channel_id", settings.application_review_channel_id).eq("status", "Approved");
+  assertNoDbError(appError, "list admitted Runecloak location authors");
+  const ids = (applications ?? []).map(({ id }) => id);
+  if (!ids.length) return { sites: [] as RunecloakResearchSiteRow[], count: 0 };
+  const { data, count, error } = await supabase.from("runecloak_research_sites")
+    .select("*", { count: "exact" }).in("application_id", ids).eq("status", "Approved")
+    .is("existing_site_id", null).order("name").order("id").range(page * 25, page * 25 + 24);
+  assertNoDbError(error, "list existing Runecloak locations");
+  return { sites: data ?? [], count: count ?? 0 };
+}
+
 export async function attachRunecloakSiteForumPost(input: {
   siteId: string;
   threadId: string;
@@ -1158,7 +1190,7 @@ export async function submitRunecloakSession(input: {
   if (!runecloakSessionCanBeSubmitted(session.status)) {
     throw new UserFacingError(`The ${input.regionalSlot} session is already ${session.status.toLowerCase()} and cannot be replaced.`);
   }
-  const { data: site, error: siteError } = await supabase.from("runecloak_research_sites").select("id").eq("id", input.siteId).eq("status", "Approved").maybeSingle();
+  const { data: site, error: siteError } = await supabase.from("runecloak_research_sites").select("id").eq("id", input.siteId).eq("status", "Approved").is("existing_site_id", null).maybeSingle();
   assertNoDbError(siteError, "check approved Runecloak research site");
   if (!site) {
     throw new UserFacingError("Choose an approved Runecloak research site.");

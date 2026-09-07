@@ -105,6 +105,7 @@ import {
   RUNECLOAK_MODAL_PREFIX,
   handleRunecloakButton,
   handleRunecloakModal,
+  handleRunecloakLocationSelect,
   reconcileRunecloakRoles,
   refreshRunecloakDesk,
   refreshRunecloakSitePosts,
@@ -572,6 +573,11 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     return;
   }
 
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("runecloak:location:")) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) throw new UserFacingError("Runecloak records are only available in the Ranger Corps server.");
+    await handleRunecloakLocationSelect(interaction);
+    return;
+  }
   if (interaction.isButton() && interaction.customId.startsWith(RUNECLOAK_BUTTON_PREFIX)) {
     if (interaction.guildId !== env.DISCORD_GUILD_ID) {
       throw new UserFacingError("Runecloak records are only available in the Ranger Corps server.");

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -8,6 +9,7 @@ import {
   ForumChannel,
   ModalBuilder,
   PermissionFlagsBits,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
   ThreadAutoArchiveDuration,
@@ -16,6 +18,7 @@ import {
   type Guild,
   type GuildMember,
   type ModalSubmitInteraction,
+  type StringSelectMenuInteraction,
   type Role,
   type TextChannel
 } from "discord.js";
@@ -30,6 +33,7 @@ import { resolveRunecloakImageUrl, runecloakImgurAlbumUrl } from "./runecloakIma
 import {
   DEFAULT_RUNECLOAK_ROLE_ID,
   RUNECLOAK_QUALIFICATION_SLUG,
+  acceptRunecloakSurvey,
   attachRunecloakApplicationReview,
   attachRunecloakSiteForumPost,
   attachRunecloakStageForumPost,
@@ -51,6 +55,7 @@ import {
   listRunecloakAuditEvents,
   listRunecloakSpellProgress,
   listRunecloakSpells,
+  listRunecloakLocations,
   normalizeRunecloakImageUrl,
   recordRunecloakParticipation,
   requireRunecloakSettings,
@@ -540,8 +545,15 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
         throw new UserFacingError("Access can only be refreshed for an approved Runecloak application.");
       }
       await syncRunecloakApplicantAccess(interaction.guild, details);
+      await upsertRunecloakSitePost(interaction.guild, details);
       await refreshRunecloakApplicationReview(interaction.guild, applicationId);
       await interaction.editReply({ content: "Runecloak access has been refreshed from the approved membership record." });
+      return;
+    }
+    if (reviewAction === "existing") {
+      await interaction.deferReply({ ephemeral: true });
+      const page = Math.max(0, Number.parseInt(parts[4] ?? "0", 10) || 0);
+      await interaction.editReply(await runecloakLocationPicker(interaction.guild.id, applicationId, page));
       return;
     }
     if (reviewAction === "approve") {
@@ -549,41 +561,17 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
       const before = await getRunecloakApplicationDetails(applicationId);
       if (before?.application.status === "Approved") {
         await syncRunecloakApplicantAccess(interaction.guild, before);
+        await upsertRunecloakSitePost(interaction.guild, before);
         await refreshRunecloakApplicationReview(interaction.guild, applicationId);
         await interaction.editReply({ content: "This admission was already approved. Runecloak access has been refreshed." });
         return;
       }
-      if (before?.site?.status === "Proposed") {
-        const approvedSite = await reviewRunecloakSite({
-          guildId: interaction.guild.id,
-          siteId: before.site.id,
-          outcome: "Approved",
-          actorDiscordUserId: actor.id
-        });
-        await upsertRunecloakSitePost(interaction.guild, approvedSite);
-      }
-      const details = await transitionRunecloakApplication({
+      const details = await acceptRunecloakSurvey({
         guildId: interaction.guild.id,
         applicationId,
-        nextStatus: "Approved",
         actorDiscordUserId: actor.id
       });
-      // Admission is already committed. Keep a recovery control available even
-      // if Discord refuses the role update, and sync just this applicant.
-      await refreshRunecloakApplicationReview(interaction.guild, applicationId);
-      await syncRunecloakApplicantAccess(interaction.guild, details);
-      await notifyRunecloakApplicant(
-        interaction.guild,
-        details,
-        "Runecloak Admission Approved",
-        "Your field survey has been accepted and you are now a Runecloak Learner. You now have access to `#runecloak-learner` and the Runecloak Expeditions Forum. You may join any currently open expedition immediately, and your valid participation will count toward your personal study and the shared campaign. This does not yet grant the full Runecloak qualification."
-      );
-      await refreshRunecloakApplicationReview(interaction.guild, applicationId);
-      await refreshRunecloakDesk(interaction.guild);
-      const currentCycle = await getCurrentRunecloakCycle(interaction.guild.id);
-      await Promise.all((currentCycle?.stages ?? [])
-        .filter(({ status }) => status === "Open")
-        .map(({ id }) => refreshRunecloakStagePost(interaction.guild, id)));
+      await finishRunecloakSurveyAcceptance(interaction.guild, details);
       await interaction.editReply({ content: "The applicant is now a Runecloak Learner and may record counted participation in any currently open expedition." });
       return;
     }
@@ -669,6 +657,56 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
   throw new UserFacingError("That Runecloak control is no longer valid.");
 }
 
+async function finishRunecloakSurveyAcceptance(guild: Guild, details: RunecloakApplicationDetails): Promise<void> {
+  await refreshRunecloakApplicationReview(guild, details.application.id);
+  await syncRunecloakApplicantAccess(guild, details);
+  try {
+    await upsertRunecloakSitePost(guild, details);
+  } catch (error) {
+    console.warn(`Could not publish accepted Runecloak survey ${details.application.id}:`, error);
+    throw new UserFacingError("The applicant is accepted, but the survey post could not be updated. Use Refresh Access on the application to retry.");
+  }
+  await notifyRunecloakApplicant(guild, details, "Runecloak Admission Approved",
+    "Your field survey has been accepted and you are now a Runecloak Learner. You now have access to `#runecloak-learner` and the Runecloak Expeditions Forum. You may join any currently open expedition immediately, and your valid participation will count toward your personal study and the shared campaign. This does not yet grant the full Runecloak qualification.");
+  await refreshRunecloakApplicationReview(guild, details.application.id);
+  await refreshRunecloakDesk(guild);
+  const cycle = await getCurrentRunecloakCycle(guild.id);
+  await Promise.all((cycle?.stages ?? []).filter(({ status }) => status === "Open").map(({ id }) => refreshRunecloakStagePost(guild, id)));
+}
+
+async function runecloakLocationPicker(guildId: string, applicationId: string, page: number) {
+  const { sites, count } = await listRunecloakLocations(guildId, page);
+  const components: (ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>)[] = [];
+  if (sites.length) components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder().setCustomId(`runecloak:location:${applicationId}`)
+      .setPlaceholder("Accept survey into this location…").addOptions(sites.map((site) => ({
+        label: site.name.slice(0, 100), value: site.id, description: site.hold_region.slice(0, 100)
+      })))
+  ));
+  if (count > 25) components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`runecloak:application:existing:${applicationId}:${Math.max(0, page - 1)}`).setLabel("Previous locations").setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+    new ButtonBuilder().setCustomId(`runecloak:application:existing:${applicationId}:${page + 1}`).setLabel("More locations").setStyle(ButtonStyle.Secondary).setDisabled((page + 1) * 25 >= count)
+  ));
+  return {
+    content: sites.length ? "Choose the existing research location. Selecting it accepts the applicant and adds their survey to that location’s thread, preserving their own Atlas entry, findings, and images."
+      : "There are no existing approved locations on this page. You can accept the survey as a new location from its review.",
+    components
+  };
+}
+
+export async function handleRunecloakLocationSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  if (!interaction.inCachedGuild()) throw new UserFacingError("Runecloak records are only available in the Ranger Corps server.");
+  const actor = await interaction.guild.members.fetch(interaction.user.id);
+  if (!await isRunecloakGuide(actor)) throw new UserFacingError("A Runecloak Guide is required to review surveys.");
+  const applicationId = interaction.customId.split(":")[2];
+  const existingSiteId = interaction.values[0];
+  if (!applicationId || !existingSiteId) throw new UserFacingError("Choose an existing research location.");
+  await interaction.deferUpdate();
+  const details = await acceptRunecloakSurvey({ guildId: interaction.guild.id, applicationId, existingSiteId, actorDiscordUserId: actor.id });
+  await finishRunecloakSurveyAcceptance(interaction.guild, details);
+  await interaction.editReply({ content: "The applicant is now a Runecloak Learner. Their survey has been added to the existing research location.", components: [] });
+}
+
 export async function upsertRunecloakSitePost(guild: Guild, details: RunecloakApplicationDetails): Promise<void> {
   if (!details.site) {
     return;
@@ -679,6 +717,40 @@ export async function upsertRunecloakSitePost(guild: Guild, details: RunecloakAp
     throw new UserFacingError("The Runecloak Expeditions Forum is unavailable. Run `/runecloak setup` again.");
   }
   const payload = await runecloakSitePayload(guild, details);
+  if (details.site.existing_site_id) {
+    const { data: parent, error } = await supabase.from("runecloak_research_sites")
+      .select("application_id, forum_thread_id").eq("id", details.site.existing_site_id).single();
+    assertNoDbError(error, "load shared Runecloak location");
+    if (!parent) throw new UserFacingError("The shared research location is unavailable.");
+    let threadId = parent.forum_thread_id;
+    if (!threadId) {
+      const parentDetails = await getRunecloakApplicationDetails(parent.application_id);
+      if (!parentDetails) throw new UserFacingError("The shared research location is unavailable.");
+      await upsertRunecloakSitePost(guild, parentDetails);
+      threadId = (await getRunecloakApplicationDetails(parent.application_id))?.site?.forum_thread_id ?? null;
+    }
+    const thread = threadId ? await guild.channels.fetch(threadId) : null;
+    if (!thread?.isThread() || thread.parentId !== forum.id) throw new UserFacingError("The shared research thread is unavailable.");
+    if (thread.archived) await thread.setArchived(false, "File an additional Runecloak survey");
+    let message = details.site.forum_message_id && details.site.forum_thread_id === thread.id
+      ? await thread.messages.fetch(details.site.forum_message_id).catch(() => null) : null;
+    // Recover a send that succeeded before its database acknowledgement failed.
+    let before: string | undefined;
+    while (!message) {
+      const page = await thread.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+      message = page.find((candidate) => candidate.author.id === guild.client.user.id
+        && candidate.embeds[0]?.title === payload.embeds[0]?.data.title
+        && candidate.embeds[0]?.fields.some(({ name, value }) => name === "Surveyed by" && value.includes(`<@${details.applicant.discord_user_id}>`))
+        && candidate.embeds[0]?.fields.some(({ name, value }) => name === "Atlas location code/reference" && value === details.site?.atlas_reference)) ?? null;
+      if (message || page.size < 100) break;
+      before = page.lastKey();
+    }
+    message = message ? await message.edit({ ...payload, allowedMentions: { parse: [] } })
+      : await thread.send({ ...payload, allowedMentions: { parse: [] },
+          nonce: createHash("sha256").update(details.site.id).digest("hex").slice(0, 24), enforceNonce: true });
+    await attachRunecloakSiteForumPost({ siteId: details.site.id, threadId: thread.id, messageId: message.id });
+    return;
+  }
   let thread = details.site.forum_thread_id
     ? await guild.channels.fetch(details.site.forum_thread_id).catch(() => null)
     : null;
@@ -705,7 +777,7 @@ export async function refreshRunecloakSitePosts(guild: Guild): Promise<number> {
     return 0;
   }
   const { data: sites, error } = await supabase.from("runecloak_research_sites")
-    .select("id, application_id, forum_thread_id, screenshot_url")
+    .select("id, application_id, forum_thread_id, forum_message_id, existing_site_id, screenshot_url")
     .not("forum_thread_id", "is", null)
     .not("screenshot_url", "is", null);
   assertNoDbError(error, "load Runecloak research-site posts");
@@ -726,7 +798,9 @@ export async function refreshRunecloakSitePosts(guild: Guild): Promise<number> {
     if (!details?.site) {
       continue;
     }
-    const starter = await thread.fetchStarterMessage().catch(() => null);
+    const starter = site.existing_site_id
+      ? (site.forum_message_id ? await thread.messages.fetch(site.forum_message_id).catch(() => null) : null)
+      : await thread.fetchStarterMessage().catch(() => null);
     if (!starter) {
       continue;
     }
@@ -1152,7 +1226,7 @@ export async function listRunecloakSyncMembers(guild: Guild): Promise<Map<string
 export async function refreshApprovedRunecloakApplications(guild: Guild): Promise<void> {
   const settings = await getRunecloakSettings(guild.id);
   if (!settings) return;
-  for (const details of await listRunecloakApplications(["Approved"])) {
+  for (const details of await listRunecloakApplications(["Approved", "Survey Submitted"])) {
     if (details.application.review_channel_id !== settings.application_review_channel_id) continue;
     await refreshRunecloakApplicationReview(guild, details.application.id).catch((error) => {
       console.warn(`Could not refresh approved Runecloak application ${details.application.id}:`, error);
@@ -1226,14 +1300,15 @@ export function runecloakApplicationReviewRows(details: RunecloakApplicationDeta
   }
   if (status === "Survey Submitted" && details.site?.status === "Approved") {
     return [new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`runecloak:application:approve:${details.application.id}`).setLabel("Approve Admission").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`runecloak:application:approve:${details.application.id}`).setLabel("Accept as New Location").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`runecloak:application:revision:${details.application.id}`).setLabel("Request Revision").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`runecloak:application:deny:${details.application.id}`).setLabel("Deny").setStyle(ButtonStyle.Danger)
     )];
   }
   if (status === "Survey Submitted" && details.site?.status === "Proposed") {
     return [new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`runecloak:application:approve:${details.application.id}`).setLabel("Approve Survey & Admit").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`runecloak:application:approve:${details.application.id}`).setLabel("Accept as New Location").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`runecloak:application:existing:${details.application.id}:0`).setLabel("Accept into Existing Location").setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`runecloak:application:revision:${details.application.id}`).setLabel("Request Revision").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`runecloak:site:deny:${details.site.id}`).setLabel("Reject").setStyle(ButtonStyle.Danger)
     )];
@@ -1263,6 +1338,12 @@ export async function runecloakSitePayload(guild: Guild, details: RunecloakAppli
   }
   if (site.review_note) {
     embed.addFields({ name: "Review note", value: site.review_note.slice(0, 1024) });
+  }
+  if (site.existing_site_id) {
+    embed.setTitle(`Field Survey: ${site.name}`);
+    const authorField = embed.data.fields?.find(({ name }) => name === "Surveyed by");
+    if (authorField) authorField.value = `<@${details.applicant.discord_user_id}> — ${rangerDisplayName(details.applicant)}`;
+    return { embeds: [embed], components: [] as ActionRowBuilder<ButtonBuilder>[] };
   }
   const components = site.status === "Proposed"
     ? [new ActionRowBuilder<ButtonBuilder>().addComponents(

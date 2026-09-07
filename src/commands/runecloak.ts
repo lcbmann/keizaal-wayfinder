@@ -268,7 +268,7 @@ export const runecloakCommand: BotCommand = {
       return;
     }
     if (focused.name === "site") {
-      const { data, error } = await supabase.from("runecloak_research_sites").select("id, name, hold_region").eq("status", "Approved").order("name").limit(100);
+      const { data, error } = await supabase.from("runecloak_research_sites").select("id, name, hold_region").eq("status", "Approved").is("existing_site_id", null).order("name").limit(100);
       assertNoDbError(error, "list approved Runecloak sites");
       await interaction.respond((data ?? []).filter((site) => `${site.name} ${site.hold_region}`.toLocaleLowerCase().includes(search)).slice(0, 25).map((site) => ({
         name: `${site.name} - ${site.hold_region}`.slice(0, 100),

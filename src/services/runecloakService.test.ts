@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Collection, type Guild, type GuildMember } from "discord.js";
+import { ChannelType, Collection, type Guild, type GuildMember } from "discord.js";
 import { supabase } from "../db/supabase.js";
 import { resolveRunecloakImageUrl, runecloakAlbumCover } from "./runecloakImageService.js";
-import { listRunecloakSyncMembers, runecloakApplicationReviewRows, runecloakSitePayload, syncRunecloakApplicantAccess } from "./runecloakDiscordService.js";
+import { listRunecloakSyncMembers, runecloakApplicationReviewRows, runecloakSitePayload, syncRunecloakApplicantAccess, upsertRunecloakSitePost } from "./runecloakDiscordService.js";
 import type { RunecloakApplicationDetails } from "./runecloakService.js";
 import {
   canTransitionRunecloakApplication,
@@ -160,6 +160,76 @@ test("approved applications retain an access recovery button", () => {
   const rows = runecloakApplicationReviewRows(details);
   const button = rows[0]!.components[0]!.toJSON();
   assert.equal("custom_id" in button ? button.custom_id : null, "runecloak:application:refresh-access:approved-app");
+});
+
+test("submitted surveys offer explicit new and existing location acceptance", () => {
+  const details = { application: { id: "app", status: "Survey Submitted" }, site: { id: "survey", status: "Proposed" } } as RunecloakApplicationDetails;
+  const buttons = runecloakApplicationReviewRows(details)[0]!.components.map((button) => button.toJSON());
+  assert.deepEqual(buttons.slice(0, 2).map((button) => "label" in button ? button.label : null), ["Accept as New Location", "Accept into Existing Location"]);
+  assert.ok(buttons.some((button) => "custom_id" in button && button.custom_id === "runecloak:application:existing:app:0"));
+});
+
+function linkedSurveyFixture(): RunecloakApplicationDetails {
+  return {
+    application: { id: "app" },
+    applicant: { in_game_name: "Second Ranger", discord_user_id: "ranger" },
+    site: { id: "survey", existing_site_id: "location", name: "Another name for the grove", research_rationale: "Independent findings and hazards", hold_region: "Whiterun", status: "Approved", atlas_reference: "MY-OWN-ATLAS", updated_at: "2026-09-07T00:00:00Z", screenshot_url: "https://i.imgur.com/example.jpg", forum_thread_id: null, forum_message_id: null }
+  } as RunecloakApplicationDetails;
+}
+
+test("additional survey payload keeps its author, findings, Atlas entry and image without location controls", async () => {
+  const guild = { emojis: { cache: new Collection() } } as unknown as Guild;
+  const payload = await runecloakSitePayload(guild, linkedSurveyFixture());
+  const embed = payload.embeds[0]!.toJSON();
+  assert.equal(embed.title, "Field Survey: Another name for the grove");
+  assert.equal(embed.description, "Independent findings and hazards");
+  assert.equal(embed.fields?.find(({ name }) => name === "Atlas location code/reference")?.value, "MY-OWN-ATLAS");
+  assert.match(embed.fields?.find(({ name }) => name === "Surveyed by")?.value ?? "", /<@ranger>.*Second Ranger/);
+  assert.equal(embed.image?.url, "https://i.imgur.com/example.jpg");
+  assert.deepEqual(payload.components, []);
+});
+
+test("linked survey publication appends to its location and recovers a send before database acknowledgement", async (t) => {
+  const details = linkedSurveyFixture();
+  const writes: unknown[] = [];
+  t.mock.method(supabase, "from", (table: string) => {
+    let update: unknown;
+    const query = {
+      select: () => query, eq: () => query,
+      update: (value: unknown) => { update = value; return query; },
+      maybeSingle: async () => ({ data: { expedition_forum_id: "forum" }, error: null }),
+      single: async () => {
+        assert.equal(table, "runecloak_research_sites");
+        if (update) writes.push(update);
+        return { data: update ? details.site : { application_id: "parent-app", forum_thread_id: "thread" }, error: null };
+      }
+    };
+    return query;
+  });
+  let sends = 0;
+  let edits = 0;
+  const messages = new Collection<string, any>();
+  const thread = {
+    id: "thread", parentId: "forum", archived: false, isThread: () => true,
+    fetchStarterMessage: () => { throw new Error("Original location must not be edited"); },
+    messages: { fetch: async () => messages },
+    send: async (payload: any) => {
+      sends++;
+      assert.equal(payload.enforceNonce, true);
+      assert.deepEqual(payload.allowedMentions, { parse: [] });
+      const reply = { id: "reply", author: { id: "bot" }, embeds: payload.embeds.map((embed: any) => embed.toJSON()), edit: async () => { edits++; return reply; } };
+      messages.set("reply", reply);
+      return reply;
+    }
+  };
+  const forum = { id: "forum", type: ChannelType.GuildForum, threads: { create: () => { throw new Error("No duplicate location thread"); } } };
+  const guild = { id: "guild", emojis: { cache: new Collection() }, client: { user: { id: "bot" } }, channels: { fetch: async (id: string) => id === "forum" ? forum : thread } } as unknown as Guild;
+  await upsertRunecloakSitePost(guild, details);
+  // Retry with stale database metadata, as if the first acknowledgement failed.
+  await upsertRunecloakSitePost(guild, details);
+  assert.equal(sends, 1);
+  assert.equal(edits, 1);
+  assert.deepEqual(writes, Array(2).fill({ forum_thread_id: "thread", forum_message_id: "reply" }));
 });
 
 test("full Runecloak role reconciliation paginates REST without a Gateway member request", async () => {

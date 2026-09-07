@@ -53,6 +53,8 @@ export const strongboxCommand: BotCommand = {
       await dropStrongboxMessage({
         guild: interaction.guild,
         member: interaction.member,
+        sourceKey: interaction.id,
+        sourceChannelId: interaction.channelId,
         message,
         attachments: attachment ? [attachment] : []
       });

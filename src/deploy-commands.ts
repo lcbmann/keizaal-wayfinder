@@ -10,6 +10,7 @@ import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
 import { intelCommand } from "./commands/intel.js";
 import { strongboxCommand } from "./commands/strongbox.js";
+import { referenceCommand } from "./commands/reference.js";
 import { allianceCommand } from "./commands/alliance.js";
 import { supplyCommand } from "./commands/supply.js";
 import { dutyCommand } from "./commands/duty.js";
@@ -35,6 +36,7 @@ const corpsCommands = [
   fundsCommand,
   intelCommand,
   strongboxCommand,
+  referenceCommand,
   supplyCommand,
   dutyCommand,
   applicationCommand,

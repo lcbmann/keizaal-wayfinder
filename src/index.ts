@@ -17,6 +17,8 @@ import { recruitCommand } from "./commands/recruit.js";
 import { fundsCommand } from "./commands/funds.js";
 import { intelCommand } from "./commands/intel.js";
 import { strongboxCommand } from "./commands/strongbox.js";
+import { referenceCommand } from "./commands/reference.js";
+import { handleReferenceButton, handleReferenceModal, REFERENCE_MODAL_PREFIX } from "./services/referenceService.js";
 import { allianceCommand } from "./commands/alliance.js";
 import { supplyCommand } from "./commands/supply.js";
 import { dutyCommand } from "./commands/duty.js";
@@ -124,6 +126,7 @@ for (const command of [
   fundsCommand,
   intelCommand,
   strongboxCommand,
+  referenceCommand,
   allianceCommand,
   supplyCommand,
   dutyCommand,
@@ -678,6 +681,14 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     return;
   }
 
+  if (interaction.isButton() && interaction.customId.startsWith("reference:open:")) {
+    await handleReferenceButton(interaction);
+    return;
+  }
+  if (interaction.isModalSubmit() && interaction.customId.startsWith(REFERENCE_MODAL_PREFIX)) {
+    await handleReferenceModal(interaction);
+    return;
+  }
   if (interaction.isModalSubmit() && interaction.customId.startsWith(STRONGBOX_MODAL_PREFIX)) {
     if (interaction.guildId !== env.DISCORD_GUILD_ID) {
       throw new UserFacingError("Strongbox forms are only available in the Ranger Corps server.");

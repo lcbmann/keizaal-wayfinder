@@ -41,6 +41,25 @@ export type RunecloakParticipationKind = "learner" | "support" | "observer";
 export type RunecloakParticipationStatus = "provisional" | "verified" | "rejected";
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+export interface StrongboxSubmissionRow {
+  id: string; guild_id: string; source_key: string;
+  submitter_ranger_id: string | null; submitter_discord_user_id: string; submitter_display_name: string;
+  submission_type: "marshal_drop" | "agent_report"; title: string; content: string; reference_text: string | null;
+  attachment_urls: string[]; attachment_metadata: Json;
+  source_channel_id: string | null; source_message_id: string | null;
+  discord_channel_id: string | null; discord_message_id: string | null; discord_thread_id: string | null;
+  submitted_at: string; updated_at: string; confidentiality: "marshal_plus" | "agents";
+  ic_or_ooc: "ic" | "ooc" | "mixed" | "unspecified"; status: "pending_delivery" | "posted";
+}
+
+export interface ReferenceItemRow {
+  id: string; guild_id: string; archived_by_discord_user_id: string; category: string; title: string;
+  exact_source_text: string | null; source_author: string | null; source_server: string | null; source_channel: string | null;
+  source_url: string; original_posted_at: string | null; archived_at: string | null; created_at: string;
+  attachment_urls: string[]; authority_level: string; ic_or_ooc: string; confidentiality: string;
+  applicable_scope: string | null; supersedes_reference_id: string | null; status: "draft" | "archived";
+}
+
 export interface RangerRow {
   id: string;
   discord_user_id: string;
@@ -1022,6 +1041,16 @@ export interface AllianceReportTopicPublicationRow {
 export interface Database {
   public: {
     Tables: {
+      strongbox_submissions: {
+        Row: StrongboxSubmissionRow;
+        Insert: Omit<StrongboxSubmissionRow, "id" | "submitted_at" | "updated_at" | "status" | "discord_channel_id" | "discord_message_id" | "discord_thread_id"> & Partial<StrongboxSubmissionRow>;
+        Update: Partial<StrongboxSubmissionRow>;
+      };
+      reference_items: {
+        Row: ReferenceItemRow;
+        Insert: Pick<ReferenceItemRow, "guild_id" | "archived_by_discord_user_id" | "category" | "title" | "source_url"> & Partial<ReferenceItemRow>;
+        Update: Partial<ReferenceItemRow>;
+      };
       atlas_ranger_directory: {
         Row: {
           discord_user_id: string;

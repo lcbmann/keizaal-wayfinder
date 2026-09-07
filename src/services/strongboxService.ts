@@ -20,6 +20,8 @@ import { UserFacingError } from "../utils/errors.js";
 import { emojiEmbed, emojiText, guildEmoji, type WayfinderEmojiName } from "../utils/guildEmojis.js";
 import { getBotMessageState, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import { queueBriefingDispatch } from "./briefingService.js";
+import { beginStrongboxArchive, checkpointStrongboxArchive } from "./auditArchiveService.js";
+import type { StrongboxSubmissionRow } from "../db/supabase.js";
 import {
   STRONGBOX_BUTTON_PREFIX,
   STRONGBOX_MODAL_PREFIX,
@@ -224,15 +226,15 @@ export async function handleStrongboxModal(interaction: ModalSubmitInteraction):
   await interaction.deferReply({ ephemeral: true });
   await requireStrongboxDropInteraction(interaction.guild, interaction.channelId);
   const subject = interaction.fields.getTextInputValue("subject").replace(/\s+/gu, " ").trim();
-  const message = interaction.fields.getTextInputValue("message").trim();
-  const references = interaction.fields.getTextInputValue("references").trim() || null;
-  if (!subject || !message) {
+  const message = interaction.fields.getTextInputValue("message");
+  const references = interaction.fields.getTextInputValue("references") || null;
+  if (!subject || !message.trim()) {
     throw new UserFacingError("A subject and message are required.");
   }
 
   const member = await interaction.guild.members.fetch(interaction.user.id);
   if (destination === "agents") {
-    await sendAgentFieldReport({ guild: interaction.guild, member, subject, message, references });
+    await sendAgentFieldReport({ guild: interaction.guild, member, subject, message, references, sourceKey: interaction.id, sourceChannelId: interaction.channelId });
     await interaction.editReply({ content: "Your sensitive field report was delivered directly to the Agents." });
     return;
   }
@@ -240,6 +242,8 @@ export async function handleStrongboxModal(interaction: ModalSubmitInteraction):
   await dropStrongboxMessage({
     guild: interaction.guild,
     member,
+    sourceKey: interaction.id,
+    sourceChannelId: interaction.channelId,
     subject,
     message,
     references
@@ -260,8 +264,11 @@ async function sendAgentFieldReport(params: {
   subject: string;
   message: string;
   references: string | null;
+  sourceKey: string;
+  sourceChannelId: string | null;
 }): Promise<Message> {
-  const channel = await params.guild.channels.fetch(env.AGENTS_CHANNEL_ID).catch(() => null);
+  const archive = await beginStrongboxArchive({ ...params, destination: "agents", title: params.subject, content: params.message });
+  const channel = await params.guild.channels.fetch(archive.discord_channel_id ?? env.AGENTS_CHANNEL_ID).catch(() => null);
   if (channel?.type !== ChannelType.GuildText) {
     throw new UserFacingError("The Agents channel is unavailable. Please ask Corps leadership to check its configuration.");
   }
@@ -276,13 +283,18 @@ async function sendAgentFieldReport(params: {
     .setColor(0x385f7a)
     .setTimestamp(new Date());
 
-  return channel.send({
+  // A saved message ID is a durable delivery checkpoint, not a reason to send again.
+  if (archive.discord_message_id) return channel.messages.fetch(archive.discord_message_id);
+  const posted = await channel.send({
     embeds: [embed],
+    nonce: params.sourceKey, enforceNonce: true,
     allowedMentions: { parse: [] }
   }).catch(() => {
     console.warn(`Could not deliver an Agent field report to channel ${channel.id}.`);
     throw new UserFacingError("Wayfinder could not deliver the report to the Agents channel. Please ask Corps leadership to check its permissions.");
   });
+  await checkpointStrongboxArchive(archive.id, { discord_channel_id: channel.id, discord_message_id: posted.id, status: "posted" });
+  return posted;
 }
 
 function strongboxCommandsEmbed(guild: Guild): EmbedBuilder {
@@ -331,6 +343,9 @@ export async function dropStrongboxMessage(params: {
   subject?: string | null;
   references?: string | null;
   attachments?: Attachment[];
+  sourceKey: string;
+  sourceChannelId?: string | null;
+  sourceMessageId?: string | null;
 }): Promise<StrongboxThreadResult> {
   const subject = params.subject?.replace(/\s+/gu, " ").trim();
   const references = params.references?.trim();
@@ -360,7 +375,9 @@ export async function dropStrongboxMessage(params: {
     }
   }
 
+  const archive = await beginStrongboxArchive({ ...params, destination: "marshals", title: subject || "Strongbox Drop", content: params.message });
   return postStrongboxThread({
+    archive,
     guild: params.guild,
     threadName: subject
       ? `Strongbox - ${params.member.displayName} - ${subject}`
@@ -382,21 +399,32 @@ export async function postStrongboxThread(params: {
   embed: EmbedBuilder;
   components?: ActionRowBuilder<ButtonBuilder>[];
   reason: string;
+  archive?: StrongboxSubmissionRow;
 }): Promise<StrongboxThreadResult> {
-  const channel = await getStrongboxChannel(params.guild);
-  if (!channel) {
+  const channel = params.archive?.discord_channel_id
+    ? await params.guild.channels.fetch(params.archive.discord_channel_id)
+    : await getStrongboxChannel(params.guild);
+  if (channel?.type !== ChannelType.GuildText) {
     throw new UserFacingError("The HQ Strongbox has not been set up yet. Ask a Ranger Marshal to run `/strongbox setup`.");
   }
 
-  const message = await channel.send({
-    embeds: [params.embed],
-    components: params.components ?? []
-  });
-  const thread = await message.startThread({
+  const message = params.archive?.discord_message_id
+    ? await channel.messages.fetch(params.archive.discord_message_id)
+    : await channel.send({
+        embeds: [params.embed],
+        components: params.components ?? [],
+        allowedMentions: { parse: [] },
+        ...(params.archive ? { nonce: params.archive.source_key, enforceNonce: true } : {})
+      });
+  if (params.archive) await checkpointStrongboxArchive(params.archive.id, { discord_channel_id: channel.id, discord_message_id: message.id });
+  const existingThread = params.archive?.discord_thread_id
+    ? await params.guild.channels.fetch(params.archive.discord_thread_id) : message.thread;
+  const thread = existingThread?.isThread() ? existingThread : await message.startThread({
     name: normalizedThreadName(params.threadName),
     autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
     reason: params.reason
   });
+  if (params.archive) await checkpointStrongboxArchive(params.archive.id, { discord_channel_id: channel.id, discord_message_id: message.id, discord_thread_id: thread.id, status: "posted" });
   await queueStrongboxBriefingUpdate(params.guild, thread, message.url).catch((error) => {
     console.warn(`Could not add Strongbox thread ${thread.id} to Marshal briefings:`, error);
   });
@@ -443,9 +471,9 @@ export async function handleStrongboxDropMessage(message: Message): Promise<bool
     return false;
   }
 
-  const content = message.content.trim();
+  const content = message.content;
   const attachments = [...message.attachments.values()];
-  if (!content && attachments.length === 0) {
+  if (!content.trim() && attachments.length === 0) {
     await message.delete().catch((error) => console.warn(`Could not delete empty strongbox drop ${message.id}:`, error));
     return true;
   }
@@ -455,6 +483,9 @@ export async function handleStrongboxDropMessage(message: Message): Promise<bool
     guild: message.guild,
     member,
     message: content || "(attachment only)",
+    sourceKey: message.id,
+    sourceChannelId: message.channelId,
+    sourceMessageId: message.id,
     attachments
   });
 

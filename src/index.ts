@@ -107,7 +107,8 @@ import {
   handleRunecloakModal,
   reconcileRunecloakRoles,
   refreshRunecloakDesk,
-  refreshRunecloakSitePosts
+  refreshRunecloakSitePosts,
+  refreshApprovedRunecloakApplications
 } from "./services/runecloakDiscordService.js";
 
 const commands = new Collection<string, BotCommand>() as CommandCollection;
@@ -228,7 +229,8 @@ client.once("ready", (readyClient) => {
         if (refreshed) {
           const [roles, sitePosts] = await Promise.all([
             reconcileRunecloakRoles(corpsGuild),
-            refreshRunecloakSitePosts(corpsGuild)
+            refreshRunecloakSitePosts(corpsGuild),
+            refreshApprovedRunecloakApplications(corpsGuild)
           ]);
           console.log(`Refreshed the Runecloak desk and ${sitePosts} research-site image${sitePosts === 1 ? "" : "s"}; reconciled roles: ${roles.added} added, ${roles.removed} removed.`);
         }

@@ -26,6 +26,7 @@ import { emojiEmbed, guildEmoji } from "../utils/guildEmojis.js";
 import { queueBriefingDispatch } from "./briefingService.js";
 import { appendQualificationToHonorsLedger } from "./honorsLedgerService.js";
 import { syncGuildAtlasDiscordProfiles } from "./atlasDiscordProfileService.js";
+import { resolveRunecloakImageUrl, runecloakImgurAlbumUrl } from "./runecloakImageService.js";
 import {
   DEFAULT_RUNECLOAK_ROLE_ID,
   RUNECLOAK_QUALIFICATION_SLUG,
@@ -532,9 +533,26 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
       await interaction.editReply({ content: "The applicant will receive the survey dispatch through their next `/ranger briefing`." });
       return;
     }
+    if (reviewAction === "refresh-access") {
+      await interaction.deferReply({ ephemeral: true });
+      const details = await getRunecloakApplicationDetails(applicationId);
+      if (!details || details.application.status !== "Approved") {
+        throw new UserFacingError("Access can only be refreshed for an approved Runecloak application.");
+      }
+      await syncRunecloakApplicantAccess(interaction.guild, details);
+      await refreshRunecloakApplicationReview(interaction.guild, applicationId);
+      await interaction.editReply({ content: "Runecloak access has been refreshed from the approved membership record." });
+      return;
+    }
     if (reviewAction === "approve") {
       await interaction.deferReply({ ephemeral: true });
       const before = await getRunecloakApplicationDetails(applicationId);
+      if (before?.application.status === "Approved") {
+        await syncRunecloakApplicantAccess(interaction.guild, before);
+        await refreshRunecloakApplicationReview(interaction.guild, applicationId);
+        await interaction.editReply({ content: "This admission was already approved. Runecloak access has been refreshed." });
+        return;
+      }
       if (before?.site?.status === "Proposed") {
         const approvedSite = await reviewRunecloakSite({
           guildId: interaction.guild.id,
@@ -550,6 +568,10 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
         nextStatus: "Approved",
         actorDiscordUserId: actor.id
       });
+      // Admission is already committed. Keep a recovery control available even
+      // if Discord refuses the role update, and sync just this applicant.
+      await refreshRunecloakApplicationReview(interaction.guild, applicationId);
+      await syncRunecloakApplicantAccess(interaction.guild, details);
       await notifyRunecloakApplicant(
         interaction.guild,
         details,
@@ -558,7 +580,6 @@ export async function handleRunecloakButton(interaction: ButtonInteraction): Pro
       );
       await refreshRunecloakApplicationReview(interaction.guild, applicationId);
       await refreshRunecloakDesk(interaction.guild);
-      await reconcileRunecloakRoles(interaction.guild);
       const currentCycle = await getCurrentRunecloakCycle(interaction.guild.id);
       await Promise.all((currentCycle?.stages ?? [])
         .filter(({ status }) => status === "Open")
@@ -657,7 +678,7 @@ export async function upsertRunecloakSitePost(guild: Guild, details: RunecloakAp
   if (!forum) {
     throw new UserFacingError("The Runecloak Expeditions Forum is unavailable. Run `/runecloak setup` again.");
   }
-  const payload = runecloakSitePayload(guild, details);
+  const payload = await runecloakSitePayload(guild, details);
   let thread = details.site.forum_thread_id
     ? await guild.channels.fetch(details.site.forum_thread_id).catch(() => null)
     : null;
@@ -694,7 +715,7 @@ export async function refreshRunecloakSitePosts(guild: Guild): Promise<number> {
       continue;
     }
     const normalizedImageUrl = normalizeRunecloakImageUrl(site.screenshot_url);
-    if (normalizedImageUrl === site.screenshot_url) {
+    if (normalizedImageUrl === site.screenshot_url && !runecloakImgurAlbumUrl(site.screenshot_url)) {
       continue;
     }
     const thread = await guild.channels.fetch(site.forum_thread_id).catch(() => null);
@@ -709,20 +730,12 @@ export async function refreshRunecloakSitePosts(guild: Guild): Promise<number> {
     if (!starter) {
       continue;
     }
-    await starter.edit(runecloakSitePayload(guild, {
-      ...details,
-      site: { ...details.site, screenshot_url: normalizedImageUrl }
-    }));
-    if (thread.parent?.type === ChannelType.GuildForum) {
-      await thread.setAppliedTags(
-        runecloakTagIds(thread.parent, ["Research Site", siteStatusTag(details.site.status)]),
-        "Refresh Runecloak research-site post"
-      );
+    const payload = await runecloakSitePayload(guild, details);
+    const imageUrl = payload.embeds[0]?.data.image?.url;
+    if (!imageUrl || starter.embeds[0]?.image?.url === imageUrl) {
+      continue;
     }
-    const { error: updateError } = await supabase.from("runecloak_research_sites")
-      .update({ screenshot_url: normalizedImageUrl })
-      .eq("id", site.id);
-    assertNoDbError(updateError, "normalize Runecloak research-site image link");
+    await starter.edit(payload);
     refreshed += 1;
   }
   return refreshed;
@@ -786,7 +799,7 @@ export async function reconcileRunecloakRoles(guild: Guild): Promise<{ added: nu
   }
   const qualificationId = await getRunecloakQualificationId();
   const [members, qualificationsResult, rangersResult, membershipsResult, team] = await Promise.all([
-    guild.members.fetch(),
+    listRunecloakSyncMembers(guild),
     supabase.from("ranger_qualifications").select("ranger_id").eq("qualification_id", qualificationId).is("revoked_at", null),
     supabase.from("rangers").select("id, discord_user_id, status, current_rank"),
     supabase.from("runecloak_memberships").select("ranger_id, status").eq("guild_id", guild.id).in("status", ["Learner", "Qualified"]),
@@ -1114,6 +1127,39 @@ async function runecloakDeskPayload(guild: Guild) {
   };
 }
 
+export async function syncRunecloakApplicantAccess(guild: Guild, details: RunecloakApplicationDetails): Promise<void> {
+  try {
+    const member = await guild.members.fetch({ user: details.applicant.discord_user_id, force: true });
+    await reconcileRunecloakMemberRoles(member);
+  } catch (error) {
+    console.warn(`Runecloak access refresh failed for ${details.applicant.discord_user_id}:`, error);
+    throw new UserFacingError("The admission is approved, but Discord access could not be updated. Use Refresh Access on this application to retry.");
+  }
+}
+
+export async function listRunecloakSyncMembers(guild: Guild): Promise<Map<string, GuildMember>> {
+  const members = new Map<string, GuildMember>();
+  let after: string | undefined;
+  while (true) {
+    // REST pagination avoids the Gateway Request Guild Members cooldown.
+    const page = await guild.members.list({ limit: 1000, ...(after ? { after } : {}) });
+    for (const [id, member] of page) members.set(id, member);
+    if (page.size < 1000) return members;
+    after = page.lastKey();
+  }
+}
+
+export async function refreshApprovedRunecloakApplications(guild: Guild): Promise<void> {
+  const settings = await getRunecloakSettings(guild.id);
+  if (!settings) return;
+  for (const details of await listRunecloakApplications(["Approved"])) {
+    if (details.application.review_channel_id !== settings.application_review_channel_id) continue;
+    await refreshRunecloakApplicationReview(guild, details.application.id).catch((error) => {
+      console.warn(`Could not refresh approved Runecloak application ${details.application.id}:`, error);
+    });
+  }
+}
+
 function formatRunecloakPersonalStudy(input: {
   spellName: string;
   status: string;
@@ -1165,8 +1211,13 @@ function runecloakApplicationReviewEmbed(guild: Guild, details: RunecloakApplica
   return embed;
 }
 
-function runecloakApplicationReviewRows(details: RunecloakApplicationDetails): ActionRowBuilder<ButtonBuilder>[] {
+export function runecloakApplicationReviewRows(details: RunecloakApplicationDetails): ActionRowBuilder<ButtonBuilder>[] {
   const status = details.application.status;
+  if (status === "Approved") {
+    return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`runecloak:application:refresh-access:${details.application.id}`).setLabel("Refresh Access").setStyle(ButtonStyle.Secondary)
+    )];
+  }
   if (status === "Submitted") {
     return [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`runecloak:application:request-survey:${details.application.id}`).setLabel("Request Survey").setStyle(ButtonStyle.Primary),
@@ -1190,7 +1241,7 @@ function runecloakApplicationReviewRows(details: RunecloakApplicationDetails): A
   return [];
 }
 
-function runecloakSitePayload(guild: Guild, details: RunecloakApplicationDetails) {
+export async function runecloakSitePayload(guild: Guild, details: RunecloakApplicationDetails) {
   const site = details.site;
   if (!site) {
     throw new Error("A Runecloak research-site payload requires a site.");
@@ -1206,7 +1257,9 @@ function runecloakSitePayload(guild: Guild, details: RunecloakApplicationDetails
     .setColor(site.status === "Approved" ? 0x4f8f5b : site.status === "Rejected" || site.status === "Retired" ? 0x747f8d : 0x5b7fc4)
     .setTimestamp(new Date(site.updated_at));
   if (site.screenshot_url) {
-    embed.setImage(normalizeRunecloakImageUrl(site.screenshot_url));
+    const imageUrl = await resolveRunecloakImageUrl(site.screenshot_url);
+    if (imageUrl) embed.setImage(imageUrl);
+    embed.addFields({ name: "Survey images", value: `[Open submitted images](${site.screenshot_url})` });
   }
   if (site.review_note) {
     embed.addFields({ name: "Review note", value: site.review_note.slice(0, 1024) });

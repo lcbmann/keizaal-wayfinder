@@ -12,7 +12,7 @@ export const patrolCommand: BotCommand = {
     .setDescription("Ask Wayfinder for a patrol route.")
     .addSubcommand((subcommand) => subcommand
       .setName("suggest")
-      .setDescription("Suggest a route using Corps Trailmark and contact records.")
+      .setDescription("Cycle through patrol ideas favoring less-recently visited Trailmarks.")
       .addStringOption((option) => option
         .setName("hold")
         .setDescription("Choose a Hold or leave blank for your assigned Hold.")

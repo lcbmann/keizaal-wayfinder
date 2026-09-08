@@ -2,8 +2,27 @@ import { EmbedBuilder, type Guild, type GuildMember } from "discord.js";
 import { HOLDS, isHold, type Hold } from "../config/holds.js";
 import { assertNoDbError, supabase, type TrailmarkRow, type TrailmarkSessionRow } from "../db/supabase.js";
 import { emojiEmbed } from "../utils/guildEmojis.js";
-import { listContacts, type ContactDetails } from "./contactService.js";
 import { getRangerByDiscordId } from "./rangerService.js";
+
+const PATROL_FOCUSES = [
+  { title: "Roads and passage", text: "Check the condition of roads, crossings, and nearby paths. Note obstacles or useful alternate routes." },
+  { title: "Signs of activity", text: "Keep an eye out for tracks, camps, travelers, or other signs of activity. Report what you actually find." },
+  { title: "Useful ground", text: "Look for useful gathering grounds, water, shelter, or places worth marking on the Atlas." },
+  { title: "Changes in the wilds", text: "Watch for wildlife, hazards, and changes since your last visit. Take a side path if it seems worthwhile." }
+] as const;
+
+// A small per-user rotation, not a saved assignment or a new management workflow.
+export function createPatrolSuggestionRotation() {
+  const cursors = new Map<string, number>();
+  return (key: string): number => {
+    const cursor = cursors.get(key) ?? 0;
+    cursors.delete(key);
+    cursors.set(key, (cursor + 1) % 120); // Divisible by 1/3/6/10 route options and four focuses.
+    if (cursors.size > 1000) cursors.delete(cursors.keys().next().value!);
+    return cursor;
+  };
+}
+const nextPatrolSuggestion = createPatrolSuggestionRotation();
 
 export async function buildPatrolSuggestion(params: {
   guild: Guild;
@@ -18,21 +37,22 @@ export async function buildPatrolSuggestion(params: {
     date: new Date()
   });
 
-  const [{ data: trailmarks, error: trailmarkError }, contacts] = await Promise.all([
-    supabase.from("trailmarks").select("*").eq("active", true).eq("hold", hold),
-    listContacts({ hold })
-  ]);
+  const { data: trailmarks, error: trailmarkError } = await supabase.from("trailmarks").select("*").eq("active", true).eq("hold", hold);
   assertNoDbError(trailmarkError, "list patrol Trailmarks");
   const activeTrailmarks = trailmarks ?? [];
   const sessions = await listTrailmarkSessions(activeTrailmarks);
-  const route = rankPatrolLocationsByActivity(activeTrailmarks, sessions).slice(0, 2);
-  const contact = stalestContact(contacts);
+  const options = patrolRouteOptions(rankPatrolLocationsByActivity(activeTrailmarks, sessions));
+  const cursor = nextPatrolSuggestion(`${params.guild.id}:${params.member.id}:${hold}`);
+  const route = options[cursor % options.length] ?? [];
+  const focus = PATROL_FOCUSES[cursor % PATROL_FOCUSES.length]!;
 
   const embed = emojiEmbed(params.guild, "atlas", `Patrol Route: ${hold}`)
-    .setDescription(patrolPurpose(contact))
+    .setDescription(route.length
+      ? "Give a little attention to ground that has gone longer without a recorded Trailmark visit. Take whichever connecting roads and side paths seem worthwhile."
+      : `Take a circuit through ${hold} and see what has changed. There are no active Trailmarks recorded here to build a route around yet.`)
     .addFields(
-      { name: "Suggested route", value: suggestedRoute(route, contact), inline: false },
-      { name: "Point of interest", value: contactDescription(contact), inline: false },
+      { name: "Suggested route", value: suggestedRoute(route, hold), inline: false },
+      { name: focus.title, value: focus.text, inline: false },
       { name: "Report", value: reportingInstruction(route), inline: false }
     )
     .setColor(0x587c4a)
@@ -62,16 +82,34 @@ export function selectPatrolHold(params: {
   return HOLDS[(day + userSeed) % HOLDS.length] ?? HOLDS[0];
 }
 
-async function listTrailmarkSessions(trailmarks: TrailmarkRow[]): Promise<TrailmarkSessionRow[]> {
+export async function listTrailmarkSessions(trailmarks: TrailmarkRow[]): Promise<TrailmarkSessionRow[]> {
   if (trailmarks.length === 0) {
     return [];
   }
-  const { data, error } = await supabase.from("trailmark_sessions")
-    .select("*")
-    .in("trailmark_id", trailmarks.map((trailmark) => trailmark.id))
-    .order("created_at", { ascending: false });
-  assertNoDbError(error, "list patrol Trailmark visits");
-  return data ?? [];
+  const sessions: TrailmarkSessionRow[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("trailmark_sessions")
+      .select("*")
+      .in("trailmark_id", trailmarks.map((trailmark) => trailmark.id))
+      .order("created_at", { ascending: false }).order("id", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    assertNoDbError(error, "list patrol Trailmark visits");
+    sessions.push(...(data ?? []));
+    if (!data || data.length < pageSize) return sessions;
+  }
+}
+
+export function patrolRouteOptions(ranked: TrailmarkRow[]): TrailmarkRow[][] {
+  const pool = ranked.slice(0, 5);
+  if (pool.length < 2) return [pool];
+  const pairs: { route: TrailmarkRow[]; score: number; first: number }[] = [];
+  for (let i = 0; i < pool.length; i++) {
+    for (let j = i + 1; j < pool.length; j++) {
+      pairs.push({ route: [pool[i]!, pool[j]!], score: i + j, first: i });
+    }
+  }
+  return pairs.sort((a, b) => a.score - b.score || a.first - b.first).map(({ route }) => route);
 }
 
 export function rankPatrolLocationsByActivity(
@@ -157,49 +195,16 @@ function compareTrailmarks(left: TrailmarkRow, right: TrailmarkRow): number {
   return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
 }
 
-function stalestContact(contacts: ContactDetails[]): ContactDetails | null {
-  return [...contacts].sort((left, right) =>
-    contactFreshness(left) - contactFreshness(right)
-      || Number(right.contact.high_priority) - Number(left.contact.high_priority)
-      || left.contact.name.localeCompare(right.contact.name)
-  )[0] ?? null;
-}
-
-function contactFreshness(contact: ContactDetails): number {
-  return contact.summary.lastVerifiedAt ? new Date(contact.summary.lastVerifiedAt).getTime() : 0;
-}
-
-function patrolPurpose(contact: ContactDetails | null): string {
-  if (!contact) {
-    return "No specific contact needs checking. Patrol the roads and report any useful changes.";
-  }
-  const kind = contact.contact.record_type === "Group" ? "group" : "contact";
-  return `The latest report on the ${kind} **${contact.contact.name}** needs checking. Visit the area and update the record if needed.`;
-}
-
-function suggestedRoute(trailmarks: TrailmarkRow[], contact: ContactDetails | null): string {
-  const start = trailmarks[0] ? trailmarkLabel(trailmarks[0]) : `a practical entry point into ${contact?.contact.hold ?? "the Hold"}`;
-  const end = trailmarks[1] ? trailmarkLabel(trailmarks[1]) : trailmarks[0] ? trailmarkLabel(trailmarks[0]) : "Headquarters";
-  const contactArea = contact?.contact.usual_locations ?? contact?.contact.hold ?? "the surrounding roads";
-  return `Begin at ${start}, make a circuit through **${contactArea}**, and finish at ${end}.`;
+function suggestedRoute(trailmarks: TrailmarkRow[], hold: Hold): string {
+  const start = trailmarks[0];
+  const end = trailmarks[1];
+  if (!start) return `Choose a practical starting point in ${hold}, explore the surrounding roads, and return by a different path if possible.`;
+  if (!end) return `Begin at ${trailmarkLabel(start)}, make a circuit through the surrounding countryside, and return with anything worth reporting.`;
+  return `Begin at ${trailmarkLabel(start)} and work your way toward ${trailmarkLabel(end)}, checking the surrounding roads and paths along the way.`;
 }
 
 function trailmarkLabel(trailmark: TrailmarkRow): string {
   return `<#${trailmark.discord_channel_id}> (${trailmark.name})`;
-}
-
-function contactDescription(contact: ContactDetails | null): string {
-  if (!contact) {
-    return "No active contact or group records are filed for this Hold.";
-  }
-  const lastVerified = contact.summary.lastVerifiedAt
-    ? `<t:${Math.floor(new Date(contact.summary.lastVerifiedAt).getTime() / 1000)}:R>`
-    : "never formally confirmed";
-  const kind = contact.contact.record_type === "Group"
-    ? contact.contact.group_category ?? "Group"
-    : contact.contact.occupation ?? "Individual contact";
-  const recordLink = contact.contact.forum_thread_id ? `\nRecord: <#${contact.contact.forum_thread_id}>` : "";
-  return `**${contact.contact.name}**\n${kind}\nStatus: ${contact.summary.status}${recordLink}\nLast confirmed: ${lastVerified}.`;
 }
 
 function reportingInstruction(trailmarks: TrailmarkRow[]): string {

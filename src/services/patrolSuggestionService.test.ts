@@ -1,11 +1,83 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { HOLDS } from "../config/holds.js";
-import type { TrailmarkRow, TrailmarkSessionRow } from "../db/supabase.js";
+import { Collection, type Guild, type GuildMember } from "discord.js";
+import { supabase, type TrailmarkRow, type TrailmarkSessionRow } from "../db/supabase.js";
 import {
+  buildPatrolSuggestion,
+  createPatrolSuggestionRotation,
+  listTrailmarkSessions,
+  patrolRouteOptions,
   rankPatrolLocationsByActivity,
   selectPatrolHold
 } from "./patrolSuggestionService.js";
+
+test("route options cycle ranked pairs from only the five least-recently visited locations", () => {
+  const ranked = Array.from({ length: 7 }, (_, i) => trailmark(String(i)));
+  const options = patrolRouteOptions(ranked);
+  assert.equal(options.length, 10);
+  assert.deepEqual(options[0]?.map(({ id }) => id), ["0", "1"]);
+  assert.deepEqual(options[1]?.map(({ id }) => id), ["0", "2"]);
+  assert.equal(new Set(options.map((route) => route.map(({ id }) => id).join(":"))).size, 10);
+  assert.ok(options.flat().every(({ id }) => Number(id) < 5));
+});
+
+test("route rotation is independent per Ranger and Hold and wraps without immediate repeats", () => {
+  const next = createPatrolSuggestionRotation();
+  const options = patrolRouteOptions([trailmark("a"), trailmark("b"), trailmark("c")]);
+  const seen = Array.from({ length: 4 }, () => options[next("guild:ranger:Whiterun") % options.length]);
+  assert.notDeepEqual(seen[0], seen[1]);
+  assert.notDeepEqual(seen[1], seen[2]);
+  assert.deepEqual(seen[0], seen[3]);
+  assert.equal(next("guild:other-ranger:Whiterun"), 0);
+  assert.equal(next("guild:ranger:The Rift"), 0);
+  for (let i = 0; i < 116; i++) next("guild:ranger:Whiterun");
+  assert.equal(next("guild:ranger:Whiterun"), 0);
+});
+
+test("route options handle Holds with fewer than two distinct locations", () => {
+  assert.deepEqual(patrolRouteOptions([]), [[]]);
+  const single = trailmark("a");
+  assert.deepEqual(patrolRouteOptions([single]), [[single]]);
+  assert.deepEqual(patrolRouteOptions([single, trailmark("b")]).length, 1);
+});
+
+test("patrol visit history reads beyond the first database result page", async (t) => {
+  const location = trailmark("a");
+  const ranges: number[][] = [];
+  const first = Array.from({ length: 1000 }, (_, i) => session(String(i), location, "2026-09-07T00:00:00Z"));
+  const oldest = session("old", location, "2026-09-01T00:00:00Z");
+  t.mock.method(supabase, "from", (table: string) => {
+    assert.equal(table, "trailmark_sessions");
+    const query = {
+      select: () => query, in: () => query, order: () => query,
+      range: async (from: number, to: number) => { ranges.push([from, to]); return { data: from === 0 ? first : [oldest], error: null }; }
+    };
+    return query;
+  });
+  assert.equal((await listTrailmarkSessions([location])).length, 1001);
+  assert.deepEqual(ranges, [[0, 999], [1000, 1999]]);
+});
+
+test("patrol embeds rotate routes without querying or targeting any contacts", async (t) => {
+  t.mock.method(supabase, "from", (table: string) => {
+    assert.ok(["rangers", "trailmarks", "trailmark_sessions"].includes(table), `Unexpected contact query: ${table}`);
+    const query = {
+      select: () => query, eq: () => query, in: () => query, order: () => query,
+      maybeSingle: async () => ({ data: { assigned_hold: "Whiterun" }, error: null }),
+      range: async () => ({ data: [], error: null }),
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [trailmark("a"), trailmark("b"), trailmark("c")], error: null }).then(resolve)
+    };
+    return query;
+  });
+  const guild = { id: "patrol-test", emojis: { cache: new Collection() } } as unknown as Guild;
+  const member = { id: "patrol-test-ranger" } as GuildMember;
+  const first = (await buildPatrolSuggestion({ guild, member })).embed.toJSON();
+  const second = (await buildPatrolSuggestion({ guild, member })).embed.toJSON();
+  assert.notEqual(first.fields?.[0]?.value, second.fields?.[0]?.value);
+  assert.doesNotMatch(JSON.stringify(first), /confirm|contact|group records|needs checking/i);
+  assert.match(first.description ?? "", /recorded Trailmark visit/);
+});
 
 test("patrol suggestions prefer an explicitly requested Hold", () => {
   assert.equal(selectPatrolHold({

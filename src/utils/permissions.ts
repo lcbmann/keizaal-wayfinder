@@ -37,7 +37,7 @@ export function canApprovePromotions(member: GuildMember): boolean {
 }
 
 export function canUseTrailmarks(member: GuildMember): boolean {
-  return mainRankFromMember(member) !== null;
+  return mainRankFromMember(member) !== null || memberHasRole(member, env.ROLE_AEDRA_ID);
 }
 
 export function canCreateTrailmarks(member: GuildMember): boolean {

@@ -24,6 +24,7 @@ const envSchema = z.object({
   ROLE_RANGER_ID: z.string().min(1),
   ROLE_APPRENTICE_ID: z.string().min(1),
   ROLE_SENIOR_RANGER_ID: z.string().min(1),
+  ROLE_AEDRA_ID: z.string().min(1).default("1530121146844839976"),
 
   GUEST_ROLE_ID: z.string().min(1),
   CAREER_TAILOR_ROLE_ID: z.string().min(1),

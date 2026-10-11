@@ -326,6 +326,14 @@ async function assignmentMessagePayload(guild: Guild, assignmentId: string) {
     throw new Error("The managed assignment could not be loaded for its Forum post.");
   }
   const participants = await listAssignmentParticipants(assignment.id);
+  return buildAssignmentMessagePayload(guild, assignment, participants);
+}
+
+export function buildAssignmentMessagePayload(
+  guild: Guild,
+  assignment: ManagedAssignmentRow,
+  participants: ManagedAssignmentParticipantRow[]
+) {
   const open = assignment.status === "Open";
   const embed = emojiEmbed(guild, "rangerorders", `Assignment: ${assignment.title}`)
     .setDescription(assignment.objective)
@@ -335,7 +343,7 @@ async function assignmentMessagePayload(guild: Guild, assignmentId: string) {
       { name: "Posted by", value: `<@${assignment.organizer_discord_user_id}>`, inline: true },
       { name: "Operating area", value: assignment.hold ? `${assignment.location} (${assignment.hold})` : assignment.location, inline: false },
       { name: "Timing", value: assignment.timing ?? "No fixed deadline.", inline: false },
-      { name: "Details", value: assignment.details ?? "No extra details.", inline: false },
+      ...assignmentDetailsFields(assignment.details),
       {
         name: `Participants (${participants.length})`,
         value: participants.length ? participants.map((participant) => `<@${participant.discord_user_id}>`).join("\n").slice(0, 1024) : "No one has signed on yet.",
@@ -352,6 +360,29 @@ async function assignmentMessagePayload(guild: Guild, assignmentId: string) {
       )]
     : [];
   return { embeds: [embed], components };
+}
+
+function assignmentDetailsFields(details: string | null) {
+  let remaining = details ?? "No extra details.";
+  const fields: { name: string; value: string; inline: boolean }[] = [];
+  while (remaining.length > 0) {
+    let end = Math.min(remaining.length, 1024);
+    if (remaining.length > 1024) {
+      const lineEnd = remaining.lastIndexOf("\n", 1023);
+      if (lineEnd >= 512) {
+        end = lineEnd + 1;
+      } else if (/[\uD800-\uDBFF]/u.test(remaining.charAt(end - 1))) {
+        end -= 1;
+      }
+    }
+    fields.push({
+      name: fields.length === 0 ? "Details" : "Details (continued)",
+      value: remaining.slice(0, end),
+      inline: false
+    });
+    remaining = remaining.slice(end);
+  }
+  return fields;
 }
 
 function assignmentTagIds(forum: ForumChannel, assignment: ManagedAssignmentRow): string[] {

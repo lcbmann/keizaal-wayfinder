@@ -42,8 +42,6 @@ import { env } from "../config/env.js";
 import { listRangerMedalAwards, medalEmoji } from "../services/medalService.js";
 import { closeSupersededPromotionVotes } from "../services/promotionService.js";
 import { collectRangerBriefing } from "../services/briefingService.js";
-import { listRangerQualifications } from "../services/runecloakService.js";
-import { guildEmoji } from "../utils/guildEmojis.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -192,11 +190,10 @@ export const rangerCommand: BotCommand = {
 
       await interaction.deferReply();
       const member = await interaction.guild.members.fetch(user.id).catch(() => null);
-      const [dutyEntries, stats, medalAwards, qualificationAwards] = await Promise.all([
+      const [dutyEntries, stats, medalAwards] = await Promise.all([
         listActiveDutyAssignments(),
         getRangerProfileStats(ranger),
-        listRangerMedalAwards(ranger.id),
-        listRangerQualifications(ranger.id)
+        listRangerMedalAwards(ranger.id)
       ]);
       const duties = dutyEntries
         .filter((entry) => entry.ranger.id === ranger.id)
@@ -224,10 +221,6 @@ export const rangerCommand: BotCommand = {
       const corpsMedals = awardedMedals
         .sort((a, b) => b.rolePosition - a.rolePosition || a.text.localeCompare(b.text))
         .map((entry) => entry.text);
-      const qualifications = qualificationAwards.map(({ name }) => {
-        const emoji = name === "Ranger Runecloak" ? guildEmoji(interaction.guild, "runecloak") : "";
-        return `${emoji ? `${emoji} - ` : ""}${name}`;
-      });
       const avatarUrl = member?.displayAvatarURL({ extension: "png", size: 256 }) ?? user.displayAvatarURL({ extension: "png", size: 256 });
       await interaction.editReply({
         embeds: [rangerEmbed({
@@ -236,7 +229,6 @@ export const rangerCommand: BotCommand = {
           duties,
           ranksAndRoles,
           corpsMedals,
-          qualifications,
           stats,
           avatarUrl,
           displayName: member?.displayName ?? ranger.discord_display_name ?? ranger.discord_username ?? "Ranger",
@@ -520,7 +512,6 @@ function rangerEmbed(params: {
   duties?: string[];
   ranksAndRoles?: string[];
   corpsMedals?: string[];
-  qualifications?: string[];
   stats?: Awaited<ReturnType<typeof getRangerProfileStats>>;
   avatarUrl?: string;
   displayName: string;
@@ -532,7 +523,6 @@ function rangerEmbed(params: {
     duties = [],
     ranksAndRoles = [],
     corpsMedals = [],
-    qualifications = [],
     stats = { rosterNumber: 0, rosterTotal: 0, reportCount: 0 },
     avatarUrl,
     displayName,
@@ -555,7 +545,6 @@ function rangerEmbed(params: {
       { name: "Reports Filed", value: String(stats.reportCount), inline: true },
       { name: "Last Activity", value: ranger.last_discord_activity_at ? `<t:${Math.floor(new Date(ranger.last_discord_activity_at).getTime() / 1000)}:R>` : "Unknown", inline: true },
       { name: "Ranks & Roles", value: embedListValue(ranksAndRoles, "No recorded rank roles"), inline: true },
-      { name: "Qualifications", value: embedListValue(qualifications, "None"), inline: true },
       { name: "Corps Medals", value: embedListValue(corpsMedals, "None awarded"), inline: true },
       { name: "Corps Duties", value: duties.join("\n") || "None", inline: false },
       { name: "Notes", value: ranger.notes?.slice(0, 1024) || "None" }

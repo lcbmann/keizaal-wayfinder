@@ -444,7 +444,7 @@ Standardized `/trailmark report` submissions may link up to three person or grou
 
 Apprenticeships are voluntary and do not replace the promotion vote system. Apprentice or higher may use the commands in any accessible channel.
 
-`/apprenticeship looking-for` posts a public notice in the configured notice board: an Apprentice may seek a mentor and a Ranger+ may seek an Apprentice. Running the command again edits the same notice. `/apprenticeship withdraw-looking` removes it. The notice is also removed automatically when the member enters an apprenticeship. Marshal+ can see all current requests and pairings with `/apprenticeship requests`.
+`/apprenticeship looking-for` posts a public notice in the configured notice board: an Apprentice may seek a mentor and a Ranger+ may seek an Apprentice. Running the command again edits the same notice and renews its 30-day lifetime. `/apprenticeship withdraw-looking` removes it. Notices are also removed when paired, inactive, retired, no longer eligible, or no longer a Corps member. Startup and hourly cleanup remove old notices and refresh the roster. Pending pairings expire after 30 days; active apprenticeships do not expire with age, but end when either participant retires, leaves the server, or loses all Corps rank roles. On Leave does not end an active pairing. Marshal+ can see current requests and pairings with `/apprenticeship requests`.
 
 `/apprenticeship propose` pairs an existing Apprentice with an existing Ranger or higher. Wayfinder DMs the other participant with Accept and Decline buttons. An accepted proposal becomes active immediately and creates an informational Strongbox thread; it does not require Marshal approval.
 

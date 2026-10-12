@@ -1,5 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder, type Guild, type GuildMember } from "discord.js";
 import {
+  cleanupApprenticeshipRecords,
   assignApprenticeship,
   clearApprenticeshipPreference,
   endApprenticeship,
@@ -75,7 +76,7 @@ export const apprenticeshipCommand: BotCommand = {
         note: interaction.options.getString("note")?.trim() || null
       });
       await interaction.editReply({
-        content: `You pin a notice stating that you are looking for ${seeking === "Mentor" ? "a mentor" : "an Apprentice"}. It can now be found on the Corps notice board.`
+        content: `You pin a notice stating that you are looking for ${seeking === "Mentor" ? "a mentor" : "an Apprentice"}. It stays on the Corps notice board for 30 days. Run this command again to renew it.`
       });
       await refreshApprenticeshipBoard(interaction.guild);
       return;
@@ -177,6 +178,7 @@ export const apprenticeshipCommand: BotCommand = {
 
     if (subcommand === "requests") {
       await interaction.deferReply({ ephemeral: true });
+      await cleanupApprenticeshipRecords(interaction.guild);
       const [preferences, pairings] = await Promise.all([
         listApprenticeshipPreferences(),
         listCurrentApprenticeships()

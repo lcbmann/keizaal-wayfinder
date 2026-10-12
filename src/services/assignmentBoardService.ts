@@ -4,6 +4,7 @@ import { rankSort, type MainRank } from "../config/ranks.js";
 import type { ApprenticeshipPreferenceRow, RangerRow } from "../db/supabase.js";
 import { deleteStoredMessages, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import {
+  cleanupApprenticeshipRecords,
   listApprenticeshipPreferences,
   listCurrentApprenticeships,
   type ApprenticeshipDetails
@@ -51,6 +52,7 @@ export async function postAssignmentsBoard(channel: TextChannel): Promise<Messag
 }
 
 async function replaceAssignmentsBoard(channel: TextChannel): Promise<Message[]> {
+  await cleanupApprenticeshipRecords(channel.guild);
   await channel.guild.emojis.fetch().catch((error) => {
     console.warn("Could not refresh guild emojis before rendering the Ranger assignments board:", error);
   });

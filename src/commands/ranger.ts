@@ -42,6 +42,7 @@ import { env } from "../config/env.js";
 import { listRangerMedalAwards, medalEmoji } from "../services/medalService.js";
 import { closeSupersededPromotionVotes } from "../services/promotionService.js";
 import { collectRangerBriefing } from "../services/briefingService.js";
+import { cleanupApprenticeshipRecords } from "../services/apprenticeshipService.js";
 
 const statuses: RangerStatus[] = ["Active", "Inactive", "On Leave", "Retired"];
 
@@ -342,6 +343,7 @@ export const rangerCommand: BotCommand = {
             reason: `Roster status changed to ${status}`
           })
         : 0;
+      await cleanupApprenticeshipRecords(interaction.guild);
       await interaction.editReply({
         content: `Set ${user} to ${ranger.status}.${endedDuties ? ` Ended ${endedDuties} active duty assignment${endedDuties === 1 ? "" : "s"}.` : ""}`
       });

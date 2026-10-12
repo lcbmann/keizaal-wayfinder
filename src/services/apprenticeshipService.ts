@@ -5,12 +5,14 @@ import {
   ChannelType,
   EmbedBuilder,
   type Guild,
+  type GuildMember,
   type TextChannel,
   type User
 } from "discord.js";
 import { env } from "../config/env.js";
 import { roleIdForRank } from "../config/roles.js";
-import { rankAtLeast } from "../config/ranks.js";
+import { rankAtLeast, type MainRank } from "../config/ranks.js";
+import { mainRankFromMember } from "../utils/permissions.js";
 import {
   assertNoDbError,
   supabase,
@@ -33,6 +35,8 @@ export interface ApprenticeshipDetails {
 }
 
 export const APPRENTICESHIP_INFO_HINT = "Use `/apprenticeship info` at any time to view the current pairing.";
+const MATCHING_REQUEST_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+const activeCleanups = new Map<string, Promise<number>>();
 
 export async function setApprenticeshipPreference(params: {
   guild: Guild;
@@ -56,6 +60,8 @@ export async function setApprenticeshipPreference(params: {
       discord_user_id: params.discordUserId,
       seeking: params.seeking,
       note: params.note,
+      // Only an explicit new request renews its lifetime, not notice repairs.
+      created_at: new Date().toISOString(),
       notice_channel_id: existing?.notice_channel_id ?? null,
       notice_message_id: existing?.notice_message_id ?? null,
       strongbox_channel_id: existing?.strongbox_channel_id ?? null,
@@ -118,6 +124,7 @@ export async function listApprenticeshipPreferences(): Promise<ApprenticeshipPre
 }
 
 export async function syncApprenticeshipPreferenceNotices(guild: Guild): Promise<number> {
+  await cleanupApprenticeshipRecords(guild);
   const preferences = await listApprenticeshipPreferences();
   let synchronized = 0;
   for (const preference of preferences) {
@@ -139,6 +146,131 @@ export async function syncApprenticeshipPreferenceNotices(guild: Guild): Promise
     synchronized += 1;
   }
   return synchronized;
+}
+
+export function apprenticeshipRequestExpired(createdAt: string, now = Date.now()): boolean {
+  const created = Date.parse(createdAt);
+  return Number.isFinite(created) && now - created >= MATCHING_REQUEST_LIFETIME_MS;
+}
+
+export function apprenticeshipMembershipRemovalReason(
+  ranger: Pick<RangerRow, "status"> | null,
+  rank: MainRank | null
+): string | null {
+  if (!ranger || ranger.status === "Retired") {
+    return "The member is no longer in the Ranger Corps.";
+  }
+  return rank ? null : "The member has left the server or no longer holds a Corps rank.";
+}
+
+export async function cleanupApprenticeshipRecords(guild: Guild): Promise<number> {
+  const current = activeCleanups.get(guild.id);
+  if (current) {
+    return current;
+  }
+  const cleanup = pruneApprenticeshipRecords(guild).finally(() => activeCleanups.delete(guild.id));
+  activeCleanups.set(guild.id, cleanup);
+  return cleanup;
+}
+
+async function pruneApprenticeshipRecords(guild: Guild): Promise<number> {
+  const preferences = await listApprenticeshipPreferences();
+  const { data: pairings, error } = await supabase.from("apprenticeships").select("*")
+    .in("status", ["Proposed", "Pending Marshal", "Active"]);
+  assertNoDbError(error, "list apprenticeship records for cleanup");
+  const now = Date.now();
+  const members = new Map<string, { ranger: RangerRow | null; rank: MainRank | null; present: boolean }>();
+  const membership = async (id: string) => {
+    const cached = members.get(id);
+    if (cached) {
+      return cached;
+    }
+    const ranger = await getRanger(id);
+    let member: GuildMember | null = null;
+    if (ranger?.status !== "Retired") {
+      try {
+        member = await guild.members.fetch({ user: id, force: true });
+      } catch (fetchError) {
+        // A network or permission failure must not retire a valid member.
+        if (!(typeof fetchError === "object" && fetchError !== null && "code" in fetchError && fetchError.code === 10007)) {
+          throw fetchError;
+        }
+      }
+    }
+    const result = { ranger, rank: member ? mainRankFromMember(member) : null, present: member !== null };
+    members.set(id, result);
+    return result;
+  };
+  let removed = 0;
+  for (const preference of preferences) {
+    let reason = apprenticeshipRequestExpired(preference.created_at, now)
+      ? "This matching request expired after 30 days. Use `/apprenticeship looking-for` to post a fresh notice."
+      : null;
+    if (!reason) {
+      const { ranger, rank } = await membership(preference.discord_user_id);
+      reason = apprenticeshipMembershipRemovalReason(ranger, rank);
+      if (!reason && ranger && rank && (ranger.status === "Inactive" ||
+        (preference.seeking === "Mentor" ? rank !== "Apprentice" : !rankAtLeast(rank, "Ranger")))) {
+        reason = "The member is no longer eligible for this matching request.";
+      }
+    }
+    if (!reason) {
+      continue;
+    }
+    const { data: deleted, error: deleteError } = await supabase.from("apprenticeship_preferences").delete()
+      .eq("discord_user_id", preference.discord_user_id).eq("created_at", preference.created_at)
+      .eq("updated_at", preference.updated_at).select("*");
+    assertNoDbError(deleteError, "remove stale apprenticeship request");
+    if (deleted?.length) {
+      await deletePreferenceNotice(guild, preference);
+      await updatePreferenceThread(guild, preference, reason);
+      removed += 1;
+    }
+  }
+  for (const pairing of pairings ?? []) {
+    const mentor = await membership(pairing.mentor_discord_user_id);
+    const apprentice = await membership(pairing.apprentice_discord_user_id);
+    // A sponsored recruit awaiting Marshal review legitimately has no Corps rank yet.
+    const apprenticeReason = pairing.status === "Pending Marshal" && !apprentice.ranger && apprentice.present
+      ? null : apprenticeshipMembershipRemovalReason(apprentice.ranger, apprentice.rank);
+    const reason = apprenticeshipMembershipRemovalReason(mentor.ranger, mentor.rank)
+      ?? apprenticeReason
+      ?? (pairing.status !== "Active" && apprenticeshipRequestExpired(pairing.created_at, now)
+        ? "The pending apprenticeship expired after 30 days." : null);
+    if (!reason) {
+      continue;
+    }
+    const { data: ended, error: endError } = await supabase.from("apprenticeships").update({
+      status: "Ended", ended_at: new Date(now).toISOString(), end_reason: reason
+    }).eq("id", pairing.id).eq("status", pairing.status).eq("updated_at", pairing.updated_at).select("*");
+    assertNoDbError(endError, "close stale apprenticeship");
+    if (!ended?.length) {
+      continue;
+    }
+    removed += 1;
+    if (pairing.strongbox_channel_id && pairing.strongbox_message_id) {
+      const channel = await guild.channels.fetch(pairing.strongbox_channel_id).catch(() => null);
+      if (channel?.type === ChannelType.GuildText) {
+        const message = await channel.messages.fetch(pairing.strongbox_message_id).catch(() => null);
+        await message?.edit({
+          embeds: [emojiEmbed(guild, "teamwork", "Apprenticeship Closed").setDescription(reason)
+            .addFields(
+              { name: "Mentor", value: `<@${pairing.mentor_discord_user_id}>`, inline: true },
+              { name: "Apprentice", value: `<@${pairing.apprentice_discord_user_id}>`, inline: true },
+              { name: "Status", value: "Ended", inline: true }
+            ).setColor(0x747f8d)],
+          components: []
+        }).catch((noticeError) => console.warn("Could not update closed apprenticeship notice:", noticeError));
+      }
+    }
+    if (pairing.strongbox_thread_id) {
+      const thread = await guild.channels.fetch(pairing.strongbox_thread_id).catch(() => null);
+      if (thread?.isThread()) {
+        await thread.send(reason).catch(() => undefined);
+      }
+    }
+  }
+  return removed;
 }
 
 export async function proposeApprenticeship(params: {
@@ -690,8 +822,8 @@ async function publishApprenticeshipPreference(
         { name: "Current rank", value: ranger.current_rank, inline: true }
       )
       .setColor(0x587c4a)
-      .setFooter({ text: "Contact this member if interested. The notice is removed when withdrawn or paired." })
-      .setTimestamp(new Date(preference.updated_at))]
+      .setFooter({ text: "Notices last 30 days. Use /apprenticeship looking-for again to renew yours." })
+      .setTimestamp(new Date(preference.created_at))]
   };
 
   let message = preference.notice_channel_id === channel.id && preference.notice_message_id

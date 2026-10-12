@@ -7,6 +7,7 @@ import { UserFacingError } from "../utils/errors.js";
 import { getMemberMainRank, hasGuestOnly, syncCumulativeMainRanks } from "./discordRoleService.js";
 import { appendPromotionToHonorsLedger } from "./honorsLedgerService.js";
 import { queueBriefingDispatch } from "./briefingService.js";
+import { synchronizeSeniorRangerRole } from "./seniorRangerService.js";
 
 export async function getRangerByDiscordId(discordUserId: string): Promise<RangerRow | null> {
   const { data, error } = await supabase
@@ -73,6 +74,11 @@ export async function syncMemberToRoster(member: GuildMember, createdByDiscordUs
 
   assertNoDbError(error, "sync member to roster");
   await syncCumulativeMainRanks(member, mainRank);
+  if (data) {
+    await synchronizeSeniorRangerRole(member, data).catch((error) => {
+      console.warn(`Could not synchronize Senior Ranger recognition for ${member.id}:`, error);
+    });
+  }
   return data;
 }
 
@@ -143,6 +149,9 @@ export async function promoteRanger(params: {
 
   assertNoDbError(historyError, "write rank history");
   await syncCumulativeMainRanks(params.member, params.targetRank);
+  await synchronizeSeniorRangerRole(params.member, data).catch((error) => {
+    console.warn(`Could not synchronize Senior Ranger recognition for ${params.member.id}:`, error);
+  });
   await appendPromotionToHonorsLedger({
     guild: params.member.guild,
     ranger: data,

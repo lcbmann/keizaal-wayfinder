@@ -55,6 +55,7 @@ import { ASSIGNMENT_BUTTON_PREFIX, handleAssignmentModal, isAssignmentModal } fr
 import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs/syncMemberRoster.js";
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startApprenticeshipCleanupJob } from "./jobs/expireApprenticeshipRequests.js";
+import { startSeniorRangerJob } from "./services/seniorRangerService.js";
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
 import { startAtlasTrailmarkDropPollingJob } from "./jobs/pollAtlasTrailmarkDrops.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
@@ -180,6 +181,7 @@ client.once("ready", (readyClient) => {
   const corpsGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
   if (corpsGuild) {
     startApprenticeshipCleanupJob(corpsGuild);
+    startSeniorRangerJob(corpsGuild);
     startAtlasDiscordPresenceJob(corpsGuild);
     void setupMedals(corpsGuild, "system")
       .then(async ({ medals, mentors, apprentices }) => {

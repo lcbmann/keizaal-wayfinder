@@ -6,7 +6,7 @@ Keizaal Wayfinder is a TypeScript Discord bot for the Ranger Corps of Skyrim, an
 
 - Slash commands for roster management, Trailmarks, promotion votes, exports, recruitment, and health checks.
 - Discord role sync for cumulative Ranger rank roles.
-- Senior Ranger is preserved as a separate recognition role and is not treated as a main rank.
+- Senior Ranger is automatically granted to current full Rangers after 90 days in the Corps. It remains a separate recognition role, rather than a main rank.
 - Private Trailmark channels with temporary access and optional standardized report forms.
 - Ranger-only promotion posts with voting buttons, discussion threads, and manual approval or denial.
 - Database-backed Corps duties and leadership applications with routed review threads and Discord role sync.
@@ -99,6 +99,7 @@ The bot role must be above all Ranger rank roles it manages:
 - Ranger Marshal
 - Ranger
 - Apprentice
+- Senior Ranger
 
 It does not remove Senior Ranger, career roles, Guest, or unrelated roles.
 
@@ -505,7 +506,7 @@ The centralized rank config lives in `src/config/ranks.ts`. Main rank roles are:
 4. Ranger
 5. Apprentice
 
-Rank roles are cumulative. A Ranger keeps Apprentice; a Ranger Marshal keeps Ranger and Apprentice; Captains and Commanders keep every main rank below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger is allowed to stack with normal rank roles.
+Rank roles are cumulative. A Ranger keeps Apprentice; a Ranger Marshal keeps Ranger and Apprentice; Captains and Commanders keep every main rank below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger stacks with normal rank roles and is automatically granted to Active or On Leave members of Ranger rank or higher after 90 days since Corps entry, using the same timestamp and fallback as Long Watch Silver. Startup backfills eligible members, a daily job grants new recognition, and promotion/member synchronization checks eligibility immediately. Retired and Inactive members receive no new grants; previously earned Senior Ranger recognition is preserved. Wayfinder uses the existing `ROLE_SENIOR_RANGER_ID` role and must be above it in the role hierarchy.
 
 Discord onboarding remains the entry point. If onboarding gives a user the Apprentice role, the bot adds or updates their roster entry as an Apprentice and tries to DM the nickname reminder. Guest-only users are skipped.
 

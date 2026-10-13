@@ -12,6 +12,7 @@ export const RANKS = {
   "Ranger Captain": {
     sort: 2,
     envRoleKey: "ROLE_RANGER_CAPTAIN_ID",
+    canManageAll: true,
     canSeeAllTrailmarks: true,
     canApprovePromotions: true,
     canOpenPromotionVotes: true,

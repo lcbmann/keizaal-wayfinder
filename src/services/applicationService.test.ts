@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Collection, type GuildMember } from "discord.js";
+import { roleIdForRank } from "../config/roles.js";
+import { memberRankAtLeast } from "../utils/permissions.js";
 import type { CorpsDutyRow, DutyApplicationRow, RangerRow } from "../db/supabase.js";
 import {
   assertHoldWardenApplicationVacant,
@@ -24,12 +27,23 @@ test("application review rank scales with appointment authority", () => {
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: null })), "Ranger Marshal");
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: "hold_primary" })), "Ranger Captain");
   assert.equal(applicationReviewMinimumRank(details({ application_kind: "Marshal", warden_scope: null })), "Ranger Captain");
-  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Captain", warden_scope: null })), "Ranger Commander");
+  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Captain", warden_scope: null })), "Ranger Captain");
 });
 
 test("leadership applications use separate private channel state", () => {
   assert.equal(leadershipApplicationChannelStateKey("Marshal"), "marshal-applications-channel");
   assert.equal(leadershipApplicationChannelStateKey("Captain"), "captain-applications-channel");
+});
+
+test("Captains can review both leadership application types while Marshals cannot", () => {
+  for (const application_kind of ["Captain", "Marshal"] as const) {
+    const minimum = applicationReviewMinimumRank(details({ application_kind, warden_scope: null }));
+    for (const rank of ["Ranger Captain", "Ranger Commander", "Ranger Marshal"] as const) {
+      const roleId = roleIdForRank(rank);
+      const member = { roles: { cache: new Collection([[roleId, { id: roleId }]]) } } as unknown as GuildMember;
+      assert.equal(memberRankAtLeast(member, minimum), rank !== "Ranger Marshal");
+    }
+  }
 });
 
 test("Hold Warden applications reject Holds with an active appointment", () => {

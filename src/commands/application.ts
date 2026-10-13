@@ -9,7 +9,7 @@ import {
 import { corpsApplicationModal } from "../services/applicationFormService.js";
 import { getRangerByDiscordId } from "../services/rangerService.js";
 import { UserFacingError } from "../utils/errors.js";
-import { canOpenPromotionVotes, memberRankAtLeast } from "../utils/permissions.js";
+import { canManageAll, canOpenPromotionVotes, memberRankAtLeast } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
 
 export const applicationCommand: BotCommand = {
@@ -37,7 +37,7 @@ export const applicationCommand: BotCommand = {
       .setDescription("Marshal+: list pending Corps applications you can review."))
     .addSubcommand((subcommand) => subcommand
       .setName("setup")
-      .setDescription("Commander: configure private leadership application review channels.")
+      .setDescription("Captain+: configure private leadership application review channels.")
       .addChannelOption((option) => option
         .setName("marshal_channel")
         .setDescription("Private Marshal+ channel for reviewing Marshal applications.")
@@ -110,8 +110,8 @@ export const applicationCommand: BotCommand = {
       return;
     }
 
-    if (!memberRankAtLeast(actor, "Ranger Commander")) {
-      throw new UserFacingError("Ranger Commander is required to configure leadership application channels.");
+    if (!canManageAll(actor)) {
+      throw new UserFacingError("Ranger Captain or higher is required to configure leadership application channels.");
     }
     const marshalChannel = interaction.options.getChannel("marshal_channel", true);
     const captainChannel = interaction.options.getChannel("captain_channel", true);
@@ -121,13 +121,13 @@ export const applicationCommand: BotCommand = {
     if (marshalChannel.id === captainChannel.id) {
       throw new UserFacingError("Marshal and Captain applications require separate private channels.");
     }
+    await interaction.deferReply({ ephemeral: true });
     await configureApplicationChannels({
       marshalChannel: marshalChannel as TextChannel,
       captainChannel: captainChannel as TextChannel
     });
-    await interaction.reply({
+    await interaction.editReply({
       content: `Marshal applications will be reviewed in ${marshalChannel}; Captain applications will be reviewed in ${captainChannel}. Approved applications will move to the configured Ranger promotion channel for a Ranger-wide vote.`,
-      ephemeral: true
     });
   }
 };

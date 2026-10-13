@@ -86,10 +86,8 @@ export function applicationMinimumRank(target: ApplicationTarget): MainRank {
 }
 
 export function applicationReviewMinimumRank(details: CorpsApplicationDetails): MainRank {
-  if (details.application.application_kind === "Captain") {
-    return "Ranger Commander";
-  }
-  if (details.application.application_kind === "Marshal" || details.application.warden_scope === "hold_primary") {
+  if (details.application.application_kind === "Captain" || details.application.application_kind === "Marshal"
+    || details.application.warden_scope === "hold_primary") {
     return "Ranger Captain";
   }
   return "Ranger Marshal";
@@ -587,7 +585,7 @@ async function postLeadershipApplicationReview(guild: Guild, details: CorpsAppli
   const stateKey = leadershipApplicationChannelStateKey(details.application.application_kind);
   const channel = await getStoredTextChannel(guild, stateKey);
   if (!channel) {
-    throw new UserFacingError(`The ${details.application.application_kind} application channel is not configured. A Commander should run \`/application setup\`.`);
+    throw new UserFacingError(`The ${details.application.application_kind} application channel is not configured. A Captain should run \`/application setup\`.`);
   }
   const message = await channel.send({
     embeds: [corpsApplicationEmbed(guild, details)],

@@ -221,7 +221,7 @@ export async function getRunecloakSettings(guildId: string): Promise<RunecloakSe
 export async function requireRunecloakSettings(guildId: string): Promise<RunecloakSettingsRow> {
   const settings = await getRunecloakSettings(guildId);
   if (!settings) {
-    throw new UserFacingError("The Runecloak desk has not been set up yet. The Commander must run `/runecloak setup` first.");
+    throw new UserFacingError("The Runecloak desk has not been set up yet. A Captain must run `/runecloak setup` first.");
   }
   return settings;
 }
@@ -1507,12 +1507,6 @@ export async function recordRunecloakAudit(input: {
 export function assertRunecloakCaptain(member: GuildMember): void {
   if (!memberRankAtLeast(member, "Ranger Captain")) {
     throw new UserFacingError("Ranger Captain or higher is required for that Runecloak decision.");
-  }
-}
-
-export function assertRunecloakCommander(member: GuildMember): void {
-  if (!memberRankAtLeast(member, "Ranger Commander")) {
-    throw new UserFacingError("Ranger Commander is required to configure the Runecloak system.");
   }
 }
 

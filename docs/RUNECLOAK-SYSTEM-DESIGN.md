@@ -126,9 +126,9 @@ All three roles should be non-hoisted. None should grant Ranger rank permissions
 | Lock a roster or change cycle state | No | No | No | Yes | Yes |
 | Authorize Runecloak Marshals | No | No | No | Yes | Yes |
 | Record Moonshadow confirmation | No | No | No | Yes | Yes |
-| Reopen a finalized record | No | No | No | No | Yes |
+| Reopen a finalized record | No | No | No | Yes | Yes |
 | Export the complete audit | No | No | Yes | Yes | Yes |
-| Configure the system | No | No | No | No | Yes |
+| Configure the system | No | No | No | Yes | Yes |
 
 An `Authorized Marshal` is an active Ranger Marshal specifically appointed in the Runecloak system. Rank alone does not silently add them to this subset. Captains and the Commander retain oversight without needing a separate authorization row.
 
@@ -437,7 +437,7 @@ Keep the member-facing slash command small:
 | `/runecloak record` | Shows the caller's private record |
 | `/runecloak manage` | Shows an ephemeral staff operating summary |
 | `/runecloak audit` | Authorized staff read-only log and export |
-| `/runecloak setup` | Commander-only channel and role configuration |
+| `/runecloak setup` | Captain+ channel and role configuration |
 
 Application and research-site decisions use buttons on their private Strongbox and expedition records. Infrequent staff operations use explicit `/runecloak program`, `/runecloak team`, `/runecloak cycle`, and `/runecloak stage` command groups so each audited transition names its required inputs at the point of use. `/runecloak manage` summarizes the current application, team, and cycle state before staff choose one of those commands.
 
@@ -510,7 +510,7 @@ Each application has one current admission site. A revision updates that propose
 - active flag;
 - external approval note.
 
-Seed only `Oakflesh` and `Lesser Ward`. Adding or activating another spell remains a Commander action after the required internal and Moonshadow decisions.
+Seed only `Oakflesh` and `Lesser Ward`. Adding or activating another spell remains a Captain+ action after the required internal and Moonshadow decisions.
 
 The Oakflesh seed should include the approved themes from the plan: natural resilience, bark/root/stone/living structure, temporary protection, maintaining it during Ranger movement, and temporary runic focuses that are not permanent enchantments. Lesser Ward should be described as limited field defense against hostile magic.
 
@@ -676,7 +676,7 @@ After validation:
 - the stage and cycle totals are recomputed transactionally;
 - the stage post and dashboard are refreshed.
 
-After Moonshadow grant confirmation, records are read-only. Only the Commander may reopen a finalized cycle, with a reason and a new audit event. Wayfinder should never silently rewrite a qualification history.
+After Moonshadow grant confirmation, records are read-only. Captain+ may reopen a finalized cycle, with a reason and a new audit event. Wayfinder should never silently rewrite a qualification history.
 
 On bot startup, a Runecloak repair pass should:
 

@@ -26,7 +26,6 @@ import {
 import {
   DEFAULT_RUNECLOAK_ROLE_ID,
   assertRunecloakCaptain,
-  assertRunecloakCommander,
   createRunecloakCycle,
   createRunecloakStage,
   getCurrentRunecloakCycle,
@@ -91,7 +90,7 @@ const command = new SlashCommandBuilder()
       .setAutocomplete(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("setup")
-    .setDescription("Commander: connect Wayfinder to the existing Runic Cloak category.")
+    .setDescription("Captain+: connect Wayfinder to the existing Runic Cloak category.")
     .addChannelOption((option) => option
       .setName("category")
       .setDescription("The existing THE RUNIC CLOAK category.")
@@ -365,7 +364,7 @@ export const runecloakCommand: BotCommand = {
       return;
     }
     if (!group && subcommand === "setup") {
-      assertRunecloakCommander(actor);
+      assertRunecloakCaptain(actor);
       const category = interaction.options.getChannel("category", true);
       const runecloakChannel = interaction.options.getChannel("runecloak", true);
       const qualificationRole = interaction.options.getRole("qualification_role", true);

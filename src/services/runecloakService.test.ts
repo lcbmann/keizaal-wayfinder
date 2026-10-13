@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ChannelType, Collection, type Guild, type GuildMember } from "discord.js";
 import { supabase } from "../db/supabase.js";
+import { roleIdForRank } from "../config/roles.js";
 import { resolveRunecloakImageUrl, runecloakAlbumCover } from "./runecloakImageService.js";
 import { listRunecloakSyncMembers, runecloakApplicationReviewRows, runecloakSitePayload, syncRunecloakApplicantAccess, upsertRunecloakSitePost } from "./runecloakDiscordService.js";
 import type { RunecloakApplicationDetails } from "./runecloakService.js";
 import {
+  assertRunecloakCaptain,
   canTransitionRunecloakApplication,
   earliestRunecloakStudySpell,
   evaluateRunecloakStage,
@@ -17,6 +19,18 @@ import {
   runecloakRegionalCooldown,
   runecloakSessionCanBeSubmitted
 } from "./runecloakService.js";
+
+test("Runecloak configuration uses the same Captain+ authority as other management decisions", () => {
+  for (const rank of ["Ranger Captain", "Ranger Commander", "Ranger Marshal"] as const) {
+    const roleId = roleIdForRank(rank);
+    const member = { roles: { cache: new Collection([[roleId, { id: roleId }]]) } } as unknown as GuildMember;
+    if (rank === "Ranger Marshal") {
+      assert.throws(() => assertRunecloakCaptain(member), /Ranger Captain or higher/);
+    } else {
+      assert.doesNotThrow(() => assertRunecloakCaptain(member));
+    }
+  }
+});
 
 test("Runecloak stage quorum rounds upward from 51 percent", () => {
   assert.equal(requiredStageAttendance(20), 11);

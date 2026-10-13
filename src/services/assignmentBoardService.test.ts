@@ -3,7 +3,7 @@ import test from "node:test";
 import { isAssignmentsBoardEmbedTitle } from "./assignmentBoardService.js";
 
 test("recognizes only assignment board embed titles for duplicate cleanup", () => {
-  assert.equal(isAssignmentsBoardEmbedTitle("<:rangercommander:123> - Leadership"), true);
+  assert.equal(isAssignmentsBoardEmbedTitle("<:firstcaptain:123> - Leadership"), true);
   assert.equal(isAssignmentsBoardEmbedTitle("<:quartermaster:123> - Quartermasters"), true);
   assert.equal(isAssignmentsBoardEmbedTitle("<:warden:123> - Hold Wardens"), true);
   assert.equal(isAssignmentsBoardEmbedTitle("<:ambassador:123> - Ambassadors"), true);

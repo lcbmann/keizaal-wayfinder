@@ -7,7 +7,7 @@ import type { BotCommand } from "./types.js";
 export const strongboxCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("strongbox")
-    .setDescription("Leave private reports for Ranger Marshal or higher.")
+    .setDescription("Leave private reports for Marshal or higher.")
     .addSubcommand((subcommand) =>
       subcommand
         .setName("drop")
@@ -15,7 +15,7 @@ export const strongboxCommand: BotCommand = {
         .addStringOption((option) =>
           option
             .setName("message")
-            .setDescription("Message for Ranger Marshal or higher.")
+            .setDescription("Message for Marshal or higher.")
             .setRequired(true)
             .setMaxLength(4000)
         )
@@ -35,7 +35,7 @@ export const strongboxCommand: BotCommand = {
     if (subcommand === "setup") {
       const actor = await interaction.guild.members.fetch(interaction.user.id);
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to set up the HQ Strongbox.");
+        throw new UserFacingError("Marshal or higher is required to set up the HQ Strongbox.");
       }
 
       await interaction.deferReply({ ephemeral: true });

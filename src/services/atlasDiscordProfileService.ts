@@ -8,9 +8,9 @@ import { slugify } from "../utils/slugs.js";
 import { listMedals } from "./medalService.js";
 
 const rankBadgeIds = {
-  "Ranger Commander": "ranger-commander",
-  "Ranger Captain": "ranger-captain",
-  "Ranger Marshal": "ranger-marshal",
+  "First Captain": "first-captain",
+  "Captain": "captain",
+  "Marshal": "marshal",
   Ranger: "ranger",
   Apprentice: "apprentice"
 } as const;
@@ -244,11 +244,11 @@ const titleRoleNames = new Set([
 
 function displayTitle(roleName: string): string {
   switch (roleName) {
-    case "Ranger Commander":
-      return "Commander";
-    case "Ranger Captain":
+    case "First Captain":
+      return "First Captain";
+    case "Captain":
       return "Captain";
-    case "Ranger Marshal":
+    case "Marshal":
       return "Marshal";
     default:
       return roleName;

@@ -186,8 +186,8 @@ function requireRanger(member: GuildMember): void {
 }
 
 function requireMarshal(member: GuildMember): void {
-  if (!memberRankAtLeast(member, "Ranger Marshal")) {
-    throw new UserFacingError("Ranger Marshal or higher is required for this Field Names command.");
+  if (!memberRankAtLeast(member, "Marshal")) {
+    throw new UserFacingError("Marshal or higher is required for this Field Names command.");
   }
 }
 

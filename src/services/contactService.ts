@@ -891,7 +891,7 @@ async function applyContactForumPermissions(forum: ForumChannel): Promise<void> 
     SendMessagesInThreads: false
   }, { reason: "Restrict Ranger contact records" });
 
-  const rankRoleNames = ["Apprentice", "Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"] as const;
+  const rankRoleNames = ["Apprentice", "Ranger", "Marshal", "Captain", "First Captain"] as const;
   for (const rank of rankRoleNames) {
     const roleId = roleIdForRank(rank);
     await forum.permissionOverwrites.edit(roleId, {

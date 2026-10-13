@@ -135,11 +135,11 @@ export async function createTrailmark(params: {
         ]
       },
       {
-        id: roleIdForRank("Ranger Commander"),
+        id: roleIdForRank("First Captain"),
         allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
       },
       {
-        id: roleIdForRank("Ranger Captain"),
+        id: roleIdForRank("Captain"),
         allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
       }
     ]

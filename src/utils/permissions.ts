@@ -9,9 +9,9 @@ export function memberHasRole(member: GuildMember, roleId: string): boolean {
 
 export function mainRankFromMember(member: GuildMember): MainRank | null {
   const ranks: MainRank[] = [
-    "Ranger Commander",
-    "Ranger Captain",
-    "Ranger Marshal",
+    "First Captain",
+    "Captain",
+    "Marshal",
     "Ranger",
     "Apprentice"
   ];
@@ -25,15 +25,15 @@ export function memberRankAtLeast(member: GuildMember, minimum: MainRank): boole
 }
 
 export function canManageAll(member: GuildMember): boolean {
-  return memberRankAtLeast(member, "Ranger Captain");
+  return memberRankAtLeast(member, "Captain");
 }
 
 export function canOpenPromotionVotes(member: GuildMember): boolean {
-  return memberRankAtLeast(member, "Ranger Marshal");
+  return memberRankAtLeast(member, "Marshal");
 }
 
 export function canApprovePromotions(member: GuildMember): boolean {
-  return memberRankAtLeast(member, "Ranger Captain");
+  return memberRankAtLeast(member, "Captain");
 }
 
 export function canUseTrailmarks(member: GuildMember): boolean {
@@ -41,7 +41,7 @@ export function canUseTrailmarks(member: GuildMember): boolean {
 }
 
 export function canCreateTrailmarks(member: GuildMember): boolean {
-  return memberRankAtLeast(member, "Ranger Marshal");
+  return memberRankAtLeast(member, "Marshal");
 }
 
 export function hasSeniorRanger(member: GuildMember): boolean {

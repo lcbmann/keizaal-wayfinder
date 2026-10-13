@@ -142,8 +142,8 @@ export async function handleBriefingDispatchModal(interaction: ModalSubmitIntera
     throw new UserFacingError("Briefing dispatches are only available in the Ranger Corps server.");
   }
   const actor = await interaction.guild.members.fetch(interaction.user.id);
-  if (!memberRankAtLeast(actor, "Ranger Marshal")) {
-    throw new UserFacingError("Ranger Marshal or higher is required to file briefing dispatches.");
+  if (!memberRankAtLeast(actor, "Marshal")) {
+    throw new UserFacingError("Marshal or higher is required to file briefing dispatches.");
   }
 
   const parsed = parseDispatchModalId(interaction.customId);
@@ -297,8 +297,8 @@ export function briefingAudienceIncludes(
     everyone: "Apprentice",
     apprentice_plus: "Apprentice",
     ranger_plus: "Ranger",
-    marshal_plus: "Ranger Marshal",
-    captain_plus: "Ranger Captain"
+    marshal_plus: "Marshal",
+    captain_plus: "Captain"
   };
   return rankAtLeast(rank, minimum[audience]);
 }
@@ -331,9 +331,9 @@ function briefingAudienceLabel(audience: BriefingAudience, targetDiscordUserId: 
     case "ranger_plus":
       return "Ranger or higher";
     case "marshal_plus":
-      return "Ranger Marshal or higher";
+      return "Marshal or higher";
     case "captain_plus":
-      return "Ranger Captain or higher";
+      return "Captain or higher";
     case "individual":
       return targetDiscordUserId ? `<@${targetDiscordUserId}>` : "one Corps member";
   }

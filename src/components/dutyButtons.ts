@@ -19,7 +19,7 @@ export async function handleDutyButton(interaction: ButtonInteraction): Promise<
 
   const actor = await interaction.guild.members.fetch(interaction.user.id);
   if (!canOpenPromotionVotes(actor)) {
-    throw new UserFacingError("Ranger Marshal or higher is required to review duty applications.");
+    throw new UserFacingError("Marshal or higher is required to review duty applications.");
   }
 
   await interaction.deferReply({ ephemeral: true });

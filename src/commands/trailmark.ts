@@ -171,7 +171,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "panel") {
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to post the panel.");
+        throw new UserFacingError("Marshal or higher is required to post the panel.");
       }
 
       const channel = await interaction.guild.channels.fetch(env.TRAILMARK_ACCESS_CHANNEL_ID);
@@ -216,7 +216,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "create") {
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to create Trailmarks.");
+        throw new UserFacingError("Marshal or higher is required to create Trailmarks.");
       }
 
       const trailmark = await createTrailmark({
@@ -238,7 +238,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "edit") {
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to edit Trailmarks.");
+        throw new UserFacingError("Marshal or higher is required to edit Trailmarks.");
       }
 
       const name = optionalTrimmedString(interaction.options.getString("name"));
@@ -311,7 +311,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "deactivate") {
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to deactivate Trailmarks.");
+        throw new UserFacingError("Marshal or higher is required to deactivate Trailmarks.");
       }
 
       const trailmark = await deactivateTrailmark(interaction.options.getString("trailmark", true), interaction.guild);
@@ -321,7 +321,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "set-atlas") {
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to edit Trailmarks.");
+        throw new UserFacingError("Marshal or higher is required to edit Trailmarks.");
       }
 
       const atlasLocationId = interaction.options.getString("atlas_location_id", true);
@@ -342,7 +342,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "clear-atlas") {
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to edit Trailmarks.");
+        throw new UserFacingError("Marshal or higher is required to edit Trailmarks.");
       }
 
       const trailmark = await updateTrailmarkAtlasLocation(interaction.options.getString("trailmark", true), null);
@@ -354,7 +354,7 @@ export const trailmarkCommand: BotCommand = {
 
     if (subcommand === "sessions") {
       if (!canCreateTrailmarks(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to view Trailmark sessions.");
+        throw new UserFacingError("Marshal or higher is required to view Trailmark sessions.");
       }
 
       const sessions = await listActiveTrailmarkSessions();

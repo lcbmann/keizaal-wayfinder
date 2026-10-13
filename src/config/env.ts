@@ -18,9 +18,9 @@ const envSchema = z.object({
   TRAILMARK_CATEGORY_ID: z.string().min(1),
   TRAILMARK_ACCESS_CHANNEL_ID: z.string().min(1),
 
-  ROLE_RANGER_COMMANDER_ID: z.string().min(1),
-  ROLE_RANGER_CAPTAIN_ID: z.string().min(1),
-  ROLE_RANGER_MARSHAL_ID: z.string().min(1),
+  ROLE_FIRST_CAPTAIN_ID: z.string().min(1),
+  ROLE_CAPTAIN_ID: z.string().min(1),
+  ROLE_MARSHAL_ID: z.string().min(1),
   ROLE_RANGER_ID: z.string().min(1),
   ROLE_APPRENTICE_ID: z.string().min(1),
   ROLE_SENIOR_RANGER_ID: z.string().min(1),
@@ -58,7 +58,13 @@ const envSchema = z.object({
   RANGER_ALLIANCE_PRIVATE_MARKER: z.string().trim().min(1).default("[CORPS ONLY]")
 });
 
-const parsed = envSchema.safeParse(process.env);
+// Keep older deployment environments working while using the new rank names.
+const parsed = envSchema.safeParse({
+  ...process.env,
+  ROLE_FIRST_CAPTAIN_ID: process.env.ROLE_FIRST_CAPTAIN_ID || process.env.ROLE_RANGER_COMMANDER_ID,
+  ROLE_CAPTAIN_ID: process.env.ROLE_CAPTAIN_ID || process.env.ROLE_RANGER_CAPTAIN_ID,
+  ROLE_MARSHAL_ID: process.env.ROLE_MARSHAL_ID || process.env.ROLE_RANGER_MARSHAL_ID
+});
 
 if (!parsed.success) {
   const details = parsed.error.issues

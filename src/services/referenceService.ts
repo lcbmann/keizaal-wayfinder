@@ -11,7 +11,7 @@ export const REFERENCE_CONFIDENTIALITIES = ["marshal_plus", "captain_plus", "age
 export const REFERENCE_CONTEXTS = ["ic", "ooc", "mixed", "unspecified"] as const;
 
 export function requireReferencePermission(member: GuildMember, confidentiality = "marshal_plus"): void {
-  if (member.guild.id !== env.DISCORD_GUILD_ID || !memberRankAtLeast(member, "Ranger Marshal") || (confidentiality === "captain_plus" && !canManageAll(member))) {
+  if (member.guild.id !== env.DISCORD_GUILD_ID || !memberRankAtLeast(member, "Marshal") || (confidentiality === "captain_plus" && !canManageAll(member))) {
     throw new UserFacingError("A Corps Marshal is required to archive references; Captain-only records require Captain+. ");
   }
 }

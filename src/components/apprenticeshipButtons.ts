@@ -60,7 +60,7 @@ async function handleReview(interaction: ButtonInteraction, apprenticeshipId: st
   }
   const actor = await interaction.guild.members.fetch(interaction.user.id);
   if (!canOpenPromotionVotes(actor)) {
-    throw new UserFacingError("Ranger Marshal or higher is required to review apprentice sponsorships.");
+    throw new UserFacingError("Marshal or higher is required to review apprentice sponsorships.");
   }
 
   await interaction.deferReply({ ephemeral: true });

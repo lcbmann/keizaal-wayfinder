@@ -9,7 +9,7 @@ import { dropStrongboxMessage } from "./strongboxService.js";
 import { referenceModal, referenceTimestamp, referenceUrl, requireReferencePermission, handleReferenceModal } from "./referenceService.js";
 import { referenceCommand } from "../commands/reference.js";
 
-function member(rank: "Ranger" | "Ranger Marshal" | "Ranger Captain", guildId = env.DISCORD_GUILD_ID) {
+function member(rank: "Ranger" | "Marshal" | "Captain", guildId = env.DISCORD_GUILD_ID) {
   return { id: "officer", displayName: "Test Ranger", guild: { id: guildId }, roles: { cache: new Collection([[roleIdForRank(rank), {}]]) } } as unknown as GuildMember;
 }
 
@@ -78,10 +78,10 @@ test("Strongbox archives before sending and retains the message checkpoint when 
 
 test("reference access rejects Rangers, other guilds and Marshals reading Captain-only evidence", () => {
   assert.throws(() => requireReferencePermission(member("Ranger")));
-  assert.throws(() => requireReferencePermission(member("Ranger Marshal", "other-guild")));
-  assert.throws(() => requireReferencePermission(member("Ranger Marshal"), "captain_plus"));
-  assert.doesNotThrow(() => requireReferencePermission(member("Ranger Marshal")));
-  assert.doesNotThrow(() => requireReferencePermission(member("Ranger Captain"), "captain_plus"));
+  assert.throws(() => requireReferencePermission(member("Marshal", "other-guild")));
+  assert.throws(() => requireReferencePermission(member("Marshal"), "captain_plus"));
+  assert.doesNotThrow(() => requireReferencePermission(member("Marshal")));
+  assert.doesNotThrow(() => requireReferencePermission(member("Captain"), "captain_plus"));
 });
 
 test("reference dates require a real timezone-qualified timestamp and unknown dates stay unknown", () => {
@@ -113,7 +113,7 @@ test("reference submission preserves verbatim text and rejects a different draft
     };
     return query;
   });
-  const officer = member("Ranger Marshal");
+  const officer = member("Marshal");
   const interaction = {
     inCachedGuild: () => true, deferReply: async () => {}, editReply: async () => {},
     guild: { members: { fetch: async () => officer } }, user: { id: officer.id },

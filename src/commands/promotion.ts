@@ -142,7 +142,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "setup") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required.");
+        throw new UserFacingError("Marshal or higher is required.");
       }
       const channel = interaction.options.getChannel("channel", true);
       if (channel.type !== ChannelType.GuildText) {
@@ -163,7 +163,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "status") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required.");
+        throw new UserFacingError("Marshal or higher is required.");
       }
 
       const candidate = interaction.options.getUser("candidate", true);
@@ -184,7 +184,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "eligible") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required.");
+        throw new UserFacingError("Marshal or higher is required.");
       }
 
       const candidates = await listApprenticePromotionEligibility();
@@ -202,7 +202,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "open") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required.");
+        throw new UserFacingError("Marshal or higher is required.");
       }
 
       const user = interaction.options.getUser("candidate", true);
@@ -215,7 +215,7 @@ export const promotionCommand: BotCommand = {
       if (!isMainRank(rankValue)) {
         throw new UserFacingError("Invalid target rank.");
       }
-      if (rankValue === "Ranger Marshal" || rankValue === "Ranger Captain") {
+      if (rankValue === "Marshal" || rankValue === "Captain") {
         throw new UserFacingError("Marshal and Captain votes are opened after their `/application apply` submission is approved by the relevant leadership reviewers.");
       }
 
@@ -240,7 +240,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "close") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required.");
+        throw new UserFacingError("Marshal or higher is required.");
       }
 
       const voteId = interaction.options.getString("vote", true);
@@ -257,7 +257,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "approve") {
       if (!canApprovePromotions(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required.");
+        throw new UserFacingError("Captain or higher is required.");
       }
 
       const result = await approvePromotionVote({
@@ -287,7 +287,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "deny") {
       if (!canApprovePromotions(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required.");
+        throw new UserFacingError("Captain or higher is required.");
       }
 
       const voteId = interaction.options.getString("vote", true);
@@ -303,7 +303,7 @@ export const promotionCommand: BotCommand = {
 
     if (subcommand === "ballots") {
       if (!canApprovePromotions(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to view promotion ballots.");
+        throw new UserFacingError("Captain or higher is required to view promotion ballots.");
       }
 
       const voteId = interaction.options.getString("vote", true);

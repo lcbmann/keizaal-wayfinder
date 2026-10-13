@@ -227,7 +227,7 @@ async function enforcePromotionChannelPermissions(guild: Guild, channel: TextCha
     ViewChannel: false,
     ReadMessageHistory: false
   }, { reason: "Restrict Ranger promotion votes" });
-  for (const rank of ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"] as const) {
+  for (const rank of ["Ranger", "Marshal", "Captain", "First Captain"] as const) {
     await channel.permissionOverwrites.edit(roleIdForRank(rank), {
       ViewChannel: true,
       ReadMessageHistory: true,
@@ -648,13 +648,13 @@ async function resolveSupersededPromotionVote(guild: Guild, vote: PromotionVoteR
 }
 
 export function minimumVoterRankForTarget(targetRank: MainRank): MainRank {
-  if (targetRank === "Ranger" || targetRank === "Ranger Marshal" || targetRank === "Ranger Captain") {
+  if (targetRank === "Ranger" || targetRank === "Marshal" || targetRank === "Captain") {
     return "Ranger";
   }
-  if (targetRank === "Ranger Commander") {
-    return "Ranger Captain";
+  if (targetRank === "First Captain") {
+    return "Captain";
   }
-  return "Ranger Marshal";
+  return "Marshal";
 }
 
 function canVoteOnTarget(voterRank: MainRank, targetRank: MainRank): boolean {

@@ -75,8 +75,8 @@ export const briefingCommand: BotCommand = {
       return;
     }
 
-    if (!memberRankAtLeast(actor, "Ranger Marshal")) {
-      throw new UserFacingError("Ranger Marshal or higher is required to manage the Dispatch Desk.");
+    if (!memberRankAtLeast(actor, "Marshal")) {
+      throw new UserFacingError("Marshal or higher is required to manage the Dispatch Desk.");
     }
 
     if (subcommand === "setup") {

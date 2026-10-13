@@ -112,7 +112,7 @@ All three roles should be non-hoisted. None should grant Ranger rank permissions
 
 ### Authorization matrix
 
-| Action | Full Ranger | Organizer | Authorized Marshal | Captain+ | Commander |
+| Action | Full Ranger | Organizer | Authorized Marshal | Captain+ | First Captain |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Apply and submit own survey | Yes | Yes | Yes | Yes | Yes |
 | View desk, sites, and aggregate progress | Yes | Yes | Yes | Yes | Yes |
@@ -130,7 +130,7 @@ All three roles should be non-hoisted. None should grant Ranger rank permissions
 | Export the complete audit | No | No | Yes | Yes | Yes |
 | Configure the system | No | No | No | Yes | Yes |
 
-An `Authorized Marshal` is an active Ranger Marshal specifically appointed in the Runecloak system. Rank alone does not silently add them to this subset. Captains and the Commander retain oversight without needing a separate authorization row.
+An `Authorized Marshal` is an active Marshal specifically appointed in the Runecloak system. Rank alone does not silently add them to this subset. Captains and the First Captain retain oversight without needing a separate authorization row.
 
 Organizer appointments are also stored and audited rather than inferred only from a Discord role. Wayfinder should warn when the active organizing group is outside the proposed range of five to ten members, but not hard-block it because the plan describes that size as approximate.
 

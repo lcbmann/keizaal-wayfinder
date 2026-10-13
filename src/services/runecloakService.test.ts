@@ -21,11 +21,11 @@ import {
 } from "./runecloakService.js";
 
 test("Runecloak configuration uses the same Captain+ authority as other management decisions", () => {
-  for (const rank of ["Ranger Captain", "Ranger Commander", "Ranger Marshal"] as const) {
+  for (const rank of ["Captain", "First Captain", "Marshal"] as const) {
     const roleId = roleIdForRank(rank);
     const member = { roles: { cache: new Collection([[roleId, { id: roleId }]]) } } as unknown as GuildMember;
-    if (rank === "Ranger Marshal") {
-      assert.throws(() => assertRunecloakCaptain(member), /Ranger Captain or higher/);
+    if (rank === "Marshal") {
+      assert.throws(() => assertRunecloakCaptain(member), /Captain or higher/);
     } else {
       assert.doesNotThrow(() => assertRunecloakCaptain(member));
     }

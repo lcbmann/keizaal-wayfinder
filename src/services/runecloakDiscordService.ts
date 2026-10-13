@@ -884,7 +884,7 @@ export async function reconcileRunecloakRoles(guild: Guild): Promise<{ added: nu
   assertNoDbError(membershipsResult.error, "load active Runecloak memberships for role sync");
   const discordByRanger = new Map((rangersResult.data ?? []).map((ranger) => [ranger.id, ranger.discord_user_id]));
   const eligibleRangerIds = new Set((rangersResult.data ?? [])
-    .filter((ranger) => ranger.status === "Active" && ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"].includes(ranger.current_rank))
+    .filter((ranger) => ranger.status === "Active" && ["Ranger", "Marshal", "Captain", "First Captain"].includes(ranger.current_rank))
     .map(({ id }) => id));
   const qualified = new Set((qualificationsResult.data ?? [])
     .filter(({ ranger_id }) => eligibleRangerIds.has(ranger_id))
@@ -919,7 +919,7 @@ export async function reconcileRunecloakMemberRoles(member: GuildMember): Promis
   const { data: ranger, error: rangerError } = await supabase.from("rangers").select("*").eq("discord_user_id", member.id).maybeSingle();
   assertNoDbError(rangerError, "get Ranger for Runecloak role sync");
   const qualificationId = await getRunecloakQualificationId();
-  const eligibleRanger = Boolean(ranger && ranger.status === "Active" && ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"].includes(ranger.current_rank));
+  const eligibleRanger = Boolean(ranger && ranger.status === "Active" && ["Ranger", "Marshal", "Captain", "First Captain"].includes(ranger.current_rank));
   const [qualificationResult, teamResult, membershipResult] = await Promise.all([
     ranger
       ? supabase.from("ranger_qualifications").select("id").eq("qualification_id", qualificationId).eq("ranger_id", ranger.id).is("revoked_at", null).maybeSingle()
@@ -1477,7 +1477,7 @@ async function configureRunecloakChannelPermissions(input: {
 }): Promise<void> {
   const guild = input.deskChannel.guild;
   const botId = guild.client.user.id;
-  const captainRoleId = roleIdForRank("Ranger Captain");
+  const captainRoleId = roleIdForRank("Captain");
   await Promise.all([
     input.deskChannel.permissionOverwrites.set([
       { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },

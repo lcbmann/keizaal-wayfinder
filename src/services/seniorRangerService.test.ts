@@ -23,7 +23,7 @@ test("Senior Ranger uses the exact 90-day Long Watch threshold", () => {
 
 test("Apprentices cannot receive Senior Ranger, while full Rangers and leadership can", () => {
   assert.equal(eligibleForSeniorRanger({ ...ranger, current_rank: "Apprentice" }, ninetyDays), false);
-  for (const current_rank of ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"] as const) {
+  for (const current_rank of ["Ranger", "Marshal", "Captain", "First Captain"] as const) {
     assert.equal(eligibleForSeniorRanger({ ...ranger, current_rank }, ninetyDays), true);
   }
 });
@@ -60,11 +60,11 @@ function memberFixture(id: string, rank: MainRank | null, hasSenior = false) {
 }
 
 test("eligible members receive the recognition once without changing their main rank", async () => {
-  const { member, added } = memberFixture("ranger", "Ranger Captain");
-  assert.equal(await synchronizeSeniorRangerRole(member, { ...ranger, current_rank: "Ranger Captain" }), true);
+  const { member, added } = memberFixture("ranger", "Captain");
+  assert.equal(await synchronizeSeniorRangerRole(member, { ...ranger, current_rank: "Captain" }), true);
   assert.equal(await synchronizeSeniorRangerRole(member, ranger), false);
   assert.deepEqual(added, [env.ROLE_SENIOR_RANGER_ID]);
-  assert.equal(member.roles.cache.has(roleIdForRank("Ranger Captain")), true);
+  assert.equal(member.roles.cache.has(roleIdForRank("Captain")), true);
 });
 
 test("a stale roster cannot grant recognition to someone who no longer has a full Ranger role", async () => {

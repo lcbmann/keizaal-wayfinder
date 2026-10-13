@@ -159,7 +159,7 @@ export async function promoteRanger(params: {
   }).catch((error) => {
     console.warn(`Could not append promotion for ${data.discord_user_id} to the honors ledger:`, error);
   });
-  if (rankAtLeast(params.targetRank, "Ranger Marshal")) {
+  if (rankAtLeast(params.targetRank, "Marshal")) {
     const promotedName = data.discord_display_name ?? data.in_game_name ?? data.discord_username ?? "A Ranger";
     await queueBriefingDispatch({
       guildId: params.member.guild.id,
@@ -444,7 +444,7 @@ export async function dmNewApprentice(member: GuildMember): Promise<void> {
 
   try {
     await member.send(
-      "Welcome to the Ranger Corps. Please set your server nickname to your in-game character name so the roster stays accurate. You can ask a Ranger Marshal or Captain if you need help."
+      "Welcome to the Ranger Corps. Please set your server nickname to your in-game character name so the roster stays accurate. You can ask a Marshal or Captain if you need help."
     );
   } catch (error) {
     console.warn(`Could not DM new Apprentice ${member.id}:`, error);

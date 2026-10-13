@@ -153,7 +153,7 @@ export const intelCommand: BotCommand = {
 
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     if (!canCreateTrailmarks(actor)) {
-      throw new UserFacingError("Ranger Marshal or higher is required to manage intel bulletins.");
+      throw new UserFacingError("Marshal or higher is required to manage intel bulletins.");
     }
 
     const subcommand = interaction.options.getSubcommand();

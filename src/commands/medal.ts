@@ -151,6 +151,6 @@ function requireCorpsMember(member: GuildMember): void {
 
 function requireMarshal(member: GuildMember): void {
   if (!canOpenPromotionVotes(member)) {
-    throw new UserFacingError("Ranger Marshal or higher is required to manage Corps medals.");
+    throw new UserFacingError("Marshal or higher is required to manage Corps medals.");
   }
 }

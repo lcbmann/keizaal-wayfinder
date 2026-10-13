@@ -38,14 +38,17 @@ Required:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `TRAILMARK_CATEGORY_ID`
 - `TRAILMARK_ACCESS_CHANNEL_ID`
-- `ROLE_RANGER_COMMANDER_ID`
-- `ROLE_RANGER_CAPTAIN_ID`
-- `ROLE_RANGER_MARSHAL_ID`
+- `ROLE_FIRST_CAPTAIN_ID`
+- `ROLE_CAPTAIN_ID`
+- `ROLE_MARSHAL_ID`
+
 - `ROLE_RANGER_ID`
 - `ROLE_APPRENTICE_ID`
 - `ROLE_SENIOR_RANGER_ID`
 - `GUEST_ROLE_ID`
 - all `CAREER_*_ROLE_ID` values in `.env.example`
+
+Legacy `ROLE_RANGER_COMMANDER_ID`, `ROLE_RANGER_CAPTAIN_ID`, and `ROLE_RANGER_MARSHAL_ID` environment keys are accepted as fallbacks. Keep the same Discord role IDs. On startup, Wayfinder renames those roles and their existing custom emojis without changing permissions, memberships, or artwork. Apply migration `053_rename_corps_ranks.sql` together with this version while the old bot is stopped, then redeploy slash commands. The migration preserves rank ordering and historical records and updates shared Atlas profiles and database permission checks.
 
 Optional:
 
@@ -94,9 +97,9 @@ Recommended bot permissions:
 
 The bot role must be above all Ranger rank roles it manages:
 
-- Ranger Commander
-- Ranger Captain
-- Ranger Marshal
+- First Captain
+- Captain
+- Marshal
 - Ranger
 - Apprentice
 - Senior Ranger
@@ -356,7 +359,7 @@ Use `/funds set-balance` once to seed the current fund total from old manual rec
 
 Supply assignments track multi-item collection contracts in an auto-updating Discord post. Run `src/db/migrations/011_create_supply_assignments.sql` and redeploy slash commands before first use.
 
-Ranger Marshal or higher can use `/supply create` in the text channel or assignments forum post where the board should remain. A job supports up to four item quotas, one client price per item, one Ranger payout rate per item, an organizer, and optional instructions. The board shows each quota, overall progress, contract value, expected Ranger payout, Corps margin, current amount owed, and contributor totals.
+Marshal or higher can use `/supply create` in the text channel or assignments forum post where the board should remain. A job supports up to four item quotas, one client price per item, one Ranger payout rate per item, an organizer, and optional instructions. The board shows each quota, overall progress, contract value, expected Ranger payout, Corps margin, current amount owed, and contributor totals.
 
 Apprentice or higher can use `/supply log` to record their own deliveries. One command can include up to four different item and quantity pairs. Marshal+ can select another member when recording or undoing a delivery. Assignment and item fields use autocomplete. Multi-item logs are atomic: if any entry is invalid or exceeds its remaining quota, none of the entries are recorded. Completing every quota automatically marks the assignment Completed. `/supply undo-last` corrects the latest individual item entry and reopens an automatically completed job when necessary. Marshal+ can also refresh, close, reopen, or cancel a job manually.
 
@@ -364,11 +367,11 @@ Marshal+ can use `/supply redistribute` when a character change means that earli
 
 ## Trailmarks
 
-Each Trailmark is a private text channel under `TRAILMARK_CATEGORY_ID`. Everyone is denied by default. Ranger Commander and Ranger Captain roles receive permanent access. Rangers, Apprentices, and Marshals only receive temporary access when they visit a Trailmark.
+Each Trailmark is a private text channel under `TRAILMARK_CATEGORY_ID`. Everyone is denied by default. First Captain and Captain roles receive permanent access. Rangers, Apprentices, and Marshals only receive temporary access when they visit a Trailmark.
 
 Users visit Trailmarks by selecting one from the bot message posted by `/trailmark panel`. When a user selects a Trailmark, any previous active Trailmark session is revoked, the selected channel is opened for the configured duration, and the session is stored in Supabase. The dropdown also includes `No Trailmark`, which revokes current access and clears the user's selection path. A background job runs every minute and also runs on startup, so expired access is revoked after bot restarts. The stored panel refreshes automatically when Trailmarks are created, edited, or deactivated.
 
-`/trailmark edit` lets Ranger Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, pinned status, or shared patrol location. Set `patrol_primary` when two Trailmarks represent essentially the same place; the selected primary becomes the single route and reporting destination while visits to either Trailmark refresh their shared patrol activity. `clear_patrol_primary` separates them again. Linked Trailmarks must stay in the same Hold, and a primary cannot be deactivated while active Trailmarks still point to it. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
+`/trailmark edit` lets Marshal or higher update the name, hold, location description, screenshot, Atlas location ID, pinned status, or shared patrol location. Set `patrol_primary` when two Trailmarks represent essentially the same place; the selected primary becomes the single route and reporting destination while visits to either Trailmark refresh their shared patrol activity. `clear_patrol_primary` separates them again. Linked Trailmarks must stay in the same Hold, and a primary cannot be deactivated while active Trailmarks still point to it. Pinned Trailmarks sort at the top of the dropdown panel. When the name changes, Wayfinder renames the Discord channel. Edits post an updated Trailmark info embed in the Trailmark channel and refresh the access panel.
 
 Apprentice or higher can use `/trailmark report` while inside an open Trailmark channel. The command opens either a **General** or **Incident** Discord form and can link up to three existing contacts plus three participating Rangers. Submission posts one visible, standardized report card in that Trailmark and passes its full text through the same Intel keyword and catchall flow as an ordinary message. Reports linked to contacts are copied into those contacts' Forum threads only after the report reaches Corps Headquarters; reports written at Headquarters are eligible immediately.
 
@@ -408,7 +411,7 @@ After applying migration `047`, Apprentice+ can use `/patrol suggest` in `#gener
 
 ## HQ Strongbox
 
-`/strongbox setup` creates or repairs two channels under the Trailmarks category: `strongbox-drop`, where members leave private reports, and `hq-strongbox`, where Ranger Marshal or higher reads them. The pinned Strongbox Drop panel offers two form routes: sensitive IC information about people or events outside the Corps goes directly to the configured Agents channel, while internal Corps issues go to the private Marshal Strongbox. When someone posts an ordinary message in `strongbox-drop`, Wayfinder forwards the message and attachments to `hq-strongbox`, removes the public copy, and starts a separate discussion thread from the private entry. Marshal+ can reply inside that thread without mixing separate Strongbox discussions together. `/strongbox drop` remains available as a backup slash-command path and creates the same threaded Marshal entry.
+`/strongbox setup` creates or repairs two channels under the Trailmarks category: `strongbox-drop`, where members leave private reports, and `hq-strongbox`, where Marshal or higher reads them. The pinned Strongbox Drop panel offers two form routes: sensitive IC information about people or events outside the Corps goes directly to the configured Agents channel, while internal Corps issues go to the private Marshal Strongbox. When someone posts an ordinary message in `strongbox-drop`, Wayfinder forwards the message and attachments to `hq-strongbox`, removes the public copy, and starts a separate discussion thread from the private entry. Marshal+ can reply inside that thread without mixing separate Strongbox discussions together. `/strongbox drop` remains available as a backup slash-command path and creates the same threaded Marshal entry.
 
 Wayfinder refreshes the stored Strongbox Drop panel on startup. Run `/strongbox setup` to create the channels initially or repair their permissions and pinned instructions later.
 
@@ -416,7 +419,7 @@ Wayfinder refreshes the stored Strongbox Drop panel on startup. Run `/strongbox 
 
 Run migrations `012_create_duties_and_apprenticeships.sql`, `023_add_ambassador_duty.sql`, `033_rename_detective_to_agent.sql`, `036_rework_applications_promotions_and_wardens.sql`, and `042_add_instructor_duty.sql`, redeploy slash commands, and run `/duty setup` once. Wayfinder creates or reuses the Quartermaster, Craftsman, Warden, Agent, Courier, Ambassador, and Instructor roles and stores their Discord role IDs in Supabase. Quartermaster, Warden, Agent, Ambassador, and Instructor are Ranger+ duties; Craftsman and Courier are available to Apprentices+. Instructors plan and lead practical Corps training. The Wayfinder bot role must remain above these roles.
 
-`/application apply` replaces `/duty volunteer`. Applicants choose a position and complete its Discord form. They can apply for a normal duty, **Hold Warden**, **Local Warden**, **Ranger Marshal**, or **Ranger Captain**. An appointed Hold Warden is displayed publicly as **Ranger of [Hold]**. Normal duty and local Warden applications go to the Marshal Strongbox for approval or denial. Marshal applications go to the configured Marshal+ review channel; Captain applications go to the configured Captain+ review channel. Every application gets its own private discussion thread. Run `/application setup` once as Captain+ to store the two restricted leadership review channels and enforce their visibility.
+`/application apply` replaces `/duty volunteer`. Applicants choose a position and complete its Discord form. They can apply for a normal duty, **Hold Warden**, **Local Warden**, **Marshal**, or **Captain**. An appointed Hold Warden is displayed publicly as **Ranger of [Hold]**. Normal duty and local Warden applications go to the Marshal Strongbox for approval or denial. Marshal applications go to the configured Marshal+ review channel; Captain applications go to the configured Captain+ review channel. Every application gets its own private discussion thread. Run `/application setup` once as Captain+ to store the two restricted leadership review channels and enforce their visibility.
 
 Approval of a duty application records the assignment and grants the duty role. Leadership applications use a separate approval gate: Captain+ reviews both Marshal and Captain applications. Approval opens a linked vote in the configured Ranger promotion channel, mentions the Ranger role, and allows all Ranger+ members to vote. Applicants use `/application withdraw`; reviewers use `/application list`, with Captain applications hidden from ordinary Marshals. Marshal+ can still use `/duty assign` and `/duty remove` for direct administration, while primary Hold appointments require Captain+. `/duty list` is available to Corps members, and active duties also appear in `/ranger info`.
 
@@ -463,7 +466,7 @@ Historical Corps standing includes Retired roster rows and the pre-Wayfinder mem
 
 ## Ranger Field Names
 
-Apply migrations `014_create_field_names.sql`, `015_field_name_contests.sql`, `016_add_field_name_veto_notice.sql`, `017_close_legacy_field_name_polls.sql`, `018_create_field_name_contests.sql`, and `019_field_name_contests_open_ended.sql`, deploy the bot, and run `/field-name setup` once as a Marshal. Migration 017 cancels every old open poll so none can resolve under the previous rules. Migration 019 removes the deadline from the current contest. Wayfinder removes old posts and repairs a `field-names` channel under the configured Trailmarks category. Because main rank roles are cumulative, Ranger Captain, Marshal, and Commander members retain access; Apprentices do not.
+Apply migrations `014_create_field_names.sql`, `015_field_name_contests.sql`, `016_add_field_name_veto_notice.sql`, `017_close_legacy_field_name_polls.sql`, `018_create_field_name_contests.sql`, and `019_field_name_contests_open_ended.sql`, deploy the bot, and run `/field-name setup` once as a Marshal. Migration 017 cancels every old open poll so none can resolve under the previous rules. Migration 019 removes the deadline from the current contest. Wayfinder removes old posts and repairs a `field-names` channel under the configured Trailmarks category. Because main rank roles are cumulative, Captain, Marshal, and First Captain members retain access; Apprentices do not.
 
 Marshal+ uses `/field-name open` to create an open-ended contest for an Apprentice or Ranger. Starting names are optional and can be entered as a comma-separated list. Rangers can add choices with the post's **Nominate a name** button and form, or with `/field-name suggest`; the bot edits the same contest post instead of creating another poll. Each contest also has a discussion thread. Each full Ranger, including the nominee, chooses one option with a button and may change that choice. When a clear leader has emerged, a Marshal+ uses `/field-name close` with the contest ID. The leading option wins; ties or contests with no votes assign no name. The nominee also receives a private veto button to reject the entire contest. Approved names are stored without changing Discord nicknames.
 
@@ -498,17 +501,17 @@ Only `/ping` and `/alliance` are registered in the Alliance server. All roster, 
 
 ## Role Sync
 
-Captains and the Commander share all Wayfinder management privileges, including leadership application review and system setup. Their rank titles remain separate.
+Captains and the First Captain share all Wayfinder management privileges, including leadership application review and system setup. Their rank titles remain separate.
 
 The centralized rank config lives in `src/config/ranks.ts`. Main rank roles are:
 
-1. Ranger Commander
-2. Ranger Captain
-3. Ranger Marshal
+1. First Captain
+2. Captain
+3. Marshal
 4. Ranger
 5. Apprentice
 
-Rank roles are cumulative. A Ranger keeps Apprentice; a Ranger Marshal keeps Ranger and Apprentice; Captains and Commanders keep every main rank below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger stacks with normal rank roles and is automatically granted to Active or On Leave members of Ranger rank or higher after 90 days since Corps entry, using the same timestamp and fallback as Long Watch Silver. Startup backfills eligible members, a daily job grants new recognition, and promotion/member synchronization checks eligibility immediately. Retired and Inactive members receive no new grants; previously earned Senior Ranger recognition is preserved. Wayfinder uses the existing `ROLE_SENIOR_RANGER_ID` role and must be above it in the role hierarchy.
+Rank roles are cumulative. A Ranger keeps Apprentice; a Marshal keeps Ranger and Apprentice; Captains and First Captains keep every main rank below them. Promotion and roster sync add missing lower-rank roles and remove rank roles above the stored rank. Senior Ranger stacks with normal rank roles and is automatically granted to Active or On Leave members of Ranger rank or higher after 90 days since Corps entry, using the same timestamp and fallback as Long Watch Silver. Startup backfills eligible members, a daily job grants new recognition, and promotion/member synchronization checks eligibility immediately. Retired and Inactive members receive no new grants; previously earned Senior Ranger recognition is preserved. Wayfinder uses the existing `ROLE_SENIOR_RANGER_ID` role and must be above it in the role hierarchy.
 
 Discord onboarding remains the entry point. If onboarding gives a user the Apprentice role, the bot adds or updates their roster entry as an Apprentice and tries to DM the nickname reminder. Guest-only users are skipped.
 

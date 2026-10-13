@@ -1,7 +1,7 @@
 export const RANKS = {
-  "Ranger Commander": {
+  "First Captain": {
     sort: 1,
-    envRoleKey: "ROLE_RANGER_COMMANDER_ID",
+    envRoleKey: "ROLE_FIRST_CAPTAIN_ID",
     canManageAll: true,
     canSeeAllTrailmarks: true,
     canApprovePromotions: true,
@@ -9,9 +9,9 @@ export const RANKS = {
     canCreateTrailmarks: true,
     canRecruit: true
   },
-  "Ranger Captain": {
+  "Captain": {
     sort: 2,
-    envRoleKey: "ROLE_RANGER_CAPTAIN_ID",
+    envRoleKey: "ROLE_CAPTAIN_ID",
     canManageAll: true,
     canSeeAllTrailmarks: true,
     canApprovePromotions: true,
@@ -19,9 +19,9 @@ export const RANKS = {
     canCreateTrailmarks: true,
     canRecruit: true
   },
-  "Ranger Marshal": {
+  "Marshal": {
     sort: 3,
-    envRoleKey: "ROLE_RANGER_MARSHAL_ID",
+    envRoleKey: "ROLE_MARSHAL_ID",
     canOpenPromotionVotes: true,
     canCreateTrailmarks: true,
     canRecruit: true

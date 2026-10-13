@@ -161,18 +161,18 @@ const FORM_DEFINITIONS: Record<ApplicationTarget, ApplicationFormDefinition> = {
       availability
     ]
   },
-  "Ranger Marshal": {
-    title: "Ranger Marshal Application",
+  "Marshal": {
+    title: "Marshal Application",
     fields: [
       reason("Why do you wish to become a Marshal?"),
       experience("Corps service and leadership experience"),
-      response("priorities", "Priorities as a Ranger Marshal"),
+      response("priorities", "Priorities as a Marshal"),
       loyalties,
       response("availability", "Availability and potential conflicts")
     ]
   },
-  "Ranger Captain": {
-    title: "Ranger Captain Application",
+  "Captain": {
+    title: "Captain Application",
     fields: [
       reason("Why do you wish to become a Captain?"),
       experience("Command and leadership record"),

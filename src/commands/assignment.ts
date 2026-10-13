@@ -45,8 +45,8 @@ export const assignmentCommand: BotCommand = {
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "setup") {
-      if (!memberRankAtLeast(actor, "Ranger Marshal")) {
-        throw new UserFacingError("Ranger Marshal or higher is required to configure the Assignments Forum.");
+      if (!memberRankAtLeast(actor, "Marshal")) {
+        throw new UserFacingError("Marshal or higher is required to configure the Assignments Forum.");
       }
       const forum = interaction.options.getChannel("forum", true);
       if (forum.type !== ChannelType.GuildForum) {

@@ -22,9 +22,9 @@ export type WayfinderEmojiName =
   | "promotion"
   | "quartermaster"
   | "ranger"
-  | "rangercaptain"
-  | "rangercommander"
-  | "rangermarshal"
+  | "captain"
+  | "firstcaptain"
+  | "marshal"
   | "rangerorders"
   | "runecloak"
   | "retiredranger"
@@ -45,8 +45,19 @@ export type WayfinderEmojiName =
 
 export type EmojiTextStyle = "dash" | "symmetric";
 
+const legacyRankEmojis: Partial<Record<WayfinderEmojiName, string>> = {
+  firstcaptain: "rangercommander",
+  captain: "rangercaptain",
+  marshal: "rangermarshal"
+};
+
+function findGuildEmoji(guild: Guild, name: WayfinderEmojiName) {
+  return guild.emojis.cache.find((emoji) => emoji.name === name)
+    ?? guild.emojis.cache.find((emoji) => emoji.name === legacyRankEmojis[name]);
+}
+
 export function guildEmoji(guild: Guild, name: WayfinderEmojiName): string {
-  return guild.emojis.cache.find((emoji) => emoji.name === name)?.toString() ?? "";
+  return findGuildEmoji(guild, name)?.toString() ?? "";
 }
 
 export function guildEmojiImageUrl(
@@ -54,7 +65,7 @@ export function guildEmojiImageUrl(
   name: WayfinderEmojiName,
   size = 256
 ): string | null {
-  return guild.emojis.cache.find((emoji) => emoji.name === name)?.imageURL({ extension: "png", size }) ?? null;
+  return findGuildEmoji(guild, name)?.imageURL({ extension: "png", size }) ?? null;
 }
 
 export function emojiEmbed(
@@ -97,12 +108,12 @@ export function emojiTitle(
 
 export function rankEmojiName(rank: string): WayfinderEmojiName | null {
   switch (rank) {
-    case "Ranger Commander":
-      return "rangercommander";
-    case "Ranger Captain":
-      return "rangercaptain";
-    case "Ranger Marshal":
-      return "rangermarshal";
+    case "First Captain":
+      return "firstcaptain";
+    case "Captain":
+      return "captain";
+    case "Marshal":
+      return "marshal";
     case "Senior Ranger":
       return "seniorranger";
     case "Ranger":

@@ -271,8 +271,8 @@ export async function handleAssignmentButton(interaction: ButtonInteraction): Pr
     return;
   }
 
-  if (actor.id !== assignment.organizer_discord_user_id && !memberRankAtLeast(actor, "Ranger Marshal")) {
-    throw new UserFacingError("Only the assignment organizer or a Ranger Marshal may mark it complete.");
+  if (actor.id !== assignment.organizer_discord_user_id && !memberRankAtLeast(actor, "Marshal")) {
+    throw new UserFacingError("Only the assignment organizer or a Marshal may mark it complete.");
   }
   if (assignment.status !== "Open") {
     throw new UserFacingError("That assignment is already closed.");

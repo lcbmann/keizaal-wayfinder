@@ -14,7 +14,7 @@ import { listAllRangers } from "./rangerService.js";
 import { emojiEmbed, emojiText, guildEmoji, rankEmojiName } from "../utils/guildEmojis.js";
 
 const ASSIGNMENTS_BOARD_STATE_KEY = "ranger-assignments";
-const leadershipRanks: MainRank[] = ["Ranger Commander", "Ranger Captain", "Ranger Marshal"];
+const leadershipRanks: MainRank[] = ["First Captain", "Captain", "Marshal"];
 const assignmentBoardTitles = new Set([
   "Leadership",
   "Quartermasters",
@@ -112,7 +112,7 @@ function assignmentsEmbeds(
   const instructors = dutyAssignments
     .filter(({ duty }) => duty.name === "Instructor")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  const leadershipEmbed = emojiEmbed(guild, "rangercommander", "Leadership")
+  const leadershipEmbed = emojiEmbed(guild, "firstcaptain", "Leadership")
     .setDescription("The Rangers who currently lead the Corps.")
     .setColor(0xb08d32)
     .setTimestamp(new Date());
@@ -255,16 +255,16 @@ function assignmentsEmbeds(
   ];
 }
 
-function rankEmojiForBoard(rank: MainRank): "rangercommander" | "rangercaptain" | "rangermarshal" {
+function rankEmojiForBoard(rank: MainRank): "firstcaptain" | "captain" | "marshal" {
   switch (rank) {
-    case "Ranger Commander":
-      return "rangercommander";
-    case "Ranger Captain":
-      return "rangercaptain";
-    case "Ranger Marshal":
-      return "rangermarshal";
+    case "First Captain":
+      return "firstcaptain";
+    case "Captain":
+      return "captain";
+    case "Marshal":
+      return "marshal";
     default:
-      return "rangercommander";
+      return "firstcaptain";
   }
 }
 

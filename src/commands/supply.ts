@@ -284,6 +284,6 @@ function supplyContributionInputs(interaction: ChatInputCommandInteraction): Arr
 
 function requireMarshal(member: GuildMember): void {
   if (!canOpenPromotionVotes(member)) {
-    throw new UserFacingError("Ranger Marshal or higher is required.");
+    throw new UserFacingError("Marshal or higher is required.");
   }
 }

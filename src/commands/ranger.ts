@@ -246,7 +246,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "assignments") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to post assignments.");
+        throw new UserFacingError("Marshal or higher is required to post assignments.");
       }
 
       await interaction.deferReply({ ephemeral: true });
@@ -263,7 +263,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "audit") {
       if (!canManageAll(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to audit the roster.");
+        throw new UserFacingError("Captain or higher is required to audit the roster.");
       }
 
       await interaction.deferReply({ ephemeral: true });
@@ -275,7 +275,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "inactive-review") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required.");
+        throw new UserFacingError("Marshal or higher is required.");
       }
 
       const days = interaction.options.getInteger("days") ?? 14;
@@ -287,7 +287,7 @@ export const rangerCommand: BotCommand = {
     if (subcommand === "sync-member") {
       const user = interaction.options.getUser("user") ?? interaction.user;
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to sync members.");
+        throw new UserFacingError("Marshal or higher is required to sync members.");
       }
 
       const member = await interaction.guild.members.fetch(user.id);
@@ -301,7 +301,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "sync-all") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to sync the full roster.");
+        throw new UserFacingError("Marshal or higher is required to sync the full roster.");
       }
 
       await interaction.deferReply({ ephemeral: true });
@@ -383,7 +383,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "clear-hold") {
       if (!canManageAll(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to remove a Hold Warden appointment.");
+        throw new UserFacingError("Captain or higher is required to remove a Hold Warden appointment.");
       }
       await interaction.deferReply({ ephemeral: true });
       const discordUserId = interaction.options.getString("discord_user_id", true).trim();
@@ -411,7 +411,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "set-hold") {
       if (!canManageAll(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to appoint a Hold Warden.");
+        throw new UserFacingError("Captain or higher is required to appoint a Hold Warden.");
       }
       await interaction.deferReply({ ephemeral: true });
       const user = interaction.options.getUser("user", true);
@@ -431,7 +431,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "sync-hold-roles") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to sync assigned hold roles.");
+        throw new UserFacingError("Marshal or higher is required to sync assigned hold roles.");
       }
 
       await interaction.deferReply({ ephemeral: true });
@@ -464,7 +464,7 @@ export const rangerCommand: BotCommand = {
 
     if (subcommand === "promote") {
       if (!canApprovePromotions(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to manually promote.");
+        throw new UserFacingError("Captain or higher is required to manually promote.");
       }
 
       const user = interaction.options.getUser("user", true);
@@ -504,7 +504,7 @@ export const rangerCommand: BotCommand = {
 
 function requireMarshal(member: GuildMember): void {
   if (!canOpenPromotionVotes(member)) {
-    throw new UserFacingError("Ranger Marshal or higher is required.");
+    throw new UserFacingError("Marshal or higher is required.");
   }
 }
 
@@ -576,11 +576,11 @@ function formatWardenDuty(range: string, scope: "hold_primary" | "local_range" |
 
 function rangerTitle(rank: string): string {
   switch (rank) {
-    case "Ranger Commander":
-      return "Commander";
-    case "Ranger Captain":
+    case "First Captain":
+      return "First Captain";
+    case "Captain":
       return "Captain";
-    case "Ranger Marshal":
+    case "Marshal":
       return "Marshal";
     default:
       return rank;

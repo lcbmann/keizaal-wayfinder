@@ -607,7 +607,7 @@ export async function submitRunecloakSurvey(input: {
 }): Promise<RunecloakApplicationDetails> {
   const ranger = await requireRangerByDiscordId(input.rangerDiscordUserId);
   let application = await getOpenRunecloakApplication(ranger.id);
-  if (!application && ranger.status === "Active" && rankAtLeast(ranger.current_rank, "Ranger Marshal")) {
+  if (!application && ranger.status === "Active" && rankAtLeast(ranger.current_rank, "Marshal")) {
     const settings = await requireRunecloakSettings(input.guildId);
     if (!settings.admissions_open) {
       throw new UserFacingError("Runecloak admissions are currently closed.");
@@ -646,7 +646,7 @@ export async function submitRunecloakSurvey(input: {
     }
   }
   if (!application || (application.status !== "Survey Requested" && application.status !== "Revision Requested")) {
-    throw new UserFacingError("A Runecloak Guide must request your survey first. Ranger Marshals and above may begin directly while admissions are open.");
+    throw new UserFacingError("A Runecloak Guide must request your survey first. Marshals and above may begin directly while admissions are open.");
   }
   if (input.screenshotUrl) {
     assertHttpsOrDiscordUrl(input.screenshotUrl, "Survey image link");
@@ -791,7 +791,7 @@ export async function reviewRunecloakSite(input: {
 }
 
 export async function isRunecloakGuide(member: GuildMember): Promise<boolean> {
-  if (memberRankAtLeast(member, "Ranger Captain")) {
+  if (memberRankAtLeast(member, "Captain")) {
     return true;
   }
   if (!memberRankAtLeast(member, "Ranger")) {
@@ -1505,8 +1505,8 @@ export async function recordRunecloakAudit(input: {
 }
 
 export function assertRunecloakCaptain(member: GuildMember): void {
-  if (!memberRankAtLeast(member, "Ranger Captain")) {
-    throw new UserFacingError("Ranger Captain or higher is required for that Runecloak decision.");
+  if (!memberRankAtLeast(member, "Captain")) {
+    throw new UserFacingError("Captain or higher is required for that Runecloak decision.");
   }
 }
 

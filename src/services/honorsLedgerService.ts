@@ -352,11 +352,11 @@ function rangerLabel(guild: Guild, ranger: RangerRow, rank: RangerRow["current_r
   const badge = rankBadge(guild, rank);
   const prefix = badge ? `${badge} ` : "";
   switch (rank) {
-    case "Ranger Commander":
-      return `${prefix}Commander ${name}`;
-    case "Ranger Captain":
+    case "First Captain":
+      return `${prefix}First Captain ${name}`;
+    case "Captain":
       return `${prefix}Captain ${name}`;
-    case "Ranger Marshal":
+    case "Marshal":
       return `${prefix}Marshal ${name}`;
     default:
       return `${prefix}${rank} ${name}`;

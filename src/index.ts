@@ -56,6 +56,7 @@ import { handleMemberJoin, handleMemberRemove, handleMemberUpdate } from "./jobs
 import { startTrailmarkSessionExpirationJob } from "./jobs/expireTrailmarkSessions.js";
 import { startApprenticeshipCleanupJob } from "./jobs/expireApprenticeshipRequests.js";
 import { startSeniorRangerJob } from "./services/seniorRangerService.js";
+import { synchronizeRankNames } from "./services/rankNamingService.js";
 import { startAtlasTrailmarkAccessPollingJob } from "./jobs/pollAtlasTrailmarkAccess.js";
 import { startAtlasTrailmarkDropPollingJob } from "./jobs/pollAtlasTrailmarkDrops.js";
 import { recordBotInteraction, recordMessageActivity } from "./services/activityService.js";
@@ -159,8 +160,14 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message]
 });
 
-client.once("ready", (readyClient) => {
+client.once("ready", async (readyClient) => {
   console.log(`Keizaal Wayfinder logged in as ${readyClient.user.tag}`);
+  const namingGuild = readyClient.guilds.cache.get(env.DISCORD_GUILD_ID);
+  if (namingGuild) {
+    await synchronizeRankNames(namingGuild)
+      .then(() => console.log("Synchronized Corps rank names."))
+      .catch((error) => console.warn("Failed to synchronize Corps rank names:", error));
+  }
   startTrailmarkSessionExpirationJob(readyClient);
   startAtlasTrailmarkAccessPollingJob(readyClient);
   startAtlasTrailmarkDropPollingJob(readyClient);

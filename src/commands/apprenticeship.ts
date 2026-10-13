@@ -145,7 +145,7 @@ export const apprenticeshipCommand: BotCommand = {
         details.apprenticeship.apprentice_discord_user_id
       ].includes(interaction.user.id);
       if (!isParticipant && !canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Only a participant or Ranger Marshal or higher can end this apprenticeship.");
+        throw new UserFacingError("Only a participant or Marshal or higher can end this apprenticeship.");
       }
       await interaction.deferReply({ ephemeral: true });
       await endApprenticeship({
@@ -214,7 +214,7 @@ function requireCorpsMember(member: GuildMember): void {
 
 function requireMarshal(member: GuildMember): void {
   if (!canOpenPromotionVotes(member)) {
-    throw new UserFacingError("Ranger Marshal or higher is required for this apprenticeship command.");
+    throw new UserFacingError("Marshal or higher is required for this apprenticeship command.");
   }
 }
 

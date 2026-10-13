@@ -80,7 +80,7 @@ async function setupPrivateStrongboxChannel(guild: Guild): Promise<TextChannel> 
   await channel.send({
     embeds: [
       emojiEmbed(guild, "strongbox", "HQ Strongbox")
-        .setDescription("Private messages and applications are kept here. Each entry has its own discussion thread. Only Ranger Marshals and higher can read this channel.")
+        .setDescription("Private messages and applications are kept here. Each entry has its own discussion thread. Only Marshals and higher can read this channel.")
         .setColor(0x587c4a)
         .setTimestamp(new Date())
     ]
@@ -163,7 +163,7 @@ async function ensureStrongboxDropInstructions(channel: TextChannel): Promise<Me
 
 function strongboxDropTopic(): string {
   return [
-    "Private reports: send sensitive IC information about people or events outside the Corps to Agents; send internal Corps issues to Ranger Marshal+.",
+    "Private reports: send sensitive IC information about people or events outside the Corps to Agents; send internal Corps issues to Marshal+.",
     "Use the buttons for either route. /strongbox drop accepts one attachment and always goes to the Marshal Strongbox. Ordinary messages may be briefly visible before removal.",
     "Applications: /application apply, /application withdraw.",
     "Apprenticeships: /apprenticeship looking-for, /apprenticeship withdraw-looking, /apprenticeship propose, /apprenticeship sponsor, /apprenticeship info, /apprenticeship end."
@@ -185,7 +185,7 @@ function strongboxDropOverviewEmbed(guild: Guild): EmbedBuilder {
         ].join("\n")
       },
       {
-        name: emojiText(guild, "rangermarshal", "Send to the Marshals"),
+        name: emojiText(guild, "marshal", "Send to the Marshals"),
         value: [
           "Use this for **internal Corps issues**, including member conduct, safety, discipline, leadership, or administration.",
           "These reports go into the private HQ Strongbox as before."
@@ -405,7 +405,7 @@ export async function postStrongboxThread(params: {
     ? await params.guild.channels.fetch(params.archive.discord_channel_id)
     : await getStrongboxChannel(params.guild);
   if (channel?.type !== ChannelType.GuildText) {
-    throw new UserFacingError("The HQ Strongbox has not been set up yet. Ask a Ranger Marshal to run `/strongbox setup`.");
+    throw new UserFacingError("The HQ Strongbox has not been set up yet. Ask a Marshal to run `/strongbox setup`.");
   }
 
   const message = params.archive?.discord_message_id
@@ -533,7 +533,7 @@ function strongboxPermissionOverwrites(guild: Guild) {
         PermissionFlagsBits.ManageChannels
       ]
     },
-    ...(["Ranger Commander", "Ranger Captain", "Ranger Marshal"] as const).map((rank) => ({
+    ...(["First Captain", "Captain", "Marshal"] as const).map((rank) => ({
       id: roleIdForRank(rank),
       allow: [
         PermissionFlagsBits.ViewChannel,
@@ -566,7 +566,7 @@ function strongboxDropPermissionOverwrites(guild: Guild) {
         PermissionFlagsBits.ManageChannels
       ]
     },
-    ...(["Ranger Commander", "Ranger Captain", "Ranger Marshal"] as const).map((rank) => ({
+    ...(["First Captain", "Captain", "Marshal"] as const).map((rank) => ({
       id: roleIdForRank(rank),
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
     }))

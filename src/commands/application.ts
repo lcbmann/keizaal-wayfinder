@@ -95,12 +95,12 @@ export const applicationCommand: BotCommand = {
 
     if (subcommand === "list") {
       if (!canOpenPromotionVotes(actor)) {
-        throw new UserFacingError("Ranger Marshal or higher is required to list pending applications.");
+        throw new UserFacingError("Marshal or higher is required to list pending applications.");
       }
       await interaction.deferReply({ ephemeral: true });
       const applications = (await listPendingCorpsApplications()).filter((details) =>
         details.application.application_kind === "Captain"
-          ? memberRankAtLeast(actor, "Ranger Captain")
+          ? memberRankAtLeast(actor, "Captain")
           : true
       );
       const lines = applications.map((details) =>
@@ -111,7 +111,7 @@ export const applicationCommand: BotCommand = {
     }
 
     if (!canManageAll(actor)) {
-      throw new UserFacingError("Ranger Captain or higher is required to configure leadership application channels.");
+      throw new UserFacingError("Captain or higher is required to configure leadership application channels.");
     }
     const marshalChannel = interaction.options.getChannel("marshal_channel", true);
     const captainChannel = interaction.options.getChannel("captain_channel", true);
@@ -134,10 +134,10 @@ export const applicationCommand: BotCommand = {
 
 function applicationLabel(details: Awaited<ReturnType<typeof listPendingCorpsApplications>>[number]): string {
   if (details.application.application_kind === "Marshal") {
-    return "Ranger Marshal";
+    return "Marshal";
   }
   if (details.application.application_kind === "Captain") {
-    return "Ranger Captain";
+    return "Captain";
   }
   if (details.application.warden_scope === "hold_primary") {
     return `Ranger of ${details.application.parent_hold}`;

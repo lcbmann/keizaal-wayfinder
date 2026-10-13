@@ -18,7 +18,7 @@ export const rosterCommand: BotCommand = {
 
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     if (!canOpenPromotionVotes(actor)) {
-      throw new UserFacingError("Ranger Marshal or higher is required to export the roster.");
+      throw new UserFacingError("Marshal or higher is required to export the roster.");
     }
 
     await interaction.deferReply({ ephemeral: true });

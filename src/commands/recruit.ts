@@ -23,7 +23,7 @@ export const recruitCommand: BotCommand = {
 
     const actor = await interaction.guild.members.fetch(interaction.user.id);
     if (!canOpenPromotionVotes(actor)) {
-      throw new UserFacingError("Ranger Marshal or higher is required for recruitment tools.");
+      throw new UserFacingError("Marshal or higher is required for recruitment tools.");
     }
 
     const subcommand = interaction.options.getSubcommand();
@@ -64,7 +64,7 @@ function recruitWelcomeMessage(): string {
     "Before you set out with the Corps:",
     "- Set your server nickname to your in-game character name.",
     "- Read the Corps rules and Trailmark guidance.",
-    "- Ask a Ranger Marshal or Captain if you need an assigned hold.",
+    "- Ask a Marshal or Captain if you need an assigned hold.",
     "- Use Trailmarks only when your character has physically visited the cache in-game.",
     "- Keep reports short, useful, and in-character.",
     "",

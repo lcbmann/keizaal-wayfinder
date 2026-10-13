@@ -91,7 +91,7 @@ export const dutyCommand: BotCommand = {
     if (subcommand === "assign") {
       const wardenScope = interaction.options.getString("warden_position") as WardenScope | null;
       if (dutyName === "Warden" && wardenScope === "hold_primary" && !canApprovePromotions(actor)) {
-        throw new UserFacingError("Ranger Captain or higher is required to appoint a Hold Warden.");
+        throw new UserFacingError("Captain or higher is required to appoint a Hold Warden.");
       }
       await interaction.deferReply({ ephemeral: true });
       const result = await assignDuty({
@@ -143,6 +143,6 @@ function requireCorpsMember(member: GuildMember): void {
 
 function requireMarshal(member: GuildMember): void {
   if (!canOpenPromotionVotes(member)) {
-    throw new UserFacingError("Ranger Marshal or higher is required to manage Corps duties.");
+    throw new UserFacingError("Marshal or higher is required to manage Corps duties.");
   }
 }

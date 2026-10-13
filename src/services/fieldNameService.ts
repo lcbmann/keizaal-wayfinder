@@ -37,7 +37,7 @@ const FIELD_NAMES_CHANNEL_STATE_KEY = "field-names-channel";
 const FIELD_NAMES_BULLETIN_STATE_KEY = "field-names-bulletin";
 const FIELD_NAMES_CHANNEL_NAME = "field-names";
 const MAX_OPTIONS = 20;
-const FIELD_NAME_ACCESS_RANKS: MainRank[] = ["Ranger", "Ranger Marshal", "Ranger Captain", "Ranger Commander"];
+const FIELD_NAME_ACCESS_RANKS: MainRank[] = ["Ranger", "Marshal", "Captain", "First Captain"];
 
 export async function getFieldNamesChannel(guild: Guild): Promise<TextChannel | null> {
   return getStoredTextChannel(guild, FIELD_NAMES_CHANNEL_STATE_KEY);
@@ -836,7 +836,7 @@ async function listFullRangers(): Promise<RangerRow[]> {
   const { data, error } = await supabase
     .from("rangers")
     .select("*")
-    .in("current_rank", ["Ranger Commander", "Ranger Captain", "Ranger Marshal", "Ranger"])
+    .in("current_rank", ["First Captain", "Captain", "Marshal", "Ranger"])
     .neq("status", "Retired")
     .order("discord_display_name", { ascending: true });
   assertNoDbError(error, "list Rangers awaiting field names");
@@ -850,8 +850,8 @@ function requireRanger(member: GuildMember, message = "Only a full Ranger or hig
 }
 
 function requireMarshal(member: GuildMember): void {
-  if (!memberRankAtLeast(member, "Ranger Marshal")) {
-    throw new UserFacingError("Ranger Marshal or higher is required for this Field Names command.");
+  if (!memberRankAtLeast(member, "Marshal")) {
+    throw new UserFacingError("Marshal or higher is required for this Field Names command.");
   }
 }
 

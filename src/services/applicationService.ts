@@ -50,8 +50,8 @@ export const APPLICATION_TARGETS = [
   "Instructor",
   "Hold Warden",
   "Local Warden",
-  "Ranger Marshal",
-  "Ranger Captain"
+  "Marshal",
+  "Captain"
 ] as const;
 export type ApplicationTarget = typeof APPLICATION_TARGETS[number];
 
@@ -75,10 +75,10 @@ export function isApplicationTarget(value: string): value is ApplicationTarget {
 }
 
 export function applicationMinimumRank(target: ApplicationTarget): MainRank {
-  if (target === "Ranger Captain") {
-    return "Ranger Marshal";
+  if (target === "Captain") {
+    return "Marshal";
   }
-  if (target === "Ranger Marshal" || target === "Hold Warden" || target === "Local Warden"
+  if (target === "Marshal" || target === "Hold Warden" || target === "Local Warden"
     || target === "Quartermaster" || target === "Agent" || target === "Ambassador" || target === "Instructor") {
     return "Ranger";
   }
@@ -88,9 +88,9 @@ export function applicationMinimumRank(target: ApplicationTarget): MainRank {
 export function applicationReviewMinimumRank(details: CorpsApplicationDetails): MainRank {
   if (details.application.application_kind === "Captain" || details.application.application_kind === "Marshal"
     || details.application.warden_scope === "hold_primary") {
-    return "Ranger Captain";
+    return "Captain";
   }
-  return "Ranger Marshal";
+  return "Marshal";
 }
 
 export function assertHoldWardenApplicationVacant(hold: string, hasActiveHolder: boolean): void {
@@ -104,8 +104,8 @@ export async function configureApplicationChannels(params: {
   captainChannel: TextChannel;
 }): Promise<void> {
   await Promise.all([
-    configureLeadershipReviewChannel(params.marshalChannel, "Ranger Marshal"),
-    configureLeadershipReviewChannel(params.captainChannel, "Ranger Captain")
+    configureLeadershipReviewChannel(params.marshalChannel, "Marshal"),
+    configureLeadershipReviewChannel(params.captainChannel, "Captain")
   ]);
   await Promise.all([
     saveBotMessageState(MARSHAL_APPLICATION_CHANNEL_STATE_KEY, params.marshalChannel.id, []),
@@ -113,7 +113,7 @@ export async function configureApplicationChannels(params: {
   ]);
 }
 
-async function configureLeadershipReviewChannel(channel: TextChannel, minimumRank: "Ranger Marshal" | "Ranger Captain"): Promise<void> {
+async function configureLeadershipReviewChannel(channel: TextChannel, minimumRank: "Marshal" | "Captain"): Promise<void> {
   await channel.permissionOverwrites.edit(channel.guild.roles.everyone, {
     ViewChannel: false,
     ReadMessageHistory: false
@@ -124,8 +124,8 @@ async function configureLeadershipReviewChannel(channel: TextChannel, minimumRan
     SendMessages: false,
     SendMessagesInThreads: true
   }, { reason: `Allow ${minimumRank}+ to review leadership applications` });
-  const deniedRanks: MainRank[] = minimumRank === "Ranger Captain"
-    ? ["Apprentice", "Ranger", "Ranger Marshal"]
+  const deniedRanks: MainRank[] = minimumRank === "Captain"
+    ? ["Apprentice", "Ranger", "Marshal"]
     : ["Apprentice", "Ranger"];
   await Promise.all(deniedRanks.map((rank) => channel.permissionOverwrites.edit(roleIdForRank(rank), {
     ViewChannel: false,
@@ -500,10 +500,10 @@ export function corpsApplicationEmbed(guild: Guild, details: CorpsApplicationDet
 
 export function applicationTitle(details: CorpsApplicationDetails): string {
   if (details.application.application_kind === "Marshal") {
-    return "Ranger Marshal";
+    return "Marshal";
   }
   if (details.application.application_kind === "Captain") {
-    return "Ranger Captain";
+    return "Captain";
   }
   if (details.application.warden_scope === "hold_primary") {
     return `Ranger of ${details.application.parent_hold}`;
@@ -522,9 +522,9 @@ async function resolveTarget(target: ApplicationTarget, hold: string | null, ran
   parentHold: string | null;
   assignmentDetail: string | null;
 }> {
-  if (target === "Ranger Marshal" || target === "Ranger Captain") {
+  if (target === "Marshal" || target === "Captain") {
     return {
-      kind: target === "Ranger Marshal" ? "Marshal" : "Captain",
+      kind: target === "Marshal" ? "Marshal" : "Captain",
       duty: null,
       targetRank: target,
       wardenScope: null,

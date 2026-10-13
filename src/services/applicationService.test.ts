@@ -19,15 +19,15 @@ test("application targets enforce the intended member rank", () => {
   assert.equal(applicationMinimumRank("Hold Warden"), "Ranger");
   assert.equal(applicationMinimumRank("Local Warden"), "Ranger");
   assert.equal(applicationMinimumRank("Instructor"), "Ranger");
-  assert.equal(applicationMinimumRank("Ranger Marshal"), "Ranger");
-  assert.equal(applicationMinimumRank("Ranger Captain"), "Ranger Marshal");
+  assert.equal(applicationMinimumRank("Marshal"), "Ranger");
+  assert.equal(applicationMinimumRank("Captain"), "Marshal");
 });
 
 test("application review rank scales with appointment authority", () => {
-  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: null })), "Ranger Marshal");
-  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: "hold_primary" })), "Ranger Captain");
-  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Marshal", warden_scope: null })), "Ranger Captain");
-  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Captain", warden_scope: null })), "Ranger Captain");
+  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: null })), "Marshal");
+  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Duty", warden_scope: "hold_primary" })), "Captain");
+  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Marshal", warden_scope: null })), "Captain");
+  assert.equal(applicationReviewMinimumRank(details({ application_kind: "Captain", warden_scope: null })), "Captain");
 });
 
 test("leadership applications use separate private channel state", () => {
@@ -38,10 +38,10 @@ test("leadership applications use separate private channel state", () => {
 test("Captains can review both leadership application types while Marshals cannot", () => {
   for (const application_kind of ["Captain", "Marshal"] as const) {
     const minimum = applicationReviewMinimumRank(details({ application_kind, warden_scope: null }));
-    for (const rank of ["Ranger Captain", "Ranger Commander", "Ranger Marshal"] as const) {
+    for (const rank of ["Captain", "First Captain", "Marshal"] as const) {
       const roleId = roleIdForRank(rank);
       const member = { roles: { cache: new Collection([[roleId, { id: roleId }]]) } } as unknown as GuildMember;
-      assert.equal(memberRankAtLeast(member, minimum), rank !== "Ranger Marshal");
+      assert.equal(memberRankAtLeast(member, minimum), rank !== "Marshal");
     }
   }
 });
@@ -55,7 +55,7 @@ test("Hold Warden applications reject Holds with an active appointment", () => {
 });
 
 test("leadership applications ask about loyalties and responsibilities", () => {
-  for (const target of ["Ranger Marshal", "Ranger Captain"] as const) {
+  for (const target of ["Marshal", "Captain"] as const) {
     const fields = applicationFormDefinition(target).fields;
     assert.equal(fields.length, 5);
     assert.ok(fields.some((field) => field.label === "Other loyalties/responsibilities, or none"));

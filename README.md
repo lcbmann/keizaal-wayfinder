@@ -517,6 +517,8 @@ Discord onboarding remains the entry point. If onboarding gives a user the Appre
 
 When a rostered member leaves the Discord, Wayfinder marks their roster entry Retired and refreshes the assignments board. Marshal+ can also use `/ranger retire-left` with a Discord user ID to clean up older roster entries for people who already left.
 
+`/ranger status user:@Member status:Retired` also grants the existing **Retired Ranger** role and removes all main rank roles (First Captain, Captain, Marshal, Ranger, and Apprentice). Earned medals, Senior Ranger recognition, and unrelated roles are preserved. Duties and Hold appointments are ended as usual. Wayfinder must be above the main rank roles and Retired Ranger in the Discord role hierarchy. Roster synchronization respects retirement and cannot restore their old rank roles or overwrite their historical rank. Re-running retirement is safe and retries role cleanup. `/ranger retire-left` performs the same cleanup if the person is still in the server; departed members receive no Discord role changes until they rejoin. Returning someone to active service is a separate leadership decision, not an automatic consequence of a role update.
+
 ## Promotion Voting
 
 Create a dedicated Ranger-only text channel, then run `/promotion setup` once as Marshal+. Wayfinder applies Ranger-only visibility, stores the destination, moves or repairs promotion posts there, and creates one discussion thread for each vote. Apprentice-to-Ranger votes and approved Marshal/Captain application votes are visible to Ranger+, with the Ranger role mentioned when an approved leadership application enters voting. Votes stay open until manually closed, and final approval or denial is manual.

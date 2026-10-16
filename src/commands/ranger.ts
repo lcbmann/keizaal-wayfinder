@@ -25,6 +25,7 @@ import {
   updateRangerNotes
 } from "../services/rangerService.js";
 import { syncAssignedHoldRoles } from "../services/holdRoleService.js";
+import { syncRetiredRangerRoles } from "../services/discordRoleService.js";
 import { postAssignmentsBoard, refreshStoredAssignmentsBoard } from "../services/assignmentBoardService.js";
 import { mainRankFromMember } from "../utils/permissions.js";
 import type { BotCommand } from "./types.js";
@@ -344,11 +345,14 @@ export const rangerCommand: BotCommand = {
           })
         : 0;
       await cleanupApprenticeshipRecords(interaction.guild);
-      await interaction.editReply({
-        content: `Set ${user} to ${ranger.status}.${endedDuties ? ` Ended ${endedDuties} active duty assignment${endedDuties === 1 ? "" : "s"}.` : ""}`
-      });
       await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
         console.error("Failed to refresh assignments board after Ranger status change:", error);
+      });
+      if (status === "Retired") {
+        await syncRetiredRangerRoles(interaction.guild, user.id);
+      }
+      await interaction.editReply({
+        content: `Set ${user} to ${ranger.status}.${endedDuties ? ` Ended ${endedDuties} active duty assignment${endedDuties === 1 ? "" : "s"}.` : ""}`
       });
       return;
     }
@@ -373,7 +377,10 @@ export const rangerCommand: BotCommand = {
         endedByDiscordUserId: interaction.user.id,
         reason: "Ranger left the Discord and was retired"
       });
-      await refreshStoredAssignmentsBoard(interaction.guild);
+      await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
+        console.error("Failed to refresh assignments board after Ranger retirement:", error);
+      });
+      await syncRetiredRangerRoles(interaction.guild, discordUserId);
       await interaction.editReply({
         content: `Set ${ranger.discord_display_name ?? ranger.discord_username ?? discordUserId} to Retired.` +
           (endedDuties ? ` Ended ${endedDuties} active duty assignment${endedDuties === 1 ? "" : "s"}.` : "")

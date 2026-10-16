@@ -4,7 +4,7 @@ import { isMainRank, rankAtLeast, type MainRank } from "../config/ranks.js";
 import { assertNoDbError, supabase, type RangerRow, type RangerStatus } from "../db/supabase.js";
 import { todayIsoDate } from "../utils/dates.js";
 import { UserFacingError } from "../utils/errors.js";
-import { getMemberMainRank, hasGuestOnly, syncCumulativeMainRanks } from "./discordRoleService.js";
+import { getMemberMainRank, hasGuestOnly, syncCumulativeMainRanks, syncRetiredRangerRoles } from "./discordRoleService.js";
 import { appendPromotionToHonorsLedger } from "./honorsLedgerService.js";
 import { queueBriefingDispatch } from "./briefingService.js";
 import { synchronizeSeniorRangerRole } from "./seniorRangerService.js";
@@ -36,6 +36,11 @@ export async function requireRangerByDiscordId(discordUserId: string): Promise<R
 }
 
 export async function syncMemberToRoster(member: GuildMember, createdByDiscordUserId?: string): Promise<RangerRow | null> {
+  const existing = await getRangerByDiscordId(member.id);
+  if (existing?.status === "Retired") {
+    await syncRetiredRangerRoles(member.guild, member.id);
+    return existing;
+  }
   const mainRank = getMemberMainRank(member);
   if (!mainRank) {
     if (hasGuestOnly(member)) {
@@ -45,7 +50,6 @@ export async function syncMemberToRoster(member: GuildMember, createdByDiscordUs
     return null;
   }
 
-  const existing = await getRangerByDiscordId(member.id);
   const now = new Date().toISOString();
   const joinDate = joinDateForSync(member, existing);
   const payload = {
@@ -53,7 +57,8 @@ export async function syncMemberToRoster(member: GuildMember, createdByDiscordUs
     discord_display_name: member.displayName,
     in_game_name: member.displayName,
     current_rank: mainRank,
-    status: existing?.status ?? "Active",
+    // Do not overwrite a status changed while this Discord update was in flight.
+    ...(existing ? {} : { status: "Active" as const }),
     join_date: joinDate,
     joined_at: existing?.joined_at ?? member.joinedAt?.toISOString() ?? null,
     created_by_discord_user_id: existing?.created_by_discord_user_id ?? createdByDiscordUserId ?? null,
@@ -73,6 +78,10 @@ export async function syncMemberToRoster(member: GuildMember, createdByDiscordUs
     .single();
 
   assertNoDbError(error, "sync member to roster");
+  if (data?.status === "Retired") {
+    await syncRetiredRangerRoles(member.guild, member.id);
+    return data;
+  }
   await syncCumulativeMainRanks(member, mainRank);
   if (data) {
     await synchronizeSeniorRangerRole(member, data).catch((error) => {
@@ -101,6 +110,10 @@ function shouldRepairPlaceholderJoinDate(existing: RangerRow, discordJoinedDate:
 }
 
 export async function syncRosterToDiscord(member: GuildMember, ranger: RangerRow): Promise<void> {
+  if (ranger.status === "Retired") {
+    await syncRetiredRangerRoles(member.guild, member.id);
+    return;
+  }
   if (!isMainRank(ranger.current_rank)) {
     throw new UserFacingError(`Invalid rank in roster: ${ranger.current_rank}`);
   }

@@ -41,19 +41,10 @@ import {
 import { requireRangerByDiscordId } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 
-export const APPLICATION_TARGETS = [
-  "Quartermaster",
-  "Craftsman",
-  "Agent",
-  "Courier",
-  "Ambassador",
-  "Instructor",
-  "Hold Warden",
-  "Local Warden",
-  "Marshal",
-  "Captain"
-] as const;
-export type ApplicationTarget = typeof APPLICATION_TARGETS[number];
+import { APPLICATION_TARGETS, builtinApplicationMinimumRank, type ApplicationTarget } from "../config/applicationForms.js";
+import { getApplicationPosition, type ConfiguredApplicationPosition } from "./applicationConfigurationService.js";
+import { dutyDisplayName, usesWardenHierarchy } from "./dutyService.js";
+export { APPLICATION_TARGETS, type ApplicationTarget } from "../config/applicationForms.js";
 
 export interface CorpsApplicationDetails {
   application: DutyApplicationRow;
@@ -75,14 +66,7 @@ export function isApplicationTarget(value: string): value is ApplicationTarget {
 }
 
 export function applicationMinimumRank(target: ApplicationTarget): MainRank {
-  if (target === "Captain") {
-    return "Marshal";
-  }
-  if (target === "Marshal" || target === "Hold Warden" || target === "Local Warden"
-    || target === "Quartermaster" || target === "Agent" || target === "Ambassador" || target === "Instructor") {
-    return "Ranger";
-  }
-  return "Apprentice";
+  return builtinApplicationMinimumRank(target);
 }
 
 export function applicationReviewMinimumRank(details: CorpsApplicationDetails): MainRank {
@@ -145,7 +129,7 @@ async function configureLeadershipReviewChannel(channel: TextChannel, minimumRan
 export async function createCorpsApplication(params: {
   guild: Guild;
   applicantDiscordUserId: string;
-  target: ApplicationTarget;
+  target: string;
   reason: string;
   experience: string | null;
   hold: string | null;
@@ -157,12 +141,13 @@ export async function createCorpsApplication(params: {
   if (applicant.status !== "Active") {
     throw new UserFacingError("Only active Corps members can submit applications.");
   }
-  const minimumRank = applicationMinimumRank(params.target);
+  const position = await getApplicationPosition(params.target);
+  const minimumRank = position.minimumRank;
   if (!rankAtLeast(applicant.current_rank, minimumRank)) {
     throw new UserFacingError(`${params.target} applications require ${minimumRank} or higher.`);
   }
 
-  const target = await resolveTarget(params.target, params.hold, params.range, params.assignmentDetail ?? null);
+  const target = await resolveTarget(position, params.hold, params.range, params.assignmentDetail ?? null);
   if (target.wardenScope === "hold_primary" && target.parentHold && target.duty) {
     await assertHoldWardenApplicationAvailable(target.duty.id, target.parentHold);
   }
@@ -485,9 +470,9 @@ export function corpsApplicationEmbed(guild: Guild, details: CorpsApplicationDet
   for (const response of applicationResponses(details.application.application_responses)) {
     embed.addFields({ name: response.label.slice(0, 256), value: response.value.slice(0, 1024) });
   }
-  if (details.application.warden_scope === "hold_primary") {
+  if (details.application.warden_scope === "hold_primary" && details.duty && usesWardenHierarchy(details.duty)) {
     embed.addFields({ name: "Appointment requested", value: `Ranger of ${details.application.parent_hold}` });
-  } else if (details.application.warden_scope === "local_range") {
+  } else if (details.application.warden_scope === "local_range" && details.duty && usesWardenHierarchy(details.duty)) {
     embed.addFields({ name: "Appointment requested", value: `Warden of ${details.application.assignment_detail} (${details.application.parent_hold})` });
   } else if (details.application.assignment_detail) {
     embed.addFields({ name: "Details", value: details.application.assignment_detail.slice(0, 1024) });
@@ -505,16 +490,16 @@ export function applicationTitle(details: CorpsApplicationDetails): string {
   if (details.application.application_kind === "Captain") {
     return "Captain";
   }
-  if (details.application.warden_scope === "hold_primary") {
+  if (details.application.warden_scope === "hold_primary" && details.duty && usesWardenHierarchy(details.duty)) {
     return `Ranger of ${details.application.parent_hold}`;
   }
-  if (details.application.warden_scope === "local_range") {
+  if (details.application.warden_scope === "local_range" && details.duty && usesWardenHierarchy(details.duty)) {
     return `Warden of ${details.application.assignment_detail}`;
   }
-  return details.duty?.name ?? "Corps Duty";
+  return details.duty ? dutyDisplayName(details.duty) : "Corps Duty";
 }
 
-async function resolveTarget(target: ApplicationTarget, hold: string | null, range: string | null, assignmentDetail: string | null): Promise<{
+async function resolveTarget(position: ConfiguredApplicationPosition, hold: string | null, range: string | null, assignmentDetail: string | null): Promise<{
   kind: CorpsApplicationKind;
   duty: CorpsDutyRow | null;
   targetRank: MainRank | null;
@@ -522,6 +507,7 @@ async function resolveTarget(target: ApplicationTarget, hold: string | null, ran
   parentHold: string | null;
   assignmentDetail: string | null;
 }> {
+  const target = position.builtinTarget;
   if (target === "Marshal" || target === "Captain") {
     return {
       kind: target === "Marshal" ? "Marshal" : "Captain",
@@ -532,7 +518,7 @@ async function resolveTarget(target: ApplicationTarget, hold: string | null, ran
       assignmentDetail: null
     };
   }
-  const duty = await getDutyByName(target === "Hold Warden" || target === "Local Warden" ? "Warden" : target);
+  const duty = position.duty;
   if (!duty) {
     throw new UserFacingError("That Corps duty is not configured.");
   }

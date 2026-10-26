@@ -10,6 +10,7 @@ Keizaal Wayfinder is a TypeScript Discord bot for the Ranger Corps of Skyrim, an
 - Private Trailmark channels with temporary access and optional standardized report forms.
 - Ranger-only promotion posts with voting buttons, discussion threads, and manual approval or denial.
 - Database-backed Corps duties and leadership applications with routed review threads and Discord role sync.
+- Captain-managed application forms, configurable questions and role bindings, and non-destructive duty consolidation.
 - Primary Rangers of each Hold plus local Warden appointments beneath a parent Hold.
 - Voluntary Ranger-Apprentice pairings with matching requests, consent, and sponsored-recruit review.
 - One private discussion thread per Strongbox entry.

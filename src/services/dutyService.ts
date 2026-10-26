@@ -25,9 +25,15 @@ import { dutyEmojiName, emojiEmbed } from "../utils/guildEmojis.js";
 import { requireRangerByDiscordId, setRangerHold } from "./rangerService.js";
 import { postStrongboxThread } from "./strongboxService.js";
 import { clearMemberHoldRole, setMemberHoldRole } from "./holdRoleService.js";
+import { assertSafeApplicationRole } from "../utils/applicationRoles.js";
 
 export const DUTY_NAMES = ["Quartermaster", "Craftsman", "Warden", "Agent", "Courier", "Ambassador", "Instructor"] as const;
 const RANGER_ONLY_DUTIES = new Set(["Quartermaster", "Warden", "Agent", "Ambassador", "Instructor"]);
+
+export function dutyDisplayName(duty: CorpsDutyRow): string { return duty.display_name || duty.name; }
+export function usesWardenHierarchy(duty: CorpsDutyRow): boolean {
+  return (duty.assignment_mode ?? (duty.name === "Warden" ? "warden" : "general")) === "warden";
+}
 
 export interface DutyApplicationDetails {
   application: DutyApplicationRow;
@@ -52,14 +58,9 @@ export async function listDuties(): Promise<CorpsDutyRow[]> {
 }
 
 export async function getDutyByName(name: string): Promise<CorpsDutyRow | null> {
-  const { data, error } = await supabase
-    .from("corps_duties")
-    .select("*")
-    .ilike("name", name.trim())
-    .eq("active", true)
-    .maybeSingle();
-  assertNoDbError(error, "get Corps duty");
-  return data;
+  const value = name.trim().toLowerCase();
+  return (await listDuties()).find((duty) => duty.id === name || duty.name.toLowerCase() === value
+    || dutyDisplayName(duty).toLowerCase() === value) ?? null;
 }
 
 export async function setupDutyRoles(guild: Guild): Promise<CorpsDutyRow[]> {
@@ -75,13 +76,13 @@ export async function setupDutyRoles(guild: Guild): Promise<CorpsDutyRow[]> {
     let role = duty.discord_role_id ? guild.roles.cache.get(duty.discord_role_id) : undefined;
     role ??= guild.roles.cache.find((candidate) => candidate.name.toLocaleLowerCase() === duty.name.toLocaleLowerCase());
     role ??= await guild.roles.create({
-      name: duty.name,
+      name: dutyDisplayName(duty),
       hoist: false,
       mentionable: false,
       reason: "Set up Wayfinder Corps duties"
     });
-    if (role.name !== duty.name) {
-      role = await role.setName(duty.name, `Keep the ${duty.name} duty role synchronized with Wayfinder`);
+    if (duty.display_name && role.name !== duty.display_name) {
+      role = await role.setName(duty.display_name, "Keep the configured duty role name synchronized");
     }
     await applyDutyRoleIcon(guild, role, duty);
 
@@ -331,6 +332,11 @@ export async function assignDuty(params: {
     throw new UserFacingError("Only active roster members can be assigned Corps duties.");
   }
   assertDutyRankEligibility(ranger, duty);
+  if (duty.display_name) {
+    const role = await params.guild.roles.fetch(duty.discord_role_id);
+    if (!role) throw new UserFacingError("The configured duty role no longer exists.");
+    assertSafeApplicationRole(role);
+  }
   const normalized = normalizedAssignment(duty, params.assignmentDetail, params.wardenScope, params.parentHold);
   await assertNoActiveDutyAssignment(ranger.id, duty.id, normalized);
   if (normalized.wardenScope === "hold_primary" && normalized.parentHold) {
@@ -383,6 +389,7 @@ export async function ensureWardenDutyForHold(params: {
   assignedByDiscordUserId: string;
 }): Promise<DutyAssignmentDetails> {
   const duty = await requireDuty("Warden");
+  if (!usesWardenHierarchy(duty)) throw new UserFacingError(`Hold appointments have been replaced by ${dutyDisplayName(duty)}. Use /duty assign.`);
   if (!duty.discord_role_id) {
     throw new UserFacingError("Duty roles have not been set up. Ask a Marshal to run `/duty setup`.");
   }
@@ -663,7 +670,7 @@ function normalizedAssignment(
   wardenScope: WardenScope | null | undefined,
   parentHold: string | null | undefined
 ): NormalizedAssignment {
-  if (duty.name !== "Warden") {
+  if (!usesWardenHierarchy(duty)) {
     return { assignmentDetail: normalizedDetail(duty, value), wardenScope: null, parentHold: null };
   }
   const detail = value?.trim() || null;
@@ -685,8 +692,9 @@ function normalizedAssignment(
 }
 
 function assertDutyRankEligibility(ranger: RangerRow, duty: CorpsDutyRow): void {
-  if (RANGER_ONLY_DUTIES.has(duty.name) && !rankAtLeast(ranger.current_rank, "Ranger")) {
-    throw new UserFacingError(`${duty.name} is reserved for full Rangers and higher.`);
+  const minimumRank = duty.minimum_rank ?? (RANGER_ONLY_DUTIES.has(duty.name) ? "Ranger" : "Apprentice");
+  if (!rankAtLeast(ranger.current_rank, minimumRank)) {
+    throw new UserFacingError(`${dutyDisplayName(duty)} requires ${minimumRank} or higher.`);
   }
 }
 

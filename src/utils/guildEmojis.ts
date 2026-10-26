@@ -132,6 +132,7 @@ export function dutyEmojiName(dutyName: string): WayfinderEmojiName | null {
     case "Craftsman":
       return "craftsman";
     case "Warden":
+    case "Guide":
       return "warden";
     case "Agent":
       return "agent";

@@ -1,12 +1,13 @@
-import { ChannelType, SlashCommandBuilder, type TextChannel } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, SlashCommandBuilder, type TextChannel } from "discord.js";
 import {
-  APPLICATION_TARGETS,
   configureApplicationChannels,
-  isApplicationTarget,
   listPendingCorpsApplications,
   withdrawCorpsApplication
 } from "../services/applicationService.js";
-import { corpsApplicationModal } from "../services/applicationFormService.js";
+import { configuredCorpsApplicationModal } from "../services/applicationFormService.js";
+import { APPLICATION_CONFIG_MODAL_PREFIX, APPLICATION_CONFIG_OPEN_PREFIX, applicationConfigurationModal, getApplicationPosition, listApplicationPositions, setApplicationPositionEnabled } from "../services/applicationConfigurationService.js";
+import { MAIN_RANKS, type MainRank } from "../config/ranks.js";
+import { dutyDisplayName } from "../services/dutyService.js";
 import { getRangerByDiscordId } from "../services/rangerService.js";
 import { UserFacingError } from "../utils/errors.js";
 import { canManageAll, canOpenPromotionVotes, memberRankAtLeast } from "../utils/permissions.js";
@@ -23,7 +24,16 @@ export const applicationCommand: BotCommand = {
         .setName("position")
         .setDescription("Position you are applying for.")
         .setRequired(true)
-        .addChoices(...APPLICATION_TARGETS.map((target) => ({ name: target, value: target })))))
+        .setAutocomplete(true)))
+    .addSubcommand((subcommand) => subcommand.setName("configure").setDescription("Captain+: create or edit an application form.")
+      .addStringOption((option) => option.setName("position").setDescription("Existing position or new duty name.").setRequired(true).setMaxLength(32).setAutocomplete(true))
+      .addRoleOption((option) => option.setName("role").setDescription("Discord duty role granted when an application is approved."))
+      .addStringOption((option) => option.setName("minimum_rank").setDescription("Minimum applicant rank, default Ranger.").addChoices(...MAIN_RANKS.map((rank) => ({ name: rank, value: rank }))))
+      .addStringOption((option) => option.setName("replaces").setDescription("Old duty names to consolidate, comma separated. For example: Warden,Instructor").setMaxLength(300)))
+    .addSubcommand((subcommand) => subcommand.setName("disable").setDescription("Captain+: close an application without deleting its history.")
+      .addStringOption((option) => option.setName("position").setDescription("Application to close.").setRequired(true).setAutocomplete(true)))
+    .addSubcommand((subcommand) => subcommand.setName("enable").setDescription("Captain+: reopen an application.")
+      .addStringOption((option) => option.setName("position").setDescription("Application to reopen.").setRequired(true).setAutocomplete(true)))
     .addSubcommand((subcommand) => subcommand
       .setName("withdraw")
       .setDescription("Withdraw one of your pending applications.")
@@ -50,7 +60,19 @@ export const applicationCommand: BotCommand = {
         .addChannelTypes(ChannelType.GuildText))),
 
   async autocomplete(interaction) {
-    if (interaction.options.getSubcommand() !== "withdraw") {
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand !== "withdraw") {
+      if (!interaction.inCachedGuild() || (subcommand !== "apply" && !canManageAll(interaction.member))) {
+        await interaction.respond([]);
+        return;
+      }
+      const query = interaction.options.getFocused().toLowerCase();
+      const positions = (await listApplicationPositions()).filter((position) => position.key.toLowerCase().includes(query)
+        && (subcommand !== "apply" || position.enabled && memberRankAtLeast(interaction.member, position.minimumRank)));
+      await interaction.respond(positions.slice(0, 25).map(({ key }) => ({ name: key, value: key })));
+      return;
+    }
+    if (!interaction.inCachedGuild()) {
       await interaction.respond([]);
       return;
     }
@@ -71,14 +93,32 @@ export const applicationCommand: BotCommand = {
       throw new UserFacingError("Corps applications are only available in the Ranger Corps server.");
     }
     const subcommand = interaction.options.getSubcommand();
-    const actor = await interaction.guild.members.fetch(interaction.user.id);
-
     if (subcommand === "apply") {
-      const position = interaction.options.getString("position", true);
-      if (!isApplicationTarget(position)) {
-        throw new UserFacingError("That application position is not supported.");
+      const position = await getApplicationPosition(interaction.options.getString("position", true));
+      if (!memberRankAtLeast(interaction.member, position.minimumRank)) throw new UserFacingError(`${position.key} requires ${position.minimumRank} or higher.`);
+      await interaction.showModal(configuredCorpsApplicationModal(position));
+      return;
+    }
+    const actor = await interaction.guild.members.fetch(interaction.user.id);
+    if (["configure", "disable", "enable"].includes(subcommand)) {
+      if (!canManageAll(actor)) throw new UserFacingError("Captain or higher is required to configure applications.");
+      const positionName = interaction.options.getString("position", true);
+      if (subcommand === "configure") {
+        await interaction.deferReply({ ephemeral: true });
+        const selectedRole = interaction.options.getRole("role");
+        const role = selectedRole ? await interaction.guild.roles.fetch(selectedRole.id) : null;
+        const modal = await applicationConfigurationModal({ guild: interaction.guild, actor,
+          positionName, role, minimumRank: interaction.options.getString("minimum_rank") as MainRank | null,
+          replaces: interaction.options.getString("replaces") ?? "" });
+        const draftId = modal.data.custom_id!.slice(APPLICATION_CONFIG_MODAL_PREFIX.length);
+        await interaction.editReply({ content: `Edit **${positionName}**. Saving will also consolidate any positions listed in \`replaces\`.`,
+          components: [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder()
+            .setCustomId(`${APPLICATION_CONFIG_OPEN_PREFIX}${draftId}`).setLabel("Edit questions").setStyle(ButtonStyle.Primary))] });
+      } else {
+        await interaction.deferReply({ ephemeral: true });
+        const key = await setApplicationPositionEnabled(positionName, subcommand === "enable", actor.id);
+        await interaction.editReply({ content: `**${key}** applications are ${subcommand === "enable" ? "open" : "closed"}. Existing records have been kept.` });
       }
-      await interaction.showModal(corpsApplicationModal(position));
       return;
     }
 
@@ -145,5 +185,5 @@ function applicationLabel(details: Awaited<ReturnType<typeof listPendingCorpsApp
   if (details.application.warden_scope === "local_range") {
     return `Warden of ${details.application.assignment_detail}`;
   }
-  return details.duty?.name ?? "Corps Duty";
+  return details.duty ? dutyDisplayName(details.duty) : "Corps Duty";
 }

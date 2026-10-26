@@ -1,7 +1,7 @@
 import { EmbedBuilder, type Guild, type Message, type TextChannel } from "discord.js";
 import { HOLDS } from "../config/holds.js";
 import { rankSort, type MainRank } from "../config/ranks.js";
-import type { ApprenticeshipPreferenceRow, RangerRow } from "../db/supabase.js";
+import type { ApprenticeshipPreferenceRow, CorpsDutyRow, RangerRow } from "../db/supabase.js";
 import { deleteStoredMessages, getStoredTextChannel, saveBotMessageState } from "./botMessageStateService.js";
 import {
   cleanupApprenticeshipRecords,
@@ -9,7 +9,7 @@ import {
   listCurrentApprenticeships,
   type ApprenticeshipDetails
 } from "./apprenticeshipService.js";
-import { listActiveDutyAssignments, type DutyAssignmentDetails } from "./dutyService.js";
+import { DUTY_NAMES, dutyDisplayName, listDuties, listActiveDutyAssignments, usesWardenHierarchy, type DutyAssignmentDetails } from "./dutyService.js";
 import { listAllRangers } from "./rangerService.js";
 import { emojiEmbed, emojiText, guildEmoji, rankEmojiName } from "../utils/guildEmojis.js";
 
@@ -56,13 +56,14 @@ async function replaceAssignmentsBoard(channel: TextChannel): Promise<Message[]>
   await channel.guild.emojis.fetch().catch((error) => {
     console.warn("Could not refresh guild emojis before rendering the Ranger assignments board:", error);
   });
-  const [rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences] = await Promise.all([
+  const [rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences, duties] = await Promise.all([
     listAllRangers(),
     listActiveDutyAssignments(),
     listCurrentApprenticeships(),
-    listApprenticeshipPreferences()
+    listApprenticeshipPreferences(),
+    listDuties()
   ]);
-  const embeds = assignmentsEmbeds(channel.guild, rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences);
+  const embeds = assignmentsEmbeds(channel.guild, rangers, dutyAssignments, apprenticeships, apprenticeshipPreferences, duties);
   await deleteStoredMessages(channel.guild, ASSIGNMENTS_BOARD_STATE_KEY);
   await deleteOrphanedAssignmentBoards(channel);
 
@@ -89,18 +90,19 @@ export async function refreshStoredAssignmentsBoard(guild: Guild): Promise<boole
   return true;
 }
 
-function assignmentsEmbeds(
+export function assignmentsEmbeds(
   guild: Guild,
   rangers: RangerRow[],
   dutyAssignments: DutyAssignmentDetails[],
   apprenticeships: ApprenticeshipDetails[],
-  apprenticeshipPreferences: ApprenticeshipPreferenceRow[]
+  apprenticeshipPreferences: ApprenticeshipPreferenceRow[],
+  duties: CorpsDutyRow[] = []
 ): EmbedBuilder[] {
   const sortedRangers = [...rangers].sort(compareRangersForDisplay);
   const quartermasters = dutyAssignments
     .filter(({ duty }) => duty.name === "Quartermaster")
     .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger));
-  const wardens = dutyAssignments.filter(({ duty, ranger }) => duty.name === "Warden" && ranger.status === "Active");
+  const wardens = dutyAssignments.filter(({ duty, ranger }) => usesWardenHierarchy(duty) && ranger.status === "Active");
   const holdRangers = wardens.filter(({ assignment }) => assignment.warden_scope === "hold_primary");
   const localWardens = wardens.filter(({ assignment }) => assignment.warden_scope === "local_range");
   const agents = dutyAssignments
@@ -243,14 +245,39 @@ function assignmentsEmbeds(
     )
     .setTimestamp(new Date());
 
+  const genericDuties = duties.filter((duty) => !usesWardenHierarchy(duty)
+    && (Boolean(duty.display_name) || !(DUTY_NAMES as readonly string[]).includes(duty.name))
+    && (!["Quartermaster", "Agent", "Ambassador", "Instructor"].includes(duty.name) || duty.display_name && duty.display_name !== duty.name));
+  const genericEmbeds = genericDuties.map((duty) => {
+    const entries = dutyAssignments.filter((entry) => entry.duty.id === duty.id && ["Active", "On Leave"].includes(entry.ranger.status));
+    const grouped = new Map<string, { ranger: RangerRow; details: Set<string> }>();
+    for (const { assignment, ranger } of entries) {
+      const current = grouped.get(ranger.id) ?? { ranger, details: new Set<string>() };
+      if (assignment.assignment_detail) current.details.add(assignment.assignment_detail);
+      grouped.set(ranger.id, current);
+    }
+    const label = dutyDisplayName(duty);
+    assignmentBoardTitles.add(label === "Guide" ? "Guides" : label);
+    const embed = new EmbedBuilder().setTitle(label === "Guide" ? "Guides" : label).setColor(0x587c4a)
+      .setDescription(duty.description || "Current duty appointments.").setTimestamp(new Date())
+      .addFields({ name: "Current appointments", value: grouped.size ? truncateField([...grouped.values()]
+        .sort((a, b) => compareRangersForDisplay(a.ranger, b.ranger)).map(({ ranger, details }) =>
+          `${formatAssignmentRanger(guild, ranger)}${details.size ? ` - ${[...details].join(", ")}` : ""}`).join("\n")) : "None assigned." });
+    const role = duty.discord_role_id ? guild.roles.cache.get(duty.discord_role_id) : null;
+    const icon = role?.iconURL({ extension: "png", size: 256 });
+    if (icon) embed.setThumbnail(icon);
+    return embed;
+  });
+  const hasDuty = (name: string) => !duties.length || duties.some((duty) => duty.name === name && (!duty.display_name || duty.display_name === name));
+  const hasWardens = !duties.length || duties.some(usesWardenHierarchy);
   return [
     leadershipEmbed,
-    quartermastersEmbed,
-    holdRangersEmbed,
-    localWardensEmbed,
-    ambassadorsEmbed,
-    agentsEmbed,
-    instructorsEmbed,
+    ...(hasDuty("Quartermaster") ? [quartermastersEmbed] : []),
+    ...(hasWardens ? [holdRangersEmbed, localWardensEmbed] : []),
+    ...(hasDuty("Ambassador") ? [ambassadorsEmbed] : []),
+    ...(hasDuty("Agent") ? [agentsEmbed] : []),
+    ...(hasDuty("Instructor") ? [instructorsEmbed] : []),
+    ...genericEmbeds,
     apprenticeshipsEmbed
   ];
 }

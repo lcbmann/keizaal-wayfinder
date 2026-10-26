@@ -34,7 +34,9 @@ import {
   endActiveDutyAssignmentsForRanger,
   listActiveDutyAssignments,
   removeDuty,
-  syncHoldWardenAssignments
+  syncHoldWardenAssignments,
+  dutyDisplayName,
+  usesWardenHierarchy
 } from "../services/dutyService.js";
 import { refreshFieldNamesBulletin } from "../services/fieldNameService.js";
 import { highestCorpsTitle, listDiscordRoleMedals } from "../services/atlasDiscordProfileService.js";
@@ -199,9 +201,9 @@ export const rangerCommand: BotCommand = {
       ]);
       const duties = dutyEntries
         .filter((entry) => entry.ranger.id === ranger.id)
-        .map((entry) => entry.duty.name === "Warden" && entry.assignment.assignment_detail
+        .map((entry) => usesWardenHierarchy(entry.duty) && entry.assignment.assignment_detail
           ? formatWardenDuty(entry.assignment.assignment_detail, entry.assignment.warden_scope)
-          : entry.duty.name);
+          : dutyDisplayName(entry.duty));
       const roleMedals = member
         ? listDiscordRoleMedals(member).map(({ label, emojiName, rolePosition }) => ({
             text: emojiText(interaction.guild, emojiName, label),

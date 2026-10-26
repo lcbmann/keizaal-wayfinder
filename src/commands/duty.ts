@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, type GuildMember } from "discord.js";
 import {
-  DUTY_NAMES,
+  dutyDisplayName,
+  listDuties,
   assignDuty,
   listActiveDutyAssignments,
   removeDuty,
@@ -13,8 +14,6 @@ import { canApprovePromotions, canOpenPromotionVotes, canUseTrailmarks } from ".
 import { UserFacingError } from "../utils/errors.js";
 import type { BotCommand } from "./types.js";
 
-const dutyChoices = DUTY_NAMES.map((name) => ({ name, value: name }));
-
 export const dutyCommand: BotCommand = {
   data: new SlashCommandBuilder()
     .setName("duty")
@@ -23,7 +22,7 @@ export const dutyCommand: BotCommand = {
       .setName("assign")
       .setDescription("Marshal+: directly assign a Corps duty.")
       .addUserOption((option) => option.setName("member").setDescription("Ranger receiving the duty.").setRequired(true))
-      .addStringOption((option) => option.setName("duty").setDescription("Duty to assign.").setRequired(true).addChoices(...dutyChoices))
+      .addStringOption((option) => option.setName("duty").setDescription("Duty to assign.").setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option
         .setName("warden_position")
         .setDescription("Required when assigning Warden.")
@@ -37,7 +36,7 @@ export const dutyCommand: BotCommand = {
       .setName("remove")
       .setDescription("Marshal+: remove a Corps duty.")
       .addUserOption((option) => option.setName("member").setDescription("Ranger losing the duty.").setRequired(true))
-      .addStringOption((option) => option.setName("duty").setDescription("Duty to remove.").setRequired(true).addChoices(...dutyChoices))
+      .addStringOption((option) => option.setName("duty").setDescription("Duty to remove.").setRequired(true).setAutocomplete(true))
       .addStringOption((option) => option
         .setName("warden_position")
         .setDescription("Use when the Ranger has multiple Warden appointments.")
@@ -51,9 +50,18 @@ export const dutyCommand: BotCommand = {
     .addSubcommand((subcommand) => subcommand
       .setName("list")
       .setDescription("List current Corps duty holders.")
-      .addStringOption((option) => option.setName("duty").setDescription("Limit the list to one duty.").addChoices(...dutyChoices)))
+      .addStringOption((option) => option.setName("duty").setDescription("Limit the list to one duty.").setAutocomplete(true)))
     .addSubcommand((subcommand) => subcommand.setName("setup").setDescription("Marshal+: create or repair Corps duty roles.")),
 
+  async autocomplete(interaction) {
+    if (!interaction.inCachedGuild() || !canUseTrailmarks(interaction.member)) {
+      await interaction.respond([]);
+      return;
+    }
+    const query = interaction.options.getFocused().toLowerCase();
+    const duties = (await listDuties()).filter((duty) => dutyDisplayName(duty).toLowerCase().includes(query));
+    await interaction.respond(duties.slice(0, 25).map((duty) => ({ name: dutyDisplayName(duty), value: duty.name })));
+  },
   async execute(interaction) {
     if (!interaction.inCachedGuild()) {
       throw new UserFacingError("This command can only be used in the configured guild.");
@@ -67,7 +75,7 @@ export const dutyCommand: BotCommand = {
       const assignments = await listActiveDutyAssignments(dutyName);
       const lines = assignments.map(({ assignment, duty, ranger }) => {
         const detail = assignment.assignment_detail ? ` - ${assignment.assignment_detail}` : "";
-        return `**${duty.name}:** <@${ranger.discord_user_id}>${detail}`;
+        return `**${dutyDisplayName(duty)}:** <@${ranger.discord_user_id}>${detail}`;
       });
       await interaction.reply({ content: lines.length ? lines.join("\n") : "No active duty assignments found.", ephemeral: true });
       return;
@@ -78,7 +86,7 @@ export const dutyCommand: BotCommand = {
     if (subcommand === "setup") {
       await interaction.deferReply({ ephemeral: true });
       const duties = await setupDutyRoles(interaction.guild);
-      await interaction.editReply({ content: `Duty roles are ready: ${duties.map((duty) => duty.name).join(", ")}.` });
+      await interaction.editReply({ content: `Duty roles are ready: ${duties.map(dutyDisplayName).join(", ")}.` });
       return;
     }
 
@@ -107,7 +115,7 @@ export const dutyCommand: BotCommand = {
         ? `Ranger of ${result.assignment.parent_hold}`
         : result.assignment.warden_scope === "local_range"
           ? `Warden of ${result.assignment.assignment_detail}`
-          : result.duty.name;
+          : dutyDisplayName(result.duty);
       await interaction.editReply({ content: `Assigned **${appointment}** to ${member}.` });
       await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
         console.error("Failed to refresh assignments board after duty assignment:", error);
@@ -127,7 +135,7 @@ export const dutyCommand: BotCommand = {
         parentHold: interaction.options.getString("hold"),
         assignmentDetail: interaction.options.getString("range")
       });
-      await interaction.editReply({ content: result ? `Removed ${result.duty.name} from ${member}.` : `${member} does not hold ${dutyName}.` });
+      await interaction.editReply({ content: result ? `Removed ${dutyDisplayName(result.duty)} from ${member}.` : `${member} does not hold ${dutyName}.` });
       await refreshStoredAssignmentsBoard(interaction.guild).catch((error) => {
         console.error("Failed to refresh assignments board after duty removal:", error);
       });

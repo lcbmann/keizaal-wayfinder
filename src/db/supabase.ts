@@ -250,6 +250,31 @@ export interface CorpsDutyRow {
   active: boolean;
   created_at: string;
   updated_at: string;
+  display_name: string | null;
+  minimum_rank: MainRank;
+  assignment_mode: "general" | "warden";
+}
+
+export interface ApplicationFormConfigRow {
+  key: string;
+  duty_id: string | null;
+  enabled: boolean;
+  minimum_rank: MainRank;
+  description: string;
+  questions: Json;
+  revision: string;
+  retired_role_ids: string[];
+  clear_hold_roles: boolean;
+  updated_by_discord_user_id: string;
+  updated_at: string;
+}
+
+export interface ApplicationConfigurationDraftRow {
+  id: string;
+  guild_id: string;
+  actor_discord_user_id: string;
+  payload: Json;
+  expires_at: string;
 }
 
 export interface RankHistoryRow {
@@ -1041,6 +1066,16 @@ export interface AllianceReportTopicPublicationRow {
 export interface Database {
   public: {
     Tables: {
+      application_form_configs: {
+        Row: ApplicationFormConfigRow;
+        Insert: Pick<ApplicationFormConfigRow, "key" | "minimum_rank" | "updated_by_discord_user_id"> & Partial<ApplicationFormConfigRow>;
+        Update: Partial<ApplicationFormConfigRow>;
+      };
+      application_configuration_drafts: {
+        Row: ApplicationConfigurationDraftRow;
+        Insert: Omit<ApplicationConfigurationDraftRow, "id" | "expires_at"> & Partial<ApplicationConfigurationDraftRow>;
+        Update: Partial<ApplicationConfigurationDraftRow>;
+      };
       strongbox_submissions: {
         Row: StrongboxSubmissionRow;
         Insert: Omit<StrongboxSubmissionRow, "id" | "submitted_at" | "updated_at" | "status" | "discord_channel_id" | "discord_message_id" | "discord_thread_id"> & Partial<StrongboxSubmissionRow>;
@@ -1606,6 +1641,10 @@ export interface Database {
       };
     };
     Functions: {
+      configure_application_form: {
+        Args: { draft_id_input: string; guild_id_input: string; actor_input: string; description_input: string; questions_input: Json };
+        Returns: Json;
+      };
       create_atlas_discord_link_code: {
         Args: {
           discord_user_id_input: string;

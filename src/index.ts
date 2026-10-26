@@ -84,6 +84,7 @@ import { setupDutyRoles } from "./services/dutyService.js";
 import { startLongWatchMedalJob, synchronizeLongWatchMedals } from "./services/longWatchMedalService.js";
 import { handleStructuredTrailmarkReportModal } from "./services/structuredTrailmarkReportService.js";
 import { handleCorpsApplicationModal, isCorpsApplicationModal } from "./services/applicationFormService.js";
+import { APPLICATION_CONFIG_MODAL_PREFIX, APPLICATION_CONFIG_OPEN_PREFIX, handleApplicationConfigurationModal, openApplicationConfiguration } from "./services/applicationConfigurationService.js";
 import { repairPendingLeadershipApplicationReviews } from "./services/applicationService.js";
 import { forwardDeliveredStructuredReports } from "./services/structuredReportForwardService.js";
 import { syncGuildAtlasDiscordProfiles } from "./services/atlasDiscordProfileService.js";
@@ -736,6 +737,16 @@ async function handleInteraction(interaction: Interaction): Promise<void> {
     return;
   }
 
+  if (interaction.isButton() && interaction.customId.startsWith(APPLICATION_CONFIG_OPEN_PREFIX)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) throw new UserFacingError("Configure applications in the Corps server.");
+    await openApplicationConfiguration(interaction);
+    return;
+  }
+  if (interaction.isModalSubmit() && interaction.customId.startsWith(APPLICATION_CONFIG_MODAL_PREFIX)) {
+    if (interaction.guildId !== env.DISCORD_GUILD_ID) throw new UserFacingError("Configure applications in the Corps server.");
+    await handleApplicationConfigurationModal(interaction);
+    return;
+  }
   if (interaction.isModalSubmit() && isCorpsApplicationModal(interaction.customId)) {
     if (interaction.guildId !== env.DISCORD_GUILD_ID) {
       throw new UserFacingError("Corps applications are only available in the Ranger Corps server.");
